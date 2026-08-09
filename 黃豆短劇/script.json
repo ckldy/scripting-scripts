@@ -1,0 +1,33 @@
+{
+  "version" : "1.2.0",
+  "entry" : "index.tsx",
+  "name" : "黃豆短劇",
+  "icon" : "play.rectangle.fill",
+  "runInApp" : false,
+  "description" : "浏览、搜索与收藏黃豆短劇内容，支持播放历史和剧集播放。",
+  "iconImage" : null,
+  "localizedDescriptions" : {
+    "en" : "Browse, search and save Huangdou Drama titles, with playback history and in-app viewing.",
+    "zh" : "浏览、搜索与收藏黃豆短劇内容，支持播放历史和剧集播放。"
+  },
+  "localizedNames" : {
+    "en" : "Huangdou Drama",
+    "zh" : "黃豆短劇"
+  },
+  "intentInputTypes" : [
+
+  ],
+  "permissions" : null,
+  "contributors" : [
+
+  ],
+  "author" : {
+    "homepage" : "https:\/\/github.com\/ckldy",
+    "name" : "ckldy",
+    "email" : null
+  },
+  "remoteResource" : {
+    "url" : "https:\/\/raw.githubusercontent.com\/ckldy\/scripting-scripts\/main\/dist\/黃豆短劇.zip"
+  },
+  "color" : "rgba(254, 201, 40, 1)"
+}

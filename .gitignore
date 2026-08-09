@@ -1,0 +1,7 @@
+# macOS / iOS 杂物
+.DS_Store
+*.swp
+Thumbs.db
+
+# 本地临时
+.tmp/
