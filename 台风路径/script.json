@@ -1,0 +1,23 @@
+{
+  "name": "台风路径",
+  "localizedNames": {
+    "en": "Typhoon Track",
+    "zh": "台风路径"
+  },
+  "description": "原版布局的实时台风路径、多机构预报与气象图层地图",
+  "localizedDescriptions": {
+    "en": "Live typhoon track with multi-agency forecast paths",
+    "zh": "实时台风路径与多机构预报路径地图（数据源: 四创科技）"
+  },
+  "version": "2.0.0",
+  "icon": "tornado",
+  "color": "rgba(255, 69, 58, 1)",
+  "runInApp": true,
+  "entry": "index.tsx",
+  "author": {
+    "name": "Scripting Agent"
+  },
+  "remoteResource": {
+    "url": "https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/台风路径.zip"
+  }
+}

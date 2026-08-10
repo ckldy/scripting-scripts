@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#9dcbf4">
+  <title>台风路径</title>
+  <link rel="stylesheet" href="vendor/leaflet.css">
+  <link rel="stylesheet" href="app.css?v=3062">
+</head>
+<body>
+  <main id="app">
+    <div id="map" aria-label="台风路径地图"></div>
+    <div id="loading" class="loading"><span class="spinner"></span><b>正在加载台风数据</b></div>
+    <div id="toast" class="toast" role="status"></div>
+
+    <section class="panel-top">
+      <div id="notice" class="notice panel-glass" style="display:none"><img id="noticeIcon" class="notice-speaker" alt=""><div id="noticeViewport" class="notice-viewport"><span id="noticeText"></span></div><button data-action="hide-notice" aria-label="关闭通知">×</button></div>
+      <nav id="stormTabs" class="storm-tabs" aria-label="当前台风"></nav>
+    </section>
+
+    <nav class="side-menu" aria-label="地图图层">
+      <button class="side-button" data-layer="radar"><i class="icon icon-leida"></i><em>雷达</em></button>
+      <button class="side-button" data-layer="cloud"><i class="icon icon-yuntu"></i><em>云图</em></button>
+      <button class="side-button" data-layer="wind"><i class="icon icon-fengchang"></i><em>风场</em></button>
+      <button class="side-button" data-layer="wave"><i class="icon icon-langchang"></i><em>浪场</em></button>
+      <button class="side-button more-button" data-action="more"><i class="more-glyph">◇</i><em>更多</em></button>
+    </nav>
+
+    <section id="morePanel" class="more-panel hidden" aria-label="更多图层">
+      <button data-layer="temp"><i class="icon icon-temp"></i><span>温度</span></button>
+      <button data-layer="water"><i class="icon icon-water"></i><span>水汽含量</span></button>
+      <button data-layer="hgt500"><i class="icon icon-pressure500"></i><span>500hPa高度</span></button>
+      <button data-layer="mslp"><i class="icon icon-mslp"></i><span>海平面气压</span></button>
+      <button data-layer="rain24"><i class="icon icon-rain24"></i><span>24小时降水预报</span></button>
+      <button data-layer="rain48"><i class="icon icon-rain48"></i><span>48小时降水预报</span></button>
+      <button data-layer="rain72"><i class="icon icon-rain72"></i><span>72小时降水预报</span></button>
+      <button data-layer="history"><i class="icon icon-lishi"></i><span>历史台风</span></button>
+      <button data-layer="graticule"><i class="icon icon-graticule"></i><span>经纬网格</span></button>
+      <button data-action="measure"><i class="icon icon-ceju"></i><span>城市测距</span></button>
+      <button data-action="legend"><i class="icon icon-tuli"></i><span>关于</span></button>
+    </section>
+
+    <section id="modelSwitch" class="model-switch hidden" aria-label="数值预报模型"><div class="model-buttons"><button data-model="gfs" class="active">GFS</button><button id="ecModelButton" data-model="ec">EC</button></div><button class="model-info" data-action="model-info" aria-label="模型数据说明">i</button></section>
+
+    <section id="timeline" class="timeline hidden">
+      <div class="timeline-head"><b id="timelineTitle">图层时间</b><span id="timelineValue"></span></div>
+      <div class="timeline-row"><button data-action="prev-frame">‹</button><button id="playButton" data-action="play">▶</button><input id="timelineRange" type="range" min="0" max="0" value="0" step="1"><button data-action="next-frame">›</button></div>
+      <div id="timelineTicks" class="timeline-ticks"></div>
+    </section>
+
+    <section id="legendPanel" class="dialog hidden"><header><b>台风图例</b><button data-action="close-legend">×</button></header><div id="legendContent"></div></section>
+    <section id="measurePanel" class="dialog data-dialog hidden" aria-label="城市测距"><header><b>城市测距</b><button data-action="close-measure">×</button></header><label id="measureSelectRow" class="measure-select hidden">台风选择<select id="measureTyphoon"></select></label><div id="measureContent" class="measure-content"></div></section>
+    <section id="historyPanel" class="history-panel hidden" aria-label="历史台风"><header><b>台风列表</b><button data-action="close-history">×</button></header><div id="historyBody" class="history-body"><div id="historyYears" class="history-years"></div><div id="historyList" class="history-list"></div></div></section>
+
+    <section class="panel-foot">
+      <button class="refresh-button" data-action="refresh" aria-label="刷新">↻</button>
+      <div class="foot-right">
+        <button class="operation-button forecast-button active" data-action="forecast"><i>◉</i><span>预报</span></button>
+        <button class="operation-button" data-action="share"><i>↗</i><span>分享</span></button>
+      </div>
+      <div id="layerTips" class="layer-tips"></div><footer>© 四创科技</footer>
+    </section>
+  </main>
+  <script src="vendor/leaflet.js"></script>
+  <script src="city-data.js?v=3024"></script>
+  <script src="numeric-layer.js?v=3039"></script>
+  <script src="app.js?v=3062"></script>
+</body>
+</html>
