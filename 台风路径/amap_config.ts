@@ -72,7 +72,7 @@ export function maskAmapKey(key: string): string {
   return `${trimmed.slice(0, 4)}••••${trimmed.slice(-4)}`
 }
 
-export function amapKeyStatus(): { configured: boolean; masked?: string } {
+export function amapKeyStatus(): { configured: boolean; masked?: string; key?: string } {
   const key = readSavedAmapKey()
-  return key ? { configured: true, masked: maskAmapKey(key) } : { configured: false }
+  return key ? { configured: true, masked: maskAmapKey(key), key } : { configured: false }
 }

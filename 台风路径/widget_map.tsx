@@ -1,4 +1,4 @@
-import { Canvas, ImageRenderer, Path, type CanvasRenderingContext } from 'scripting'
+import { Canvas, ImageRenderer, Path, fetch, type CanvasRenderingContext } from 'scripting'
 import {
   WIDGET_CACHE_DIR, widgetMapPath, typhoonId,
   type ForecastSet, type Quadrants, type Typhoon, type TyphoonPoint
@@ -9,6 +9,40 @@ const MAP_SIZE = 354
 const MAP_ZOOM = 5
 const MAX_MERCATOR_LAT = 85.05112878
 const EARTH_RADIUS_KM = 6371.0088
+
+const AMAP_ERROR_TEXT: Record<string, string> = {
+  USERKEY_PLAT_NOMATCH: 'Key 与平台不匹配：请使用「Web服务」类型的 Key（高德开放平台 → 应用管理 → 创建应用 → 添加 Key → 服务平台选「Web服务」）',
+  INVALID_USER_KEY: 'Key 无效或已被删除，请检查是否复制完整',
+  USER_DAILY_QUERY_OVER_LIMIT: '该 Key 今日调用配额已用尽，请明日再试或更换 Key',
+  DAILY_QUERY_OVER_LIMIT: '今日调用配额已用尽，请明日再试',
+  INVALID_USER_SCODE: '安全码校验失败',
+  INVALID_PARAMS: '请求参数错误'
+}
+
+export function amapErrorText(info: string): string {
+  if (!info) return '未知错误（高德接口未返回具体原因）'
+  return AMAP_ERROR_TEXT[info] || `高德接口错误：${info}`
+}
+
+/** 预检高德 Web服务 Key 是否可用（请求 1×1 静态地图，接口返回 JSON 错误时解析具体原因）。 */
+export async function verifyAmapKey(key: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const url = `${STATIC_MAP_URL}?location=120.5,30.5&zoom=4&size=1*1&scale=1&key=${encodeURIComponent(key)}`
+    const response = await fetch(url)
+    const contentType = String(response.headers?.get?.('content-type') || '')
+    if (contentType.includes('json')) {
+      let info = ''
+      try {
+        info = String(((await response.json()) as { info?: string })?.info || '')
+      } catch {}
+      return { ok: false, error: amapErrorText(info) }
+    }
+    if (!response.ok) return { ok: false, error: `高德接口 HTTP ${response.status}` }
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: `网络错误：${String(error)}` }
+  }
+}
 
 const FORECAST_COLORS: Record<string, string> = {
   '中国': '#FF4050', '中国香港': '#FF66FF', '香港': '#FF66FF', '日本': '#43FF4B',

@@ -2,7 +2,7 @@
 
 import { Script, Widget } from "scripting"
 import { loadWidgetData } from "./widget_data"
-import { renderAllTyphoonWidgetMaps } from "./widget_map"
+import { renderAllTyphoonWidgetMaps, verifyAmapKey } from "./widget_map"
 import { amapKeyStatus, readSavedAmapKey, saveAmapKey } from "./amap_config"
 
 const projectDirectory = FileManager.scriptsDirectory + "/台风路径"
@@ -66,17 +66,24 @@ async function main() {
     }
   })
 
-  await webView.addScriptMessageHandler("getAmapKeyStatus", async () => amapKeyStatus())
+  await webView.addScriptMessageHandler("getAmapKeyStatus", async () => {
+    const status = amapKeyStatus()
+    if (status.configured && status.key) {
+      const check = await verifyAmapKey(status.key)
+      return { ...status, valid: check.ok, validationError: check.error }
+    }
+    return status
+  })
 
   await webView.addScriptMessageHandler("setAmapKey", async (params?: { key?: string }) => {
     const key = String(params?.key || "").trim()
     if (key.length < 8) return { ok: false, message: "Key 长度不足，请检查是否完整" }
+    const check = await verifyAmapKey(key)
+    if (!check.ok) return { ok: false, message: check.error || "Key 验证失败" }
     saveAmapKey(key)
-    const rendered = await refreshWidgetMapCache(key)
-    const status = amapKeyStatus()
-    return rendered
-      ? { ok: true, ...status }
-      : { ok: true, ...status, message: "Key 已保存，但小组件地图生成失败，请检查 Key 是否正确后重试" }
+    // 地图缓存后台生成，不阻塞保存操作
+    refreshWidgetMapCache(key).catch(error => console.error("Key保存后后台生成地图失败", String(error)))
+    return { ok: true, message: "Key 已保存并验证通过，正在后台生成地图缓存…", ...amapKeyStatus() }
   })
 
   try {
