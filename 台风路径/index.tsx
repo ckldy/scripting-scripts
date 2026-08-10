@@ -5,6 +5,16 @@ import { loadWidgetData } from "./widget_data"
 import { renderAllTyphoonWidgetMaps, verifyAmapKey } from "./widget_map"
 import { amapKeyStatus, readSavedAmapKey, saveAmapKey } from "./amap_config"
 
+type AmapRuntimeState = {
+  processing: boolean
+  configured: boolean
+  masked?: string
+  key?: string
+  valid?: boolean
+  validationError?: string
+  message?: string
+}
+
 const projectDirectory = FileManager.scriptsDirectory + "/台风路径"
 const webDirectory = projectDirectory + "/web"
 const entryFile = webDirectory + "/index.html"
@@ -28,7 +38,16 @@ async function refreshWidgetMapCache(amapKey: string): Promise<number> {
 }
 
 async function main() {
-  await refreshWidgetMapCache(readSavedAmapKey())
+  const initialKey = readSavedAmapKey()
+  const initialCheck = initialKey ? await verifyAmapKey(initialKey) : null
+  if (initialCheck?.ok) await refreshWidgetMapCache(initialKey)
+  let amapRuntimeState: AmapRuntimeState = {
+    processing: false,
+    ...amapKeyStatus(),
+    valid: initialKey ? initialCheck?.ok : undefined,
+    validationError: initialCheck?.error
+  }
+  let amapOperationId = 0
   const webView = new WebViewController({ ephemeral: true })
   const allowedHosts = new Set([
     "tf02.istrongcloud.com",
@@ -53,42 +72,69 @@ async function main() {
   }
 
   let sharing = false
-  await webView.addScriptMessageHandler("shareTyphoon", async () => {
+  await webView.addScriptMessageHandler("shareTyphoon", () => {
     if (sharing) return { ok: false, busy: true }
     sharing = true
-    try {
-      return { ok: true, completed: await ShareSheet.present(["台风路径", "https://tf03.istrongcloud.com/member/v1.3/home"]) }
-    } catch (error) {
-      console.error("分享失败", error)
-      return { ok: false }
-    } finally {
-      sharing = false
-    }
+    ShareSheet.present(["台风路径", "https://tf03.istrongcloud.com/member/v1.3/home"])
+      .catch(error => console.error("分享失败", error))
+      .finally(() => { sharing = false })
+    return { ok: true }
   })
 
-  await webView.addScriptMessageHandler("getAmapKeyStatus", async () => {
-    const status = amapKeyStatus()
-    if (status.configured && status.key) {
-      const check = await verifyAmapKey(status.key)
-      return { ...status, valid: check.ok, validationError: check.error }
-    }
-    return status
-  })
+  // Scripting 的 WebView 消息处理器不会等待 Promise：这些 handler 必须同步返回。
+  await webView.addScriptMessageHandler("getAmapKeyStatus", () => amapRuntimeState)
 
-  await webView.addScriptMessageHandler("clearAmapKey", async () => {
+  await webView.addScriptMessageHandler("clearAmapKey", () => {
+    amapOperationId++
     saveAmapKey("")
-    return { ok: true, ...amapKeyStatus() }
+    amapRuntimeState = { processing: false, configured: false }
+    return { ok: true, ...amapRuntimeState }
   })
 
-  await webView.addScriptMessageHandler("setAmapKey", async (params?: { key?: string }) => {
+  await webView.addScriptMessageHandler("setAmapKey", (params?: { key?: string }) => {
     const key = String(params?.key || "").trim()
     if (key.length < 8) return { ok: false, message: "Key 长度不足，请检查是否完整" }
-    const check = await verifyAmapKey(key)
-    if (!check.ok) return { ok: false, message: check.error || "Key 验证失败" }
-    saveAmapKey(key)
-    // 地图缓存后台生成，不阻塞保存操作
-    refreshWidgetMapCache(key).catch(error => console.error("Key保存后后台生成地图失败", String(error)))
-    return { ok: true, message: "Key 已保存并验证通过，正在后台生成地图缓存…", ...amapKeyStatus() }
+    if (amapRuntimeState.processing) return { ok: false, busy: true, message: "正在验证 Key，请稍候" }
+
+    const operationId = ++amapOperationId
+    amapRuntimeState = {
+      processing: true,
+      ...amapKeyStatus(),
+      message: "正在验证 Key…"
+    }
+
+    ;(async () => {
+      const check = await verifyAmapKey(key)
+      if (operationId !== amapOperationId) return
+      if (!check.ok) {
+        amapRuntimeState = {
+          processing: false,
+          ...amapKeyStatus(),
+          valid: false,
+          validationError: check.error || "Key 验证失败"
+        }
+        return
+      }
+
+      saveAmapKey(key)
+      amapRuntimeState = {
+        processing: false,
+        ...amapKeyStatus(),
+        valid: true,
+        message: "Key 已保存并验证通过，正在后台生成地图缓存…"
+      }
+      refreshWidgetMapCache(key).catch(error => console.error("Key保存后后台生成地图失败", String(error)))
+    })().catch(error => {
+      if (operationId !== amapOperationId) return
+      amapRuntimeState = {
+        processing: false,
+        ...amapKeyStatus(),
+        valid: false,
+        validationError: String(error)
+      }
+    })
+
+    return { ok: true, pending: true, message: "正在验证 Key…" }
   })
 
   try {
