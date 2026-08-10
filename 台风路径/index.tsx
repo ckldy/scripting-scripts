@@ -75,6 +75,11 @@ async function main() {
     return status
   })
 
+  await webView.addScriptMessageHandler("clearAmapKey", async () => {
+    saveAmapKey("")
+    return { ok: true, ...amapKeyStatus() }
+  })
+
   await webView.addScriptMessageHandler("setAmapKey", async (params?: { key?: string }) => {
     const key = String(params?.key || "").trim()
     if (key.length < 8) return { ok: false, message: "Key 长度不足，请检查是否完整" }

@@ -9,7 +9,7 @@
     "en": "Live typhoon track with multi-agency forecast paths. Large widget map needs an AMap Web-service key (set in widget parameter or More panel).",
     "zh": "实时台风路径与多机构预报路径地图（数据源: 四创科技）；大号小组件地图需高德 Web服务 Key，可在小组件参数或主程序「更多」中填写"
   },
-  "version": "2.1.1",
+  "version": "2.1.2",
   "icon": "tornado",
   "color": "rgba(255, 69, 58, 1)",
   "runInApp": true,
