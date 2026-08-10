@@ -6,6 +6,7 @@ import { NextTyphoonIntent, PreviousTyphoonIntent } from './app_intents'
 import {
   autoAdvance, loadWidgetData, selectedIndex, typhoonId, widgetMapPath, type Typhoon, type TyphoonPoint, type WidgetCache
 } from './widget_data'
+import { readSavedAmapKey, saveAmapKey, widgetParameterAmapKey } from './amap_config'
 
 const OPEN_URL = `scripting://run_single/${encodeURIComponent('台风路径')}`
 const REFRESH_AFTER = 30 * 60 * 1000
@@ -130,7 +131,24 @@ function MediumWidget({ tf, cache, stale }: { tf: Typhoon; cache: WidgetCache; s
   )
 }
 
-function LargeWidget({ tf, cache, stale, mapImage }: { tf: Typhoon; cache: WidgetCache; stale: boolean; mapImage: UIImage | null }) {
+function MapEmptyState({ keyConfigured }: { keyConfigured: boolean }) {
+  return (
+    <Link url={OPEN_URL}>
+      <VStack frame={Widget.displaySize} spacing={8} padding={22} widgetBackground='#9bc9f0'>
+        <Image systemName={keyConfigured ? 'arrow.clockwise.circle' : 'key'} font={30} foregroundStyle='#1d4a6e' />
+        <Text font={14} fontWeight='bold' foregroundStyle='#12324d' multilineTextAlignment='center'>
+          {keyConfigured ? '地图缓存生成中' : '未配置高德地图 Key'}
+        </Text>
+        <Text font={10} foregroundStyle='#25313c' multilineTextAlignment='center' lineLimit={4}>
+          {keyConfigured ? '点按小组件打开主程序，将自动生成地图缓存' : '在小组件「参数」栏粘贴高德 Web服务 Key，或打开主程序「更多」→「高德Key」填写'}
+        </Text>
+      </VStack>
+    </Link>
+  )
+}
+
+function LargeWidget({ tf, cache, stale, mapImage, keyConfigured }: { tf: Typhoon; cache: WidgetCache; stale: boolean; mapImage: UIImage | null; keyConfigured: boolean }) {
+  if (!mapImage) return <MapEmptyState keyConfigured={keyConfigured} />
   const index = selectedIndex(cache)
   const rows = summaryRows(tf)
   return (
@@ -167,6 +185,10 @@ function EmptyWidget({ message }: { message: string }) {
 ;(async () => {
   const reloadPolicy = { policy: 'after', date: new Date(Date.now() + REFRESH_AFTER) } as const
   try {
+    // 小组件「参数」栏填入的高德 Key：保存到共享存储，供主程序生成地图缓存时使用
+    const parameterKey = widgetParameterAmapKey()
+    if (parameterKey) saveAmapKey(parameterKey)
+    const keyConfigured = !!readSavedAmapKey()
     const result = await loadWidgetData()
     const cache = autoAdvance(result.cache)
     if (!cache.typhoons.length) {
@@ -177,7 +199,7 @@ function EmptyWidget({ message }: { message: string }) {
     if (Widget.family === 'systemLarge') {
       const path = widgetMapPath(typhoonId(tf))
       const image = FileManager.existsSync(path) ? UIImage.fromFile(path) : null
-      Widget.present(<LargeWidget tf={tf} cache={cache} stale={result.stale} mapImage={image} />, { reloadPolicy })
+      Widget.present(<LargeWidget tf={tf} cache={cache} stale={result.stale} mapImage={image} keyConfigured={keyConfigured} />, { reloadPolicy })
     } else {
       Widget.present(<MediumWidget tf={tf} cache={cache} stale={result.stale} />, { reloadPolicy })
     }

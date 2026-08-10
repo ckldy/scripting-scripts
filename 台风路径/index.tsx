@@ -3,23 +3,32 @@
 import { Script, Widget } from "scripting"
 import { loadWidgetData } from "./widget_data"
 import { renderAllTyphoonWidgetMaps } from "./widget_map"
+import { amapKeyStatus, readSavedAmapKey, saveAmapKey } from "./amap_config"
 
 const projectDirectory = FileManager.scriptsDirectory + "/台风路径"
 const webDirectory = projectDirectory + "/web"
 const entryFile = webDirectory + "/index.html"
 const requestedTyphoonId = String(Script.queryParameters["tfbh"] || "").replace(/[^A-Za-z0-9_-]/g, "")
 
-async function refreshWidgetMapCache() {
+async function refreshWidgetMapCache(amapKey: string): Promise<number> {
+  if (!amapKey) {
+    console.log("未配置高德地图 Key，跳过小组件地图缓存生成")
+    return 0
+  }
   try {
     const { cache } = await loadWidgetData()
-    if (cache.typhoons.length && await renderAllTyphoonWidgetMaps(cache.typhoons)) Widget.reloadAll()
+    if (!cache.typhoons.length) return 0
+    const rendered = await renderAllTyphoonWidgetMaps(cache.typhoons, amapKey)
+    if (rendered) Widget.reloadAll()
+    return rendered
   } catch (error) {
     console.error("Widget地图缓存更新失败", String(error))
+    return 0
   }
 }
 
 async function main() {
-  await refreshWidgetMapCache()
+  await refreshWidgetMapCache(readSavedAmapKey())
   const webView = new WebViewController({ ephemeral: true })
   const allowedHosts = new Set([
     "tf02.istrongcloud.com",
@@ -55,6 +64,19 @@ async function main() {
     } finally {
       sharing = false
     }
+  })
+
+  await webView.addScriptMessageHandler("getAmapKeyStatus", async () => amapKeyStatus())
+
+  await webView.addScriptMessageHandler("setAmapKey", async (params?: { key?: string }) => {
+    const key = String(params?.key || "").trim()
+    if (key.length < 8) return { ok: false, message: "Key 长度不足，请检查是否完整" }
+    saveAmapKey(key)
+    const rendered = await refreshWidgetMapCache(key)
+    const status = amapKeyStatus()
+    return rendered
+      ? { ok: true, ...status }
+      : { ok: true, ...status, message: "Key 已保存，但小组件地图生成失败，请检查 Key 是否正确后重试" }
   })
 
   try {

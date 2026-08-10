@@ -4,7 +4,6 @@ import {
   type ForecastSet, type Quadrants, type Typhoon, type TyphoonPoint
 } from './widget_data'
 
-const AMAP_KEYCHAIN_KEY = 'TyphoonTrackWidget.AMapWebServiceKey'
 const STATIC_MAP_URL = 'https://restapi.amap.com/v3/staticmap'
 const MAP_SIZE = 354
 const MAP_ZOOM = 5
@@ -242,8 +241,7 @@ function drawName(ctx: CanvasRenderingContext, tf: Typhoon, track: TyphoonPoint[
   ctx.restore()
 }
 
-function staticMapURL(center: TyphoonPoint) {
-  const key = Keychain.get(AMAP_KEYCHAIN_KEY)
+function staticMapURL(center: TyphoonPoint, key: string) {
   if (!key) throw new Error('未配置高德静态地图服务 key')
   const params = new URLSearchParams({
     location: `${+center.lng},${+center.lat}`,
@@ -265,11 +263,11 @@ async function publishMap(id: string, data: Data) {
   await FileManager.remove(tempPath)
 }
 
-export async function renderTyphoonWidgetMap(tf: Typhoon) {
+export async function renderTyphoonWidgetMap(tf: Typhoon, key: string) {
   const center = [...tf.points].reverse().find(validPoint)
   const id = typhoonId(tf).replace(/[^A-Za-z0-9_-]/g, '')
   if (!center || !id) return false
-  const basemap = await UIImage.fromURL(staticMapURL(center))
+  const basemap = await UIImage.fromURL(staticMapURL(center, key))
   if (!basemap) throw new Error('高德静态底图下载失败')
   const track = recentHistory(tf)
   const data = await ImageRenderer.toPNGData(
@@ -292,11 +290,11 @@ export async function renderTyphoonWidgetMap(tf: Typhoon) {
   return true
 }
 
-export async function renderAllTyphoonWidgetMaps(typhoons: Typhoon[]) {
+export async function renderAllTyphoonWidgetMaps(typhoons: Typhoon[], key: string) {
   let rendered = 0
   for (const tf of typhoons) {
     try {
-      if (await renderTyphoonWidgetMap(tf)) rendered++
+      if (await renderTyphoonWidgetMap(tf, key)) rendered++
     } catch (error) {
       console.error(`Widget地图缓存失败(${typhoonId(tf)})`, String(error))
     }

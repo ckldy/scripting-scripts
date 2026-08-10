@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#9dcbf4">
   <title>台风路径</title>
   <link rel="stylesheet" href="vendor/leaflet.css">
-  <link rel="stylesheet" href="app.css?v=3062">
+  <link rel="stylesheet" href="app.css?v=3063">
 </head>
 <body>
   <main id="app">
@@ -38,6 +38,7 @@
       <button data-layer="history"><i class="icon icon-lishi"></i><span>历史台风</span></button>
       <button data-layer="graticule"><i class="icon icon-graticule"></i><span>经纬网格</span></button>
       <button data-action="measure"><i class="icon icon-ceju"></i><span>城市测距</span></button>
+      <button data-action="amap-key"><i class="amap-key-glyph">🔑</i><span>高德Key</span></button>
       <button data-action="legend"><i class="icon icon-tuli"></i><span>关于</span></button>
     </section>
 
@@ -51,6 +52,7 @@
 
     <section id="legendPanel" class="dialog hidden"><header><b>台风图例</b><button data-action="close-legend">×</button></header><div id="legendContent"></div></section>
     <section id="measurePanel" class="dialog data-dialog hidden" aria-label="城市测距"><header><b>城市测距</b><button data-action="close-measure">×</button></header><label id="measureSelectRow" class="measure-select hidden">台风选择<select id="measureTyphoon"></select></label><div id="measureContent" class="measure-content"></div></section>
+    <section id="amapPanel" class="dialog data-dialog amap-dialog hidden" aria-label="高德地图Key"><header><b>高德地图Key</b><button data-action="close-amap">×</button></header><div class="amap-content"><div id="amapStatus" class="amap-status"></div><input id="amapKeyInput" class="amap-key-input" type="text" placeholder="粘贴高德 Web服务 Key" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="amap-save" data-action="save-amap-key">保存并生成小组件地图</button><p class="amap-hint">用于生成大号小组件的地图底图（高德静态地图 Web服务）。获取：高德开放平台 → 应用管理 → 创建应用 → 添加 Key，服务平台选「Web服务」。也可在小组件设置（长按小组件 → 编辑小组件）的「参数」栏直接填入 Key。</p></div></section>
     <section id="historyPanel" class="history-panel hidden" aria-label="历史台风"><header><b>台风列表</b><button data-action="close-history">×</button></header><div id="historyBody" class="history-body"><div id="historyYears" class="history-years"></div><div id="historyList" class="history-list"></div></div></section>
 
     <section class="panel-foot">
@@ -65,6 +67,6 @@
   <script src="vendor/leaflet.js"></script>
   <script src="city-data.js?v=3024"></script>
   <script src="numeric-layer.js?v=3039"></script>
-  <script src="app.js?v=3062"></script>
+  <script src="app.js?v=3063"></script>
 </body>
 </html>
