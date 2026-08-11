@@ -39,13 +39,10 @@ async function refreshWidgetMapCache(amapKey: string): Promise<number> {
 
 async function main() {
   const initialKey = readSavedAmapKey()
-  const initialCheck = initialKey ? await verifyAmapKey(initialKey) : null
-  if (initialCheck?.ok) await refreshWidgetMapCache(initialKey)
   let amapRuntimeState: AmapRuntimeState = {
-    processing: false,
+    processing: !!initialKey,
     ...amapKeyStatus(),
-    valid: initialKey ? initialCheck?.ok : undefined,
-    validationError: initialCheck?.error
+    message: initialKey ? "正在后台验证 Key…" : undefined
   }
   let amapOperationId = 0
   const webView = new WebViewController({ ephemeral: true })
@@ -141,6 +138,37 @@ async function main() {
     const loaded = await webView.loadFile(entryFile, webDirectory)
     if (!loaded) throw new Error("本地地图页面加载失败")
     if (requestedTyphoonId) await webView.evaluateJavaScript(`window.__requestedTyphoonId=${JSON.stringify(requestedTyphoonId)}`)
+    if (initialKey) {
+      const operationId = ++amapOperationId
+      ;(async () => {
+        const check = await verifyAmapKey(initialKey)
+        if (operationId !== amapOperationId) return
+        if (!check.ok) {
+          amapRuntimeState = {
+            processing: false,
+            ...amapKeyStatus(),
+            valid: false,
+            validationError: check.error || "Key 验证失败"
+          }
+          return
+        }
+        amapRuntimeState = {
+          processing: false,
+          ...amapKeyStatus(),
+          valid: true,
+          message: "Key 验证通过，正在后台更新地图缓存…"
+        }
+        refreshWidgetMapCache(initialKey).catch(error => console.error("启动后后台生成地图失败", String(error)))
+      })().catch(error => {
+        if (operationId !== amapOperationId) return
+        amapRuntimeState = {
+          processing: false,
+          ...amapKeyStatus(),
+          valid: false,
+          validationError: String(error)
+        }
+      })
+    }
     await webView.present({ fullscreen: true })
   } finally {
     webView.dispose()

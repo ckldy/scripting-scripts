@@ -9,6 +9,7 @@ const MAP_SIZE = 354
 const MAP_ZOOM = 5
 const MAX_MERCATOR_LAT = 85.05112878
 const EARTH_RADIUS_KM = 6371.0088
+const TYPHOON_CLOUD_SPRITE_PATH = Path.join(FileManager.scriptsDirectory, '台风路径', 'web', 'vendor', 'typhoon-cloud-sprite.png')
 
 const AMAP_ERROR_TEXT: Record<string, string> = {
   USERKEY_PLAT_NOMATCH: 'Key 与平台不匹配：请使用「Web服务」类型的 Key（高德开放平台 → 应用管理 → 创建应用 → 添加 Key → 服务平台选「Web服务」）',
@@ -223,7 +224,7 @@ function drawForecasts(ctx: CanvasRenderingContext, tf: Typhoon, center: Typhoon
   }
 }
 
-function drawCenter(ctx: CanvasRenderingContext, point: TyphoonPoint) {
+function drawCenterFallback(ctx: CanvasRenderingContext, point: TyphoonPoint) {
   const center = { x: MAP_SIZE / 2, y: MAP_SIZE / 2 }
   ctx.save()
   ctx.shadowColor = 'rgba(0,0,0,.45)'
@@ -246,6 +247,16 @@ function drawCenter(ctx: CanvasRenderingContext, point: TyphoonPoint) {
   ctx.arc(center.x, center.y, 3, 0, Math.PI * 2)
   ctx.fill()
   ctx.restore()
+}
+
+function drawCenter(ctx: CanvasRenderingContext, point: TyphoonPoint, sprite: UIImage | null) {
+  const power = Math.max(6, Math.min(17, +(point.power || 6)))
+  const frame = Math.floor((power - 6) / 2)
+  if (!sprite || sprite.width < (frame + 1) * 64 || sprite.height < 64) {
+    drawCenterFallback(ctx, point)
+    return
+  }
+  ctx.drawImage({ image: sprite }, frame * 64, 0, 64, 64, MAP_SIZE / 2 - 16, MAP_SIZE / 2 - 16, 32, 32)
 }
 
 function drawName(ctx: CanvasRenderingContext, tf: Typhoon, track: TyphoonPoint[], center: TyphoonPoint) {
@@ -303,6 +314,7 @@ export async function renderTyphoonWidgetMap(tf: Typhoon, key: string) {
   if (!center || !id) return false
   const basemap = await UIImage.fromURL(staticMapURL(center, key))
   if (!basemap) throw new Error('高德静态底图下载失败')
+  const sprite = UIImage.fromFile(TYPHOON_CLOUD_SPRITE_PATH)
   const track = recentHistory(tf)
   const data = await ImageRenderer.toPNGData(
     <Canvas
@@ -314,7 +326,7 @@ export async function renderTyphoonWidgetMap(tf: Typhoon, key: string) {
         drawPolyline(ctx, track, center, 'rgba(27,172,255,.82)', 3)
         drawForecasts(ctx, tf, center)
         drawTrackPoints(ctx, track, center)
-        drawCenter(ctx, center)
+        drawCenter(ctx, center, sprite)
         drawName(ctx, tf, track, center)
       }}
     />,
