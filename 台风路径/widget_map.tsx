@@ -1,7 +1,7 @@
 import { Canvas, ImageRenderer, Path, fetch, type CanvasRenderingContext } from 'scripting'
 import {
-  WIDGET_CACHE_DIR, widgetMapPath, typhoonId,
-  type ForecastSet, type Quadrants, type Typhoon, type TyphoonPoint
+  WIDGET_CACHE_DIR, lastValidPoint, typhoonId, widgetMapManifestPath, widgetMapPath, withTimeout,
+  type ForecastSet, type Quadrants, type Typhoon, type TyphoonPoint, type WidgetMapManifest
 } from './widget_data'
 
 const STATIC_MAP_URL = 'https://restapi.amap.com/v3/staticmap'
@@ -29,7 +29,7 @@ export function amapErrorText(info: string): string {
 export async function verifyAmapKey(key: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const url = `${STATIC_MAP_URL}?location=120.5,30.5&zoom=4&size=1*1&scale=1&key=${encodeURIComponent(key)}`
-    const response = await fetch(url)
+    const response = await withTimeout(fetch(url), 10000, '高德 Key 验证请求超时')
     const contentType = String(response.headers?.get?.('content-type') || '')
     if (contentType.includes('json')) {
       let info = ''
@@ -298,18 +298,39 @@ function staticMapURL(center: TyphoonPoint, key: string) {
   return `${STATIC_MAP_URL}?${params}`
 }
 
-async function publishMap(id: string, data: Data) {
-  const finalPath = widgetMapPath(id)
-  const tempPath = Path.join(FileManager.temporaryDirectory, `typhoon-widget-${id}-${Date.now()}.png`)
-  await FileManager.createDirectory(WIDGET_CACHE_DIR, true)
-  await FileManager.writeAsData(tempPath, data)
-  if (await FileManager.exists(finalPath)) await FileManager.remove(finalPath)
-  await FileManager.copyFile(tempPath, finalPath)
-  await FileManager.remove(tempPath)
+// 同目录临时文件 + rename 原子替换：先发布 PNG，再更新 manifest，Widget 只读已完整落盘的一代缓存。
+async function replaceFileSync(finalPath: string, tempPath: string) {
+  if (FileManager.existsSync(finalPath)) FileManager.removeSync(finalPath)
+  FileManager.renameSync(tempPath, finalPath)
 }
 
-export async function renderTyphoonWidgetMap(tf: Typhoon, key: string) {
-  const center = [...tf.points].reverse().find(validPoint)
+async function publishMap(id: string, data: Data) {
+  const finalPath = widgetMapPath(id)
+  const tempPath = Path.join(WIDGET_CACHE_DIR, `map-${id}.tmp-${Date.now()}.png`)
+  await FileManager.createDirectory(WIDGET_CACHE_DIR, true)
+  await FileManager.writeAsData(tempPath, data)
+  try {
+    replaceFileSync(finalPath, tempPath)
+  } catch (error) {
+    if (FileManager.existsSync(tempPath)) FileManager.removeSync(tempPath)
+    throw error
+  }
+}
+
+async function publishManifest(id: string, manifest: WidgetMapManifest) {
+  const finalPath = widgetMapManifestPath(id)
+  const tempPath = Path.join(WIDGET_CACHE_DIR, `map-${id}.tmp-${Date.now()}.json`)
+  FileManager.writeAsStringSync(tempPath, JSON.stringify(manifest))
+  try {
+    replaceFileSync(finalPath, tempPath)
+  } catch (error) {
+    if (FileManager.existsSync(tempPath)) FileManager.removeSync(tempPath)
+    throw error
+  }
+}
+
+export async function renderTyphoonWidgetMap(tf: Typhoon, key: string, dataUpdatedAt = Date.now()) {
+  const center = lastValidPoint(tf)
   const id = typhoonId(tf).replace(/[^A-Za-z0-9_-]/g, '')
   if (!center || !id) return false
   const basemap = await UIImage.fromURL(staticMapURL(center, key))
@@ -333,14 +354,22 @@ export async function renderTyphoonWidgetMap(tf: Typhoon, key: string) {
     { opaque: true, scale: 2 }
   )
   await publishMap(id, data)
+  // PNG 完整落盘后才更新 manifest：Widget 以 pointTime 与数据代次校验地图归属。
+  await publishManifest(id, {
+    typhoonId: id,
+    pointTime: String(center.time || ''),
+    dataUpdatedAt,
+    mapPath: `map-${id}.png`,
+    generatedAt: Date.now()
+  })
   return true
 }
 
-export async function renderAllTyphoonWidgetMaps(typhoons: Typhoon[], key: string) {
+export async function renderAllTyphoonWidgetMaps(typhoons: Typhoon[], key: string, dataUpdatedAt = Date.now()) {
   let rendered = 0
   for (const tf of typhoons) {
     try {
-      if (await renderTyphoonWidgetMap(tf, key)) rendered++
+      if (await renderTyphoonWidgetMap(tf, key, dataUpdatedAt)) rendered++
     } catch (error) {
       console.error(`Widget地图缓存失败(${typhoonId(tf)})`, String(error))
     }

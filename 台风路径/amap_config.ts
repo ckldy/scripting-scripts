@@ -72,7 +72,21 @@ export function maskAmapKey(key: string): string {
   return `${trimmed.slice(0, 4)}••••${trimmed.slice(-4)}`
 }
 
-export function amapKeyStatus(): { configured: boolean; masked?: string; key?: string } {
-  const key = readSavedAmapKey()
-  return key ? { configured: true, masked: maskAmapKey(key), key } : { configured: false }
+// 注意：amapKeyStatus 刻意不返回完整 key。完整 Key 只允许在原生/小组件扩展内通过 readSavedAmapKey 使用，
+// 不跨 WebView bridge 传出，避免页面逻辑、调试输出或第三方资源扩大 Key 暴露面。
+export function amapKeyStatus(): { configured: boolean; masked?: string; updatedAt?: number } {
+  try {
+    const key = readSavedAmapKey()
+    if (!key) return { configured: false }
+    let updatedAt: number | undefined
+    try {
+      if (FileManager.existsSync(CONFIG_PATH)) {
+        const config = JSON.parse(FileManager.readAsStringSync(CONFIG_PATH)) as AmapConfig
+        if (typeof config.updatedAt === 'number') updatedAt = config.updatedAt
+      }
+    } catch {}
+    return { configured: true, masked: maskAmapKey(key), updatedAt }
+  } catch {
+    return { configured: false }
+  }
 }

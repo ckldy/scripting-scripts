@@ -3,6 +3,18 @@ import { Path, fetch } from 'scripting'
 export const TYPHOON_API = 'https://tf02.istrongcloud.com/'
 export const WIDGET_CACHE_DIR = Path.join(FileManager.appGroupDocumentsDirectory, 'TyphoonTrackWidget')
 const CACHE_PATH = Path.join(WIDGET_CACHE_DIR, 'state.json')
+export const MAX_MERCATOR_LAT = 85.05112878
+
+/** 给 Promise 增加有限超时：底层请求无法中止，但调用方不会无限等待挂起。 */
+export function withTimeout<T>(promise: Promise<T>, ms: number, message = '请求超时'): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms)
+    promise.then(
+      value => { clearTimeout(timer); resolve(value) },
+      error => { clearTimeout(timer); reject(error) }
+    )
+  })
+}
 
 export type Quadrants = { ne?: number; se?: number; sw?: number; nw?: number }
 export type ForecastSet = { sets: string; points?: TyphoonPoint[] }
@@ -45,6 +57,31 @@ export function widgetMapPath(id: string) {
   return Path.join(WIDGET_CACHE_DIR, `map-${id}.png`)
 }
 
+export type WidgetMapManifest = {
+  typhoonId: string
+  pointTime: string
+  dataUpdatedAt: number
+  mapPath: string
+  generatedAt: number
+}
+
+export function widgetMapManifestPath(id: string) {
+  return Path.join(WIDGET_CACHE_DIR, `map-${id}.json`)
+}
+
+/** 读取地图缓存 manifest；缺失或字段非法返回 null（Widget 不得展示无代次绑定的旧地图）。 */
+export function readWidgetMapManifest(id: string): WidgetMapManifest | null {
+  try {
+    const path = widgetMapManifestPath(id)
+    if (!FileManager.existsSync(path)) return null
+    const value = JSON.parse(FileManager.readAsStringSync(path)) as WidgetMapManifest
+    if (typeof value?.typhoonId !== 'string' || typeof value?.pointTime !== 'string' || typeof value?.mapPath !== 'string') return null
+    return value
+  } catch {
+    return null
+  }
+}
+
 export function typhoonId(tf: Typhoon) {
   return String(tf.tfbh || tf.ident || '')
 }
@@ -61,7 +98,16 @@ export function readCache(): WidgetCache | null {
 
 export function writeCache(cache: WidgetCache) {
   FileManager.createDirectorySync(WIDGET_CACHE_DIR, true)
-  FileManager.writeAsStringSync(CACHE_PATH, JSON.stringify(cache))
+  // 同目录临时文件 + rename 原子替换，避免写入中断留下半截 JSON。
+  const tempPath = Path.join(WIDGET_CACHE_DIR, `state.json.tmp-${Date.now()}`)
+  FileManager.writeAsStringSync(tempPath, JSON.stringify(cache))
+  try {
+    if (FileManager.existsSync(CACHE_PATH)) FileManager.removeSync(CACHE_PATH)
+    FileManager.renameSync(tempPath, CACHE_PATH)
+  } catch (error) {
+    if (FileManager.existsSync(tempPath)) FileManager.removeSync(tempPath)
+    throw error
+  }
 }
 
 function validTyphoons(value: unknown): Typhoon[] {
@@ -74,17 +120,17 @@ function validTyphoons(value: unknown): Typhoon[] {
 }
 
 export async function fetchTyphoons(): Promise<Typhoon[]> {
-  const response = await fetch(TYPHOON_API + 'data/complex/currMerger.json')
+  const response = await withTimeout(fetch(TYPHOON_API + 'data/complex/currMerger.json'), 15000, '台风清单请求超时')
   if (!response.ok) throw new Error(`HTTP ${response.status}`)
-  const typhoons = validTyphoons(await response.json())
+  const typhoons = validTyphoons(await withTimeout(response.json(), 10000, '台风清单解析超时'))
   if (!typhoons.length) return []
   await Promise.all(typhoons.map(async tf => {
     const last = tf.points.at(-1)
     if (!last) return
     try {
-      const response = await fetch(TYPHOON_API + `data/completion/${encodeURIComponent(typhoonId(tf))}.json`)
+      const response = await withTimeout(fetch(TYPHOON_API + `data/completion/${encodeURIComponent(typhoonId(tf))}.json`), 8000, '台风详情请求超时')
       if (!response.ok) return
-      const completion = await response.json()
+      const completion = await withTimeout(response.json(), 8000, '台风详情解析超时')
       if (String(completion?.time || '') === String(last.time || '')) {
         last.location = String(completion.location || '')
         last.completion = String(completion.completion || '')
@@ -92,6 +138,16 @@ export async function fetchTyphoons(): Promise<Typhoon[]> {
     } catch {}
   }))
   return typhoons
+}
+
+export function lastValidPoint(tf: Typhoon): TyphoonPoint | null {
+  for (let index = tf.points.length - 1; index >= 0; index--) {
+    const point = tf.points[index]
+    if (Number.isFinite(+point.lat) && Number.isFinite(+point.lng) &&
+      +point.lat >= -MAX_MERCATOR_LAT && +point.lat <= MAX_MERCATOR_LAT &&
+      +point.lng >= -180 && +point.lng <= 180) return point
+  }
+  return null
 }
 
 export async function loadWidgetData() {

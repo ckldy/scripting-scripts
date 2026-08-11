@@ -4,7 +4,7 @@ import {
 } from 'scripting'
 import { NextTyphoonIntent, PreviousTyphoonIntent } from './app_intents'
 import {
-  autoAdvance, loadWidgetData, selectedIndex, typhoonId, widgetMapPath, type Typhoon, type TyphoonPoint, type WidgetCache
+  autoAdvance, lastValidPoint, loadWidgetData, readWidgetMapManifest, selectedIndex, typhoonId, widgetMapPath, type Typhoon, type TyphoonPoint, type WidgetCache
 } from './widget_data'
 import { readSavedAmapKey, saveAmapKey, widgetParameterAmapKey } from './amap_config'
 
@@ -197,13 +197,19 @@ function EmptyWidget({ message }: { message: string }) {
     }
     const tf = cache.typhoons[selectedIndex(cache)]
     if (Widget.family === 'systemLarge') {
-      const path = widgetMapPath(typhoonId(tf))
-      const image = FileManager.existsSync(path) ? UIImage.fromFile(path) : null
+      const id = typhoonId(tf)
+      // 地图 PNG 必须与当前台风末点时间绑定：manifest 缺失或不一致时不展示旧地图，提示缓存生成中。
+      const manifest = readWidgetMapManifest(id)
+      const last = lastValidPoint(tf)
+      const mapMatch = !!manifest && !!last && manifest.typhoonId === id && manifest.pointTime === String(last.time || '')
+      const path = mapMatch ? widgetMapPath(id) : ''
+      const image = mapMatch && path && FileManager.existsSync(path) ? UIImage.fromFile(path) : null
       Widget.present(<LargeWidget tf={tf} cache={cache} stale={result.stale} mapImage={image} keyConfigured={keyConfigured} />, { reloadPolicy })
     } else {
       Widget.present(<MediumWidget tf={tf} cache={cache} stale={result.stale} />, { reloadPolicy })
     }
   } catch (error) {
-    Widget.present(<EmptyWidget message={`更新失败：${String(error)}`} />, { reloadPolicy })
+    console.error('Widget 数据更新失败', String(error))
+    Widget.present(<EmptyWidget message='台风数据暂时无法更新，请稍后重试' />, { reloadPolicy })
   }
 })()

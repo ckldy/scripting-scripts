@@ -9,7 +9,7 @@ type AmapRuntimeState = {
   processing: boolean
   configured: boolean
   masked?: string
-  key?: string
+  updatedAt?: number
   valid?: boolean
   validationError?: string
   message?: string
@@ -20,7 +20,7 @@ const webDirectory = projectDirectory + "/web"
 const entryFile = webDirectory + "/index.html"
 const requestedTyphoonId = String(Script.queryParameters["tfbh"] || "").replace(/[^A-Za-z0-9_-]/g, "")
 
-async function refreshWidgetMapCache(amapKey: string): Promise<number> {
+async function doRefreshWidgetMapCache(amapKey: string): Promise<number> {
   if (!amapKey) {
     console.log("未配置高德地图 Key，跳过小组件地图缓存生成")
     return 0
@@ -28,13 +28,24 @@ async function refreshWidgetMapCache(amapKey: string): Promise<number> {
   try {
     const { cache } = await loadWidgetData()
     if (!cache.typhoons.length) return 0
-    const rendered = await renderAllTyphoonWidgetMaps(cache.typhoons, amapKey)
+    const rendered = await renderAllTyphoonWidgetMaps(cache.typhoons, amapKey, cache.updatedAt)
     if (rendered) Widget.reloadAll()
     return rendered
   } catch (error) {
     console.error("Widget地图缓存更新失败", String(error))
     return 0
   }
+}
+
+// 单飞：同一运行期内同 Key 的刷新只执行一个任务，避免连续打开主程序导致并行下载/渲染互相覆盖。
+let widgetRefresh: { key: string; promise: Promise<number> } | null = null
+function refreshWidgetMapCache(amapKey: string): Promise<number> {
+  if (widgetRefresh && widgetRefresh.key === amapKey) return widgetRefresh.promise
+  const promise = doRefreshWidgetMapCache(amapKey).finally(() => {
+    if (widgetRefresh?.promise === promise) widgetRefresh = null
+  })
+  widgetRefresh = { key: amapKey, promise }
+  return promise
 }
 
 async function main() {
