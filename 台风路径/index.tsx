@@ -28,8 +28,7 @@ async function doRefreshWidgetMapCache(amapKey: string): Promise<number> {
   try {
     const { cache } = await loadWidgetData()
     if (!cache.typhoons.length) return 0
-    const rendered = await renderAllTyphoonWidgetMaps(cache.typhoons, amapKey, cache.updatedAt)
-    if (rendered) Widget.reloadAll()
+    const rendered = await renderAllTyphoonWidgetMaps(cache.typhoons, amapKey, cache.updatedAt, cache.selectedId)
     return rendered
   } catch (error) {
     console.error("Widget地图缓存更新失败", String(error))

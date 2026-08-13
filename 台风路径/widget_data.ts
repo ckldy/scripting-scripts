@@ -53,8 +53,14 @@ export type WidgetCache = {
   lastAutoAdvanceAt?: number
 }
 
-export function widgetMapPath(id: string) {
-  return Path.join(WIDGET_CACHE_DIR, `map-${id}.png`)
+export function normalizedTyphoonId(tf: Typhoon) {
+  return typhoonId(tf).replace(/[^A-Za-z0-9_-]/g, '')
+}
+
+export function widgetMapPath(id: string, revision?: string) {
+  const safeId = String(id).replace(/[^A-Za-z0-9_-]/g, '')
+  const safeRevision = String(revision || '').replace(/[^A-Za-z0-9_-]/g, '')
+  return Path.join(WIDGET_CACHE_DIR, safeRevision ? `map-${safeId}-${safeRevision}.png` : `map-${safeId}.png`)
 }
 
 export type WidgetMapManifest = {
@@ -63,23 +69,59 @@ export type WidgetMapManifest = {
   dataUpdatedAt: number
   mapPath: string
   generatedAt: number
+  mapRevision?: string
+  typhoon?: Typhoon
 }
 
-export function widgetMapManifestPath(id: string) {
-  return Path.join(WIDGET_CACHE_DIR, `map-${id}.json`)
+export function widgetMapManifestPath(id: string, revision?: string) {
+  const safeId = String(id).replace(/[^A-Za-z0-9_-]/g, '')
+  const safeRevision = String(revision || '').replace(/[^A-Za-z0-9_-]/g, '')
+  return Path.join(WIDGET_CACHE_DIR, safeRevision ? `map-${safeId}-${safeRevision}.json` : `map-${safeId}.json`)
 }
 
-/** 读取地图缓存 manifest；缺失或字段非法返回 null（Widget 不得展示无代次绑定的旧地图）。 */
-export function readWidgetMapManifest(id: string): WidgetMapManifest | null {
+function validMapManifest(value: unknown, id: string): WidgetMapManifest | null {
+  if (!value || typeof value !== 'object') return null
+  const manifest = value as WidgetMapManifest
+  const safeId = String(id).replace(/[^A-Za-z0-9_-]/g, '')
+  if (manifest.typhoonId !== safeId || typeof manifest.pointTime !== 'string' || typeof manifest.mapPath !== 'string') return null
+  if (!/^map-[A-Za-z0-9_-]+\.png$/.test(manifest.mapPath)) return null
+  return manifest
+}
+
+/** 读取指定代次；未传 revision 时兼容旧版固定 manifest。 */
+export function readWidgetMapManifest(id: string, revision?: string): WidgetMapManifest | null {
   try {
-    const path = widgetMapManifestPath(id)
+    const path = widgetMapManifestPath(id, revision)
     if (!FileManager.existsSync(path)) return null
-    const value = JSON.parse(FileManager.readAsStringSync(path)) as WidgetMapManifest
-    if (typeof value?.typhoonId !== 'string' || typeof value?.pointTime !== 'string' || typeof value?.mapPath !== 'string') return null
-    return value
+    return validMapManifest(JSON.parse(FileManager.readAsStringSync(path)), id)
   } catch {
     return null
   }
+}
+
+export function widgetMapPathFromManifest(manifest: WidgetMapManifest): string {
+  return Path.join(WIDGET_CACHE_DIR, manifest.mapPath)
+}
+
+/** 返回最近一份仍有完整 PNG 的地图代次；升级后也会尝试旧版固定 manifest。 */
+export function readLatestWidgetMapManifest(id: string): WidgetMapManifest | null {
+  const safeId = String(id).replace(/[^A-Za-z0-9_-]/g, '')
+  const manifests: WidgetMapManifest[] = []
+  try {
+    if (FileManager.existsSync(WIDGET_CACHE_DIR)) {
+      const prefix = `map-${safeId}-`
+      for (const name of FileManager.readDirectorySync(WIDGET_CACHE_DIR)) {
+        if (!name.startsWith(prefix) || !name.endsWith('.json')) continue
+        try {
+          const value = validMapManifest(JSON.parse(FileManager.readAsStringSync(Path.join(WIDGET_CACHE_DIR, name))), safeId)
+          if (value && FileManager.existsSync(widgetMapPathFromManifest(value))) manifests.push(value)
+        } catch {}
+      }
+    }
+  } catch {}
+  const legacy = readWidgetMapManifest(safeId)
+  if (legacy && FileManager.existsSync(widgetMapPathFromManifest(legacy))) manifests.push(legacy)
+  return manifests.sort((a, b) => +(b.generatedAt || 0) - +(a.generatedAt || 0))[0] || null
 }
 
 export function typhoonId(tf: Typhoon) {

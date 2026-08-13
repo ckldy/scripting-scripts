@@ -1,6 +1,6 @@
-import { Canvas, ImageRenderer, Path, fetch, type CanvasRenderingContext } from 'scripting'
+import { Canvas, ImageRenderer, Path, Widget, fetch, type CanvasRenderingContext } from 'scripting'
 import {
-  WIDGET_CACHE_DIR, lastValidPoint, typhoonId, widgetMapManifestPath, widgetMapPath, withTimeout,
+  WIDGET_CACHE_DIR, lastValidPoint, normalizedTyphoonId, typhoonId, widgetMapManifestPath, widgetMapPath, withTimeout,
   type ForecastSet, type Quadrants, type Typhoon, type TyphoonPoint, type WidgetMapManifest
 } from './widget_data'
 
@@ -9,6 +9,7 @@ const MAP_SIZE = 354
 const MAP_ZOOM = 5
 const MAX_MERCATOR_LAT = 85.05112878
 const EARTH_RADIUS_KM = 6371.0088
+const MAP_DOWNLOAD_TIMEOUT = 12000
 const TYPHOON_CLOUD_SPRITE_PATH = Path.join(FileManager.scriptsDirectory, '台风路径', 'web', 'vendor', 'typhoon-cloud-sprite.png')
 
 const AMAP_ERROR_TEXT: Record<string, string> = {
@@ -93,6 +94,36 @@ function latestForecast(points: TyphoonPoint[]): { anchor: TyphoonPoint; sets: F
     }
   }
   return null
+}
+
+function mapRevisionSource(tf: Typhoon) {
+  const track = recentHistory(tf)
+  const forecast = latestForecast(tf.points)
+  const pointFields = (point: TyphoonPoint) => [
+    String(point.time || ''), +point.lat, +point.lng, +(point.power || 0),
+    +(point.radius7 || 0), +(point.radius10 || 0), +(point.radius12 || 0),
+    point.radius7_quad || null, point.radius10_quad || null, point.radius12_quad || null
+  ]
+  return JSON.stringify({
+    id: normalizedTyphoonId(tf),
+    name: String(tf.name || ''),
+    track: track.map(pointFields),
+    forecast: forecast ? {
+      anchor: pointFields(forecast.anchor),
+      sets: forecast.sets.map(set => ({ sets: set.sets, points: (set.points || []).filter(validPoint).map(pointFields) }))
+    } : null
+  })
+}
+
+/** 稳定的非加密内容摘要：仅用于缓存代次，不处理密钥或安全数据。 */
+export function widgetMapRevision(tf: Typhoon) {
+  const source = mapRevisionSource(tf)
+  let hash = 2166136261
+  for (let index = 0; index < source.length; index++) {
+    hash ^= source.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(36)
 }
 
 function strengthColor(power?: number) {
@@ -299,13 +330,13 @@ function staticMapURL(center: TyphoonPoint, key: string) {
 }
 
 // 同目录临时文件 + rename 原子替换：先发布 PNG，再更新 manifest，Widget 只读已完整落盘的一代缓存。
-async function replaceFileSync(finalPath: string, tempPath: string) {
+function replaceFileSync(finalPath: string, tempPath: string) {
   if (FileManager.existsSync(finalPath)) FileManager.removeSync(finalPath)
   FileManager.renameSync(tempPath, finalPath)
 }
 
-async function publishMap(id: string, data: Data) {
-  const finalPath = widgetMapPath(id)
+async function publishMap(id: string, revision: string, data: Data) {
+  const finalPath = widgetMapPath(id, revision)
   const tempPath = Path.join(WIDGET_CACHE_DIR, `map-${id}.tmp-${Date.now()}.png`)
   await FileManager.createDirectory(WIDGET_CACHE_DIR, true)
   await FileManager.writeAsData(tempPath, data)
@@ -317,8 +348,8 @@ async function publishMap(id: string, data: Data) {
   }
 }
 
-async function publishManifest(id: string, manifest: WidgetMapManifest) {
-  const finalPath = widgetMapManifestPath(id)
+async function publishManifest(id: string, revision: string, manifest: WidgetMapManifest) {
+  const finalPath = widgetMapManifestPath(id, revision)
   const tempPath = Path.join(WIDGET_CACHE_DIR, `map-${id}.tmp-${Date.now()}.json`)
   FileManager.writeAsStringSync(tempPath, JSON.stringify(manifest))
   try {
@@ -329,11 +360,50 @@ async function publishManifest(id: string, manifest: WidgetMapManifest) {
   }
 }
 
+function completeManifest(id: string, revision: string) {
+  const manifestPath = widgetMapManifestPath(id, revision)
+  if (!FileManager.existsSync(manifestPath)) return null
+  try {
+    const manifest = JSON.parse(FileManager.readAsStringSync(manifestPath)) as WidgetMapManifest
+    const imagePath = Path.join(WIDGET_CACHE_DIR, manifest.mapPath || '')
+    return manifest.typhoonId === id && manifest.mapRevision === revision &&
+      FileManager.existsSync(imagePath) && UIImage.fromFile(imagePath) ? manifest : null
+  } catch {
+    return null
+  }
+}
+
+function cleanupOldMapRevisions(id: string, keep = 2) {
+  try {
+    const prefix = `map-${id}-`
+    const manifests = FileManager.readDirectorySync(WIDGET_CACHE_DIR)
+      .filter(name => name.startsWith(prefix) && name.endsWith('.json'))
+      .map(name => {
+        try {
+          const manifest = JSON.parse(FileManager.readAsStringSync(Path.join(WIDGET_CACHE_DIR, name))) as WidgetMapManifest
+          return { name, manifest }
+        } catch { return null }
+      })
+      .filter((value): value is { name: string; manifest: WidgetMapManifest } => !!value)
+      .sort((a, b) => +(b.manifest.generatedAt || 0) - +(a.manifest.generatedAt || 0))
+    for (const entry of manifests.slice(keep)) {
+      const manifestPath = Path.join(WIDGET_CACHE_DIR, entry.name)
+      const imagePath = Path.join(WIDGET_CACHE_DIR, entry.manifest.mapPath || '')
+      if (FileManager.existsSync(manifestPath)) FileManager.removeSync(manifestPath)
+      if (entry.manifest.mapPath && FileManager.existsSync(imagePath)) FileManager.removeSync(imagePath)
+    }
+  } catch (error) {
+    console.error(`Widget旧地图缓存清理失败(${id})`, String(error))
+  }
+}
+
 export async function renderTyphoonWidgetMap(tf: Typhoon, key: string, dataUpdatedAt = Date.now()) {
   const center = lastValidPoint(tf)
-  const id = typhoonId(tf).replace(/[^A-Za-z0-9_-]/g, '')
+  const id = normalizedTyphoonId(tf)
   if (!center || !id) return false
-  const basemap = await UIImage.fromURL(staticMapURL(center, key))
+  const revision = widgetMapRevision(tf)
+  if (completeManifest(id, revision)) return false
+  const basemap = await withTimeout(UIImage.fromURL(staticMapURL(center, key)), MAP_DOWNLOAD_TIMEOUT, '高德静态底图下载超时')
   if (!basemap) throw new Error('高德静态底图下载失败')
   const sprite = UIImage.fromFile(TYPHOON_CLOUD_SPRITE_PATH)
   const track = recentHistory(tf)
@@ -353,23 +423,32 @@ export async function renderTyphoonWidgetMap(tf: Typhoon, key: string, dataUpdat
     />,
     { opaque: true, scale: 2 }
   )
-  await publishMap(id, data)
-  // PNG 完整落盘后才更新 manifest：Widget 以 pointTime 与数据代次校验地图归属。
-  await publishManifest(id, {
+  const mapName = `map-${id}-${revision}.png`
+  await publishMap(id, revision, data)
+  // 不可变 PNG 完整落盘后才提交同代 manifest；失败不会破坏上一份完整缓存。
+  await publishManifest(id, revision, {
     typhoonId: id,
     pointTime: String(center.time || ''),
     dataUpdatedAt,
-    mapPath: `map-${id}.png`,
-    generatedAt: Date.now()
+    mapPath: mapName,
+    generatedAt: Date.now(),
+    mapRevision: revision,
+    typhoon: tf
   })
+  cleanupOldMapRevisions(id)
   return true
 }
 
-export async function renderAllTyphoonWidgetMaps(typhoons: Typhoon[], key: string, dataUpdatedAt = Date.now()) {
+export async function renderAllTyphoonWidgetMaps(typhoons: Typhoon[], key: string, dataUpdatedAt = Date.now(), selectedId = '') {
   let rendered = 0
-  for (const tf of typhoons) {
+  const safeSelectedId = String(selectedId).replace(/[^A-Za-z0-9_-]/g, '')
+  const ordered = [...typhoons].sort((a, b) => Number(normalizedTyphoonId(b) === safeSelectedId) - Number(normalizedTyphoonId(a) === safeSelectedId))
+  for (const tf of ordered) {
     try {
-      if (await renderTyphoonWidgetMap(tf, key, dataUpdatedAt)) rendered++
+      if (await renderTyphoonWidgetMap(tf, key, dataUpdatedAt)) {
+        rendered++
+        Widget.reloadAll()
+      }
     } catch (error) {
       console.error(`Widget地图缓存失败(${typhoonId(tf)})`, String(error))
     }

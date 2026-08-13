@@ -4,9 +4,23 @@ import {
 } from 'scripting'
 import { NextTyphoonIntent, PreviousTyphoonIntent } from './app_intents'
 import {
-  autoAdvance, lastValidPoint, loadWidgetData, readWidgetMapManifest, selectedIndex, typhoonId, widgetMapPath, type Typhoon, type TyphoonPoint, type WidgetCache
+  autoAdvance, loadWidgetData, normalizedTyphoonId, readLatestWidgetMapManifest, readWidgetMapManifest, selectedIndex, typhoonId, widgetMapPathFromManifest, type Typhoon, type TyphoonPoint, type WidgetCache
 } from './widget_data'
 import { readSavedAmapKey, saveAmapKey, widgetParameterAmapKey } from './amap_config'
+import { renderTyphoonWidgetMap, widgetMapRevision } from './widget_map'
+
+export function resolveWidgetMapCache(tf: Typhoon) {
+  const id = normalizedTyphoonId(tf)
+  const revision = widgetMapRevision(tf)
+  const exactCandidate = readWidgetMapManifest(id, revision)
+  const exactPath = exactCandidate ? widgetMapPathFromManifest(exactCandidate) : ''
+  const exactImage = exactPath && FileManager.existsSync(exactPath) ? UIImage.fromFile(exactPath) : null
+  const exact = exactImage ? exactCandidate : null
+  const manifest = exact || readLatestWidgetMapManifest(id)
+  const path = manifest ? widgetMapPathFromManifest(manifest) : ''
+  const image = exactImage || (path && FileManager.existsSync(path) ? UIImage.fromFile(path) : null)
+  return { id, revision, exact, manifest, image, mapUpdating: !exact && !!manifest }
+}
 
 const OPEN_URL = `scripting://run_single/${encodeURIComponent('台风路径')}`
 const REFRESH_AFTER = 30 * 60 * 1000
@@ -147,7 +161,7 @@ function MapEmptyState({ keyConfigured }: { keyConfigured: boolean }) {
   )
 }
 
-function LargeWidget({ tf, cache, stale, mapImage, keyConfigured }: { tf: Typhoon; cache: WidgetCache; stale: boolean; mapImage: UIImage | null; keyConfigured: boolean }) {
+function LargeWidget({ tf, cache, stale, mapImage, keyConfigured, mapUpdating }: { tf: Typhoon; cache: WidgetCache; stale: boolean; mapImage: UIImage | null; keyConfigured: boolean; mapUpdating: boolean }) {
   if (!mapImage) return <MapEmptyState keyConfigured={keyConfigured} />
   const index = selectedIndex(cache)
   const rows = summaryRows(tf)
@@ -166,7 +180,7 @@ function LargeWidget({ tf, cache, stale, mapImage, keyConfigured }: { tf: Typhoo
                 <Spacer minLength={0} />
               </HStack>
             ))}
-            <Text font={9} foregroundStyle='#25313c' shadow={{ color: '#ffffffee', radius: 2 }}>{stale ? '缓存数据' : '实时数据'} · {formatTime(new Date(cache.updatedAt).toISOString())}</Text>
+            <Text font={9} foregroundStyle='#25313c' shadow={{ color: '#ffffffee', radius: 2 }}>{mapUpdating ? '地图更新中 · ' : ''}{stale ? '缓存数据' : '实时数据'} · {formatTime(new Date(cache.updatedAt).toISOString())}</Text>
           </VStack>
         </VStack>
       </Link>
@@ -197,14 +211,16 @@ function EmptyWidget({ message }: { message: string }) {
     }
     const tf = cache.typhoons[selectedIndex(cache)]
     if (Widget.family === 'systemLarge') {
-      const id = typhoonId(tf)
-      // 地图 PNG 必须与当前台风末点时间绑定：manifest 缺失或不一致时不展示旧地图，提示缓存生成中。
-      const manifest = readWidgetMapManifest(id)
-      const last = lastValidPoint(tf)
-      const mapMatch = !!manifest && !!last && manifest.typhoonId === id && manifest.pointTime === String(last.time || '')
-      const path = mapMatch ? widgetMapPath(id) : ''
-      const image = mapMatch && path && FileManager.existsSync(path) ? UIImage.fromFile(path) : null
-      Widget.present(<LargeWidget tf={tf} cache={cache} stale={result.stale} mapImage={image} keyConfigured={keyConfigured} />, { reloadPolicy })
+      let resolved = resolveWidgetMapCache(tf)
+      if (!resolved.exact && keyConfigured) {
+        try {
+          await renderTyphoonWidgetMap(tf, readSavedAmapKey(), cache.updatedAt)
+          resolved = resolveWidgetMapCache(tf)
+        } catch (error) {
+          console.error(`Widget地图自愈失败(${resolved.id})`, String(error))
+        }
+      }
+      Widget.present(<LargeWidget tf={resolved.manifest?.typhoon || tf} cache={cache} stale={result.stale} mapImage={resolved.image} keyConfigured={keyConfigured} mapUpdating={resolved.mapUpdating} />, { reloadPolicy })
     } else {
       Widget.present(<MediumWidget tf={tf} cache={cache} stale={result.stale} />, { reloadPolicy })
     }
