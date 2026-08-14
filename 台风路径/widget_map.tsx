@@ -1,4 +1,4 @@
-import { Canvas, ImageRenderer, Path, Widget, fetch, type CanvasRenderingContext } from 'scripting'
+import { Canvas, ImageRenderer, Path, fetch, type CanvasRenderingContext } from 'scripting'
 import {
   WIDGET_CACHE_DIR, lastValidPoint, normalizedTyphoonId, typhoonId, widgetMapManifestPath, widgetMapPath, withTimeout,
   type ForecastSet, type Quadrants, type Typhoon, type TyphoonPoint, type WidgetMapManifest
@@ -447,7 +447,6 @@ export async function renderAllTyphoonWidgetMaps(typhoons: Typhoon[], key: strin
     try {
       if (await renderTyphoonWidgetMap(tf, key, dataUpdatedAt)) {
         rendered++
-        Widget.reloadAll()
       }
     } catch (error) {
       console.error(`Widget地图缓存失败(${typhoonId(tf)})`, String(error))

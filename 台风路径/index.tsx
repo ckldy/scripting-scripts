@@ -21,14 +21,16 @@ const entryFile = webDirectory + "/index.html"
 const requestedTyphoonId = String(Script.queryParameters["tfbh"] || "").replace(/[^A-Za-z0-9_-]/g, "")
 
 async function doRefreshWidgetMapCache(amapKey: string): Promise<number> {
-  if (!amapKey) {
-    console.log("未配置高德地图 Key，跳过小组件地图缓存生成")
-    return 0
-  }
   try {
-    const { cache } = await loadWidgetData()
-    if (!cache.typhoons.length) return 0
-    const rendered = await renderAllTyphoonWidgetMaps(cache.typhoons, amapKey, cache.updatedAt, cache.selectedId)
+    const { cache, stale } = await loadWidgetData()
+    let rendered = 0
+    if (amapKey && cache.typhoons.length) {
+      rendered = await renderAllTyphoonWidgetMaps(cache.typhoons, amapKey, cache.updatedAt, cache.selectedId)
+    } else if (!amapKey) {
+      console.log("未配置高德地图 Key，跳过小组件地图缓存生成")
+    }
+    // 主程序已把最新数据写入共享缓存；只请求一次用户组件重绘，避免逐张地图重载。
+    if (!stale) Widget.reloadUserWidgets()
     return rendered
   } catch (error) {
     console.error("Widget地图缓存更新失败", String(error))
@@ -178,6 +180,8 @@ async function main() {
           validationError: String(error)
         }
       })
+    } else {
+      refreshWidgetMapCache("").catch(error => console.error("启动后刷新小组件数据失败", String(error)))
     }
     await webView.present({ fullscreen: true })
   } finally {
