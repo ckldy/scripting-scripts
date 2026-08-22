@@ -36,6 +36,12 @@ scripting-scripts/
     └── <脚本名>.zip
 ```
 
+## 📎 关联仓库
+
+| 仓库 | 说明 |
+|---|---|
+| [cpa-manager-plus-deploy](https://github.com/ckldy/cpa-manager-plus-deploy) | CPA 系统（CLIProxyAPI + CPA-Manager-Plus 面板）可复现部署模板：双容器 compose、nginx 反代、一键更新服务与安装/备份/还原脚本（纯模板，无真实密钥） |
+
 ## ✍️ 新增脚本规范（保证互不影响）
 
 1. **独立目录**：新建 `<脚本名>/`，目录名即脚本名，`script.json` 中 `name` 与目录一致；
