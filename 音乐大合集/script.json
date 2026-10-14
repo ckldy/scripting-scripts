@@ -1,0 +1,36 @@
+{
+  "runInApp" : true,
+  "intentInputTypes" : [
+
+  ],
+  "name" : "音乐大合集",
+  "localizedNames" : {
+    "zh" : "音乐大合集",
+    "en" : "Music Collection"
+  },
+  "author" : "vcncv",
+  "localizedDescriptions" : {
+    "de" : "",
+    "fr" : "",
+    "es" : "",
+    "pt" : "",
+    "en" : "",
+    "it" : "",
+    "zh" : "",
+    "ja" : "",
+    "ru" : ""
+  },
+  "version" : "1.0.0",
+  "description" : "宝宝巴士音乐播放器",
+  "permissions" : null,
+  "entry" : "index.tsx",
+  "color" : "rgba(255, 45, 72, 1)",
+  "icon" : "music.note.house.fill",
+  "remoteResource" : {
+    "url" : "https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/%E9%9F%B3%E4%B9%90%E5%A4%A7%E5%90%88%E9%9B%86.zip"
+  },
+  "iconImage" : null,
+  "contributors" : [
+
+  ]
+}
