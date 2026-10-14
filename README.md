@@ -17,7 +17,45 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 2. 在 Scripting 应用中打开该链接（或在浏览器复制链接，粘贴到 Scripting 的"导入脚本"）；
 3. 确认导入即可，脚本出现在 Scripting 首页。
 
-> 也可以直接使用导入链接：`scripting://import_scripts?urls=https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/黃豆短劇.zip`
+## 🌟 脚本功能详解与直链
+
+### 🎵 音乐大合集 (Music Collection)
+- **版本**：`1.0.0` ｜ **作者**：`vcncv`
+- **特性**：
+  - **多源曲库聚合**：深度支持 QQ 音乐、网易云、酷狗、酷我、咪咕 5 大音源搜索与播放，突破跨域限制；支持扩展自定义本地或在线音源插件；
+  - **全窗口自适应**：深度适配 iPad 台前调度、分屏模式与浮窗（`100dvh`），任意矮窗口下进度条、播放控制按键与底部工具菜单始终完整可见、永不裁切；
+  - **纯净优雅歌词**：纯净无下划线高亮歌词，随歌曲明暗自适应主题色，丝滑垂直滚动，点击全屏歌词，锁屏歌词双句轮流播报；
+  - **多样动感进度条**：星轨（正弦浪涌）、心率波形、呼吸光轨与经典细轨 4 种样式自由切换；
+  - **多档音质与自动降级**：标准（128k）至无损（FLAC）、Hi-Res、母带（AI00）；播放失败自动平滑重试下一档音质；
+  - **后台保活与系统联动**：iOS 原生 MediaSession 深度联动，锁屏与灵动岛展示封面与歌词，支持耳机线控与后台常驻。
+- **安装链接**：[网页一键安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F%E9%9F%B3%E4%B9%90%E5%A4%A7%E5%90%88%E9%9B%86.zip%22%5D)
+- **App 直链**：`scripting://import_scripts?urls=https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/%E9%9F%B3%E4%B9%90%E5%A4%A7%E5%90%88%E9%9B%86.zip`
+
+### 📻 NetRadio (网络收音机)
+- **版本**：`1.0.0` ｜ **作者**：`vcncv`（基于 net-redio 深度移植）
+- **特性**：
+  - **全功能黑胶唱机**：拟真黑胶唱片旋转、复古金属唱臂抬起/下落动效；
+  - **动态示波器与色盘**：矩阵式电平示波器随声波跳动，内置 36 种设计师精选配色与深浅主题自适应；
+  - **全球 1000+ 电台**：按 36 个国家/地区多级分类，支持毫秒级检索、收藏夹与历史记录；
+  - **原生音频后台保活**：调用原生 `AVPlayer` 低功耗管线与锁屏/灵动岛实时广播流状态控制。
+- **安装链接**：[网页一键安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D)
+- **App 直链**：`scripting://import_scripts?urls=https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/NetRadio.zip`
+
+### 🌀 台风路径
+- **版本**：`2.3.1`
+- **特性**：
+  - 实时台风路径追踪、中央气象台/各国际专业机构路径预报对比与卫星云图气象图层；
+  - 主程序刷新自动同步刷新主屏幕与锁屏小组件，支持大号小组件地图缓存优化。
+- **安装链接**：[网页一键安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F台风路径.zip%22%5D)
+- **App 直链**：`scripting://import_scripts?urls=https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/台风路径.zip`
+
+### 🎬 黃豆短劇
+- **版本**：`1.2.0`
+- **特性**：
+  - 优质热门短剧浏览、快速检索与追剧收藏夹；
+  - 支持播放历史记忆、上下滑切集手势与进度条随心拖拽。
+- **安装链接**：[网页一键安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D)
+- **App 直链**：`scripting://import_scripts?urls=https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/黃豆短劇.zip`
 
 ## 🔄 更新
 
