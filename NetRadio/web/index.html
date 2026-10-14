@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>NetRadio - 网络收音机</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg-root: #0a0b0d;
+      --bg-panel: #12141a;
+      --bg-card: #1a1d26;
+      --bg-card-hover: #22262f;
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #f0f2f5;
+      --text-muted: #8b919d;
+      --accent: #3d8bfd;
+      --accent-dim: rgba(61, 139, 253, 0.16);
+      --live: #ff4d4f;
+      --surface-hover: rgba(255, 255, 255, 0.04);
+      --surface-muted: rgba(255, 255, 255, 0.06);
+      --card-active-border: rgba(61, 139, 253, 0.35);
+      --vol-track: rgba(255, 255, 255, 0.16);
+      --brand-end: #7c5cff;
+      --sidebar-w: 240px;
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 13px;
+    }
+    html.theme-light {
+      color-scheme: light;
+      --bg-root: #eef1f7;
+      --bg-panel: #ffffff;
+      --bg-card: #e4e8f1;
+      --bg-card-hover: #dbe0eb;
+      --border: rgba(0, 0, 0, 0.1);
+      --text: #14161c;
+      --text-muted: #5c6470;
+      --accent: #2563eb;
+      --accent-dim: rgba(37, 99, 235, 0.14);
+      --live: #e11d48;
+      --surface-hover: rgba(0, 0, 0, 0.05);
+      --surface-muted: rgba(0, 0, 0, 0.06);
+      --card-active-border: rgba(37, 99, 235, 0.45);
+      --vol-track: rgba(0, 0, 0, 0.16);
+      --brand-end: #6366f1;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+    input, textarea { user-select: text; -webkit-user-select: text; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+      font-family: var(--font); background: var(--bg-root); color: var(--text);
+    }
+    .app-canvas { width: 100%; height: 100%; overflow: hidden; display: flex; flex-direction: column; position: relative; }
+
+    .toolbar {
+      display: flex; align-items: center; gap: 8px;
+      padding-top: max(8px, env(safe-area-inset-top));
+      padding-bottom: 8px;
+      padding-left: max(14px, env(safe-area-inset-left));
+      padding-right: max(14px, env(safe-area-inset-right));
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0; background: var(--bg-panel); z-index: 10;
+    }
+    .toolbar-left, .toolbar-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .btn-toolbar {
+      position: relative; min-width: 34px; height: 32px; padding: 0 8px;
+      display: flex; align-items: center; justify-content: center; gap: 4px;
+      border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card);
+      color: var(--text-muted); cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .btn-toolbar:hover { color: var(--accent); background: var(--bg-card-hover); }
+    .btn-toolbar.active { color: #ffb020; border-color: var(--accent); background: var(--accent-dim); }
+    .btn-toolbar svg { width: 16px; height: 16px; fill: currentColor; }
+    .btn-label { font-size: 11px; font-weight: 600; color: var(--text); }
+    .fav-badge {
+      position: absolute; top: -4px; right: -4px; min-width: 15px; height: 15px; padding: 0 4px;
+      font-size: 9px; font-weight: 800; line-height: 15px; text-align: center; border-radius: 999px;
+      background: var(--accent); color: #fff; box-shadow: 0 0 0 2px var(--bg-panel);
+    }
+    .search-wrap {
+      display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;
+      padding: 6px 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 999px;
+    }
+    .search-icon svg { width: 14px; height: 14px; fill: var(--text-muted); display: block; }
+    .search-input { flex: 1; border: none; background: transparent; color: var(--text); font-size: 12px; outline: none; min-width: 0; }
+    .search-input::placeholder { color: var(--text-muted); }
+
+    .sidebar {
+      position: absolute; left: 0; top: 0; bottom: 0; width: var(--sidebar-w);
+      background: var(--bg-panel); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; z-index: 25;
+      box-shadow: 4px 0 24px rgba(0, 0, 0, 0.45);
+      transform: translateX(-100%); transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+      padding-top: max(14px, env(safe-area-inset-top)); padding-bottom: max(14px, env(safe-area-inset-bottom));
+      overflow: hidden;
+    }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-overlay {
+      position: absolute; inset: 0; background: rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); z-index: 20; display: none;
+    }
+    .sidebar-overlay.active { display: block; }
+    .brand { padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .brand-left { display: flex; align-items: center; gap: 10px; }
+    .brand-mark {
+      width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--accent), var(--brand-end));
+      box-shadow: 0 3px 12px var(--accent-dim); display: flex; align-items: center; justify-content: center;
+    }
+    .brand-mark svg { width: 18px; height: 18px; fill: #fff; }
+    .brand-text { display: flex; flex-direction: column; line-height: 1.25; }
+    .brand-text strong { font-size: 14px; font-weight: 700; }
+    .brand-text span { font-size: 10px; color: var(--text-muted); }
+    .sidebar-nav-pinned { padding: 8px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .nav { flex: 1; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+    .nav-item {
+      display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: none; border-radius: 8px;
+      background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer; text-align: left;
+      transition: background 0.15s, color 0.15s; width: 100%;
+    }
+    .nav-item:hover { background: var(--surface-hover); color: var(--text); }
+    .nav-item.active { background: var(--accent-dim); color: var(--accent); font-weight: 600; }
+    .nav-continent { border-radius: 6px; }
+    .nav-continent-summary {
+      list-style: none; font-size: 11px; font-weight: 600; color: var(--text-muted); cursor: pointer;
+      padding: 6px 8px; border-radius: 6px; display: flex; align-items: center; transition: background 0.15s, color 0.15s;
+    }
+    .nav-continent-summary::-webkit-details-marker { display: none; }
+    .nav-continent-summary::before {
+      content: ''; display: inline-block; width: 0; height: 0; margin-right: 6px;
+      border-left: 4px solid currentColor; border-top: 3px solid transparent; border-bottom: 3px solid transparent;
+      transition: transform 0.15s; opacity: 0.7;
+    }
+    .nav-continent[open] > .nav-continent-summary::before { transform: rotate(90deg); }
+    .nav-country-list { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 6px 8px; }
+    .nav-item--country { padding: 5px 8px; font-size: 11px; }
+    .nav-country-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .app-container { display: flex; flex: 1; min-height: 0; position: relative; overflow: hidden; }
+    .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-root); overflow: hidden; position: relative; }
+
+    .main-stage {
+      flex-shrink: 0; padding: 8px 14px 10px; border-bottom: 1px solid var(--border);
+      background: var(--bg-root); display: flex; flex-direction: column; align-items: center;
+    }
+    .vinyl-deck { position: relative; width: fit-content; margin: 0 auto; }
+    .vinyl-wrap { position: relative; width: 112px; height: 112px; display: flex; align-items: center; justify-content: center; }
+    /* 注意：不要用 filter/drop-shadow 做循环动画（iOS WebKit 每帧离屏重绘，滚动必卡） */
+    .vinyl-disc {
+      position: relative; width: 100%; height: 100%; border-radius: 50%;
+      will-change: transform; transform: translateZ(0); backface-visibility: hidden; -webkit-backface-visibility: hidden;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255, 255, 255, 0.08) inset, 0 -2px 10px rgba(0, 0, 0, 0.4) inset;
+    }
+    .vinyl-disc--spin { animation: vinyl-rotate var(--vinyl-spin-duration, 1.8s) linear infinite; }
+    @keyframes vinyl-rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .vinyl-grooves {
+      position: absolute; inset: 0; border-radius: 50%; pointer-events: none; opacity: 0.9;
+      background: repeating-radial-gradient(circle at 50% 50%, rgba(0,0,0,0.22) 0, rgba(0,0,0,0.22) 1px, transparent 1px, transparent 3px);
+    }
+    .vinyl-highlight {
+      position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+      background: linear-gradient(125deg, rgba(255,255,255,0.16) 0%, transparent 38%, transparent 62%, rgba(255,255,255,0.05) 100%);
+    }
+    .vinyl-label {
+      position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 44%; height: 44%;
+      border-radius: 50%; overflow: hidden; border: 3px solid #1e2128; z-index: 2;
+      background: linear-gradient(145deg, var(--bg-card), var(--bg-card-hover));
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.12) inset, 0 3px 12px rgba(0,0,0,0.65);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .vinyl-label img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .vinyl-label-fallback { width: 100%; height: 100%; background: var(--accent); opacity: 0.88; display: flex; align-items: center; justify-content: center; }
+    .vinyl-label-fallback svg { width: 20px; height: 20px; fill: #fff; }
+    .tonearm { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
+    .tonearm__pillar {
+      position: absolute; top: 2px; left: -14px; width: 20px; height: 22px; border-radius: 4px 4px 3px 3px;
+      background: linear-gradient(270deg, #252830, #4c5058, #2e3138);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), inset 0 -2px 4px rgba(0,0,0,0.35), 0 3px 8px rgba(0,0,0,0.4);
+    }
+    .tonearm__pillar::after {
+      content: ''; position: absolute; top: 5px; left: 50%; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%;
+      background: radial-gradient(circle at 65% 30%, #8a9098, #3a3d44 55%, #1e2126);
+    }
+    .tonearm__swing {
+      position: absolute; top: 18px; left: -6px; width: 8px; height: 86px;
+      transform-origin: 50% 0; transform: rotate(34deg); transition: transform 0.55s cubic-bezier(0.33, 1, 0.68, 1);
+    }
+    .tonearm--playing .tonearm__swing { transform: rotate(-24deg); }
+    .tonearm__tube { width: 5px; height: 62px; margin: 0 auto; border-radius: 2px; background: linear-gradient(270deg, #1a1c20, #6a6e76 42%, #9ea2a8 50%, #5a5e64 58%, #22252a); box-shadow: -1px 0 2px rgba(0,0,0,0.45); }
+    .tonearm__headshell { position: relative; width: 14px; height: 18px; margin: -1px auto 0; border-radius: 3px 3px 4px 4px; background: linear-gradient(145deg, #454950, #1f2228); box-shadow: 0 2px 6px rgba(0,0,0,0.45); }
+    .tonearm__stylus { position: absolute; bottom: -4px; left: 50%; width: 2px; height: 5px; margin-left: -1px; border-radius: 0 0 1px 1px; background: linear-gradient(180deg, #b8bcc4, #6e737c); }
+    .stage-audio-info { text-align: center; margin-top: 6px; max-width: 92%; }
+    .audio-title { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .audio-sub { margin: 3px 0 0; font-size: 11px; color: var(--text-muted); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+    .content-area { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 10px 14px 16px; contain: content; }
+    .section-title {
+      margin: 0 0 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text-muted); display: flex; align-items: center; justify-content: space-between;
+    }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
+    .card {
+      position: relative; display: flex; flex-direction: row; align-items: flex-start; gap: 10px;
+      padding: 8px 34px 8px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card);
+      color: inherit; cursor: pointer; text-align: left; overflow: hidden;
+      transition: transform 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .card:hover { transform: translateY(-2px); background: var(--bg-card-hover); border-color: var(--card-active-border); }
+    .card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--accent-dim); }
+    .card-avatar {
+      position: relative; flex-shrink: 0; width: 42px; height: 42px; border-radius: 6px; border: 1px solid var(--border);
+      background: linear-gradient(135deg, #2a2f3d, #1a1d26); background-size: cover; background-position: center; overflow: hidden;
+    }
+    .card-live { position: absolute; right: 2px; bottom: 2px; font-size: 7px; font-weight: 800; letter-spacing: 0.04em; color: #fff; background: rgba(0,0,0,0.65); padding: 1px 3px; border-radius: 3px; line-height: 1; }
+    .card-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .card-name { font-size: 12px; font-weight: 600; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .card-name-num { margin-right: 0.3em; font-weight: 800; color: var(--accent); }
+    .card-provider { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); opacity: 0.95; }
+    .card-desc { font-size: 10px; color: var(--text-muted); line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .card-fav {
+      position: absolute; top: 6px; right: 6px; z-index: 2; width: 26px; height: 26px; border: none; border-radius: 6px;
+      background: rgba(0,0,0,0.45); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, transform 0.12s;
+    }
+    .card-fav:hover { background: rgba(0,0,0,0.65); transform: scale(1.08); }
+    .card-fav.active { color: #ffb020; background: rgba(0,0,0,0.65); }
+    .card-fav svg { width: 14px; height: 14px; fill: currentColor; }
+    .empty-hint { color: var(--text-muted); font-size: 12px; padding: 36px 16px; text-align: center; }
+
+    .player-bar {
+      min-height: calc(64px + env(safe-area-inset-bottom));
+      padding-bottom: max(6px, env(safe-area-inset-bottom)); padding-top: 6px;
+      padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(18px, env(safe-area-inset-right));
+      background: var(--bg-panel); border-top: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 30; gap: 12px;
+    }
+    .player-bar-left { display: flex; align-items: center; gap: 10px; flex: 1 1 180px; min-width: 0; max-width: 260px; }
+    .now-thumb {
+      width: 42px; height: 42px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-card);
+      flex-shrink: 0; overflow: hidden; display: flex; align-items: center; justify-content: center;
+    }
+    .now-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .now-thumb-fallback { width: 100%; height: 100%; background: linear-gradient(135deg, var(--accent), var(--brand-end)); display: flex; align-items: center; justify-content: center; }
+    .now-thumb-fallback svg { width: 20px; height: 20px; fill: #fff; }
+    .now-meta { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .now-title { font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .now-detail { font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .player-bar-center { display: flex; align-items: center; justify-content: center; gap: 12px; flex-shrink: 0; }
+    .spectrum-slot { width: 76px; height: 30px; flex-shrink: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); background: #0c0e14; }
+    .spectrum-slot.idle { opacity: 0.35; }
+    .spectrum-canvas { width: 100%; height: 100%; display: block; }
+    .btn-play-round {
+      width: 42px; height: 42px; border-radius: 50%; border: none; background: var(--accent); color: #fff; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 12px var(--accent-dim);
+      transition: transform 0.12s, opacity 0.12s;
+    }
+    .btn-play-round:hover:not(:disabled) { transform: scale(1.06); }
+    .btn-play-round:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-play-round svg { width: 20px; height: 20px; fill: currentColor; }
+    .player-bar-right { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex: 1 1 170px; min-width: 0; }
+    .volume-block { display: flex; align-items: center; gap: 4px; width: 95px; min-width: 85px; max-width: 100px; flex-shrink: 0; }
+    .btn-icon { width: 30px; height: 30px; border: none; border-radius: 8px; background: transparent; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .btn-icon:hover { color: var(--text); background: var(--surface-muted); }
+    .btn-icon svg { width: 18px; height: 18px; fill: currentColor; }
+    .vol-slider { width: 60px; min-width: 60px; max-width: 60px; height: 20px; background: transparent; cursor: pointer; -webkit-appearance: none; margin: 0; flex-shrink: 0; }
+    .vol-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--vol-track); }
+    .vol-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -4px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg-panel); }
+    .tools-divider { width: 1px; height: 16px; background: var(--border); flex-shrink: 0; margin: 0 4px; }
+    .btn-timer-wrap { position: relative; flex-shrink: 0; }
+    .timer-badge {
+      position: absolute; top: -3px; right: -4px; min-width: 15px; height: 15px; padding: 0 3px; font-size: 8px;
+      font-weight: 800; line-height: 15px; border-radius: 999px; background: var(--accent); color: #fff;
+      text-align: center; box-shadow: 0 0 0 2px var(--bg-panel);
+    }
+
+    .timer-modal { position: absolute; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
+    .timer-modal-content {
+      width: 100%; max-width: 480px; background: var(--bg-panel);
+      border-top-left-radius: 16px; border-top-right-radius: 16px; border: 1px solid var(--border); border-bottom: none;
+      padding: 18px 16px max(24px, env(safe-area-inset-bottom));
+      box-shadow: 0 -8px 32px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 16px;
+    }
+    .timer-modal-header { display: flex; align-items: center; justify-content: space-between; }
+    .timer-modal-title { font-size: 15px; font-weight: 700; margin: 0; }
+    .timer-chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .timer-chip {
+      padding: 9px 8px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-card);
+      font-size: 12px; font-weight: 600; text-align: center; cursor: pointer; color: var(--text); transition: background 0.15s, border-color 0.15s;
+    }
+    .timer-chip:hover { background: var(--bg-card-hover); }
+    .timer-chip.active { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); }
+
+    .subview { position: absolute; inset: 0; background: var(--bg-root); z-index: 40; display: flex; flex-direction: column; overflow: hidden; }
+    .subview-toolbar {
+      padding-top: max(14px, env(safe-area-inset-top)); padding-bottom: 10px;
+      padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right));
+      display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); background: var(--bg-panel); flex-shrink: 0;
+    }
+    .subview-title { margin: 0; font-size: 15px; font-weight: 700; flex: 1; }
+    .subview-body { flex: 1; overflow-y: auto; padding: 16px 14px max(24px, env(safe-area-inset-bottom)); }
+    .settings-block { margin-bottom: 24px; }
+    .settings-block-title { margin: 0 0 6px; font-size: 13px; font-weight: 700; }
+    .settings-block-hint { margin: 0 0 10px; font-size: 11px; line-height: 1.45; color: var(--text-muted); }
+    .theme-accent-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+    .theme-accent-swatch { width: 44px; height: 44px; border-radius: 8px; cursor: pointer; position: relative; border: 2px solid transparent; padding: 0; transition: transform 0.12s; }
+    .theme-accent-swatch:hover { transform: scale(1.08); }
+    .theme-accent-swatch.active { border-color: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.4); }
+    .theme-accent-swatch.active::after { content: ''; position: absolute; left: 14px; top: 10px; width: 6px; height: 12px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+    .settings-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .settings-chip {
+      display: flex; align-items: center; gap: 6px; padding: 7px 14px; border: 1px solid var(--border);
+      border-radius: 999px; background: var(--bg-card); cursor: pointer; font-size: 12px; color: var(--text);
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .settings-chip:hover { background: var(--bg-card-hover); }
+    .settings-chip.active { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); font-weight: 600; }
+    .settings-swatch-dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.2); }
+    .switch-row { display: flex; align-items: center; gap: 12px; }
+    .switch-btn { width: 44px; height: 24px; border-radius: 12px; background: var(--surface-muted); border: 1px solid var(--border); position: relative; cursor: pointer; padding: 0; transition: background 0.2s; }
+    .switch-btn.active { background: var(--accent); border-color: transparent; }
+    .switch-knob { width: 18px; height: 18px; border-radius: 50%; background: #fff; position: absolute; top: 2px; left: 2px; transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 1px 3px rgba(0,0,0,0.35); }
+    .switch-btn.active .switch-knob { transform: translateX(20px); }
+    .about-card { margin-top: 28px; padding: 16px; border-radius: 12px; background: var(--bg-card); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
+    .about-header { display: flex; align-items: center; gap: 10px; }
+    .about-header strong { font-size: 15px; }
+    .about-desc { font-size: 12px; line-height: 1.6; color: var(--text-muted); }
+    .about-link-box { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--bg-panel); border-radius: 8px; border: 1px solid var(--border); font-size: 12px; word-break: break-all; }
+    .btn-copy { padding: 5px 12px; font-size: 11px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-card); color: var(--accent); cursor: pointer; flex-shrink: 0; }
+    .history-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--bg-card); border-radius: 8px; margin-bottom: 6px; cursor: pointer; }
+    .history-item:hover { background: var(--bg-card-hover); }
+    .history-main { flex: 1; min-width: 0; }
+    .history-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .history-meta { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+    .btn-delete { width: 28px; height: 28px; border-radius: 6px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .btn-delete:hover { color: #f87171; }
+    @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="app-canvas" id="app">
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar(false)"></div>
+
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-left">
+          <div class="brand-mark"><svg viewBox="0 0 24 24"><path d="M3.24 6.15C2.51 6.43 2 7.17 2 8v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-.83-.51-1.57-1.24-1.85L12 2 3.24 6.15zM12 4.47l6 2.8v10.46l-6-2.8V4.47zM4 8.73l6 2.8v8.47l-6-2.8V8.73z"/></svg></div>
+          <div class="brand-text"><strong>NetRadio</strong><span id="sidebarCount">免费流媒体电台</span></div>
+        </div>
+        <button type="button" class="btn-toolbar" onclick="toggleSidebar(false)"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+      </div>
+      <div class="sidebar-nav-pinned">
+        <button type="button" class="nav-item nav-item--all active" id="navAllBtn" onclick="selectNav('all'); toggleSidebar(false);">
+          <svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:currentColor;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+          所有电台
+        </button>
+      </div>
+      <nav class="nav" id="continentNav"></nav>
+      <div class="sidebar-nav-pinned" style="border-top:1px solid var(--border);border-bottom:none;margin-top:auto;">
+        <button type="button" class="nav-item" style="color:var(--accent);font-weight:600;" onclick="openView('settings'); toggleSidebar(false);">
+          <svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:currentColor;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+          关于与致谢声明
+        </button>
+      </div>
+    </aside>
+
+    <header class="toolbar">
+      <div class="toolbar-left">
+        <button type="button" class="btn-toolbar" title="选择国家与地区电台" onclick="toggleSidebar()" aria-label="地区电台">
+          <svg viewBox="0 0 24 24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+          <span class="btn-label">地区</span>
+        </button>
+      </div>
+      <div class="search-wrap">
+        <span class="search-icon"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></span>
+        <input type="search" class="search-input" id="searchInput" placeholder="搜索电台、国家、流派…" oninput="onSearchInput(this.value)">
+      </div>
+      <div class="toolbar-actions">
+        <button type="button" class="btn-toolbar" id="themeToggleBtn" title="切换明暗主题" onclick="toggleTheme()">
+          <svg id="themeIconDark" viewBox="0 0 24 24"><path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1z"/></svg>
+          <svg id="themeIconLight" viewBox="0 0 24 24" style="display:none;"><path d="M12.34 2.02c.12-.01.24 0 .35.08.23.14.31.42.2.65A9.96 9.96 0 0119 12c0 5.52-4.48 10-10 10-2.11 0-4.07-.65-5.69-1.76-.27-.18-.34-.55-.17-.82.91-1.47 1.43-3.21 1.43-5.07 0-3.86-2.55-7.12-6.07-8.19-.29-.08-.45-.38-.36-.67.08-.29.38-.45.67-.36 1.02.29 2.04.65 3.03 1.07.79.35 1.67.18 2.26-.43 1.31-1.31 3.04-2.18 4.93-2.47z"/></svg>
+        </button>
+        <button type="button" class="btn-toolbar" id="favToggleBtn" title="我的收藏" onclick="toggleFavoritesView()">
+          <svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+          <span class="fav-badge" id="favBadge" style="display:none;">0</span>
+        </button>
+        <button type="button" class="btn-toolbar" title="设置" onclick="openView('settings')">
+          <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.17-.56 1.62-.94l2.39.96c.22.08.49 0 .61-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="app-container">
+      <main class="main">
+        <section class="main-stage">
+          <div class="vinyl-deck">
+            <div class="vinyl-wrap" id="vinylWrap">
+              <div class="vinyl-disc" id="vinylDisc">
+                <div class="vinyl-grooves"></div>
+                <div class="vinyl-highlight"></div>
+                <div class="vinyl-label" id="vinylLabel">
+                  <div class="vinyl-label-fallback"><svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>
+                </div>
+              </div>
+              <div class="tonearm" id="tonearm">
+                <div class="tonearm__pillar"></div>
+                <div class="tonearm__swing">
+                  <div class="tonearm__tube"></div>
+                  <div class="tonearm__headshell"><span class="tonearm__stylus"></span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="stage-audio-info">
+            <p class="audio-title" id="stageTitle">NetRadio 网络收音机</p>
+            <p class="audio-sub" id="stageSub">从下方列表中挑选电台，支持全球免费公开流媒体广播</p>
+          </div>
+        </section>
+
+        <section class="content-area" id="contentArea">
+          <div class="section-title">
+            <span id="gridSectionTitle">免费流媒体电台</span>
+            <span id="stationCountBadge" style="font-size:10px;opacity:0.8;"></span>
+          </div>
+          <div class="grid" id="stationsGrid"></div>
+          <div class="empty-hint" id="emptyHint" style="display:none;">没有找到匹配的电台</div>
+        </section>
+      </main>
+    </div>
+
+    <footer class="player-bar">
+      <div class="player-bar-left">
+        <div class="now-thumb" id="playerThumb"><div class="now-thumb-fallback"><svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div></div>
+        <div class="now-meta">
+          <span class="now-title" id="playerTitle">未播放</span>
+          <span class="now-detail" id="playerDetail">请选择电台开始收听</span>
+        </div>
+      </div>
+      <div class="player-bar-center">
+        <div class="spectrum-slot idle" id="spectrumSlot"><canvas class="spectrum-canvas" id="spectrumCanvas" width="76" height="30"></canvas></div>
+        <button type="button" class="btn-play-round" id="playBtn" disabled onclick="togglePlay()">
+          <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          <svg id="pauseIcon" viewBox="0 0 24 24" style="display:none;"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+      </div>
+      <div class="player-bar-right">
+        <div class="volume-block">
+          <button type="button" class="btn-icon" id="muteBtn" onclick="toggleMute()" title="静音/取消静音">
+            <svg id="volIcon" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+            <svg id="muteIcon" viewBox="0 0 24 24" style="display:none;"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+          </button>
+          <input type="range" class="vol-slider" id="volSlider" min="0" max="100" value="100" oninput="onVolumeInput(this.value)">
+        </div>
+        <div class="tools-divider"></div>
+        <div class="btn-timer-wrap">
+          <button type="button" class="btn-icon" id="timerHistoryBtn" title="定时关闭与收听记录" onclick="openTimerHistoryModal()">
+            <svg viewBox="0 0 24 24"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3.1.8-1.3-4.5-2.7V7z"/></svg>
+          </button>
+          <span class="timer-badge" id="timerBadge" style="display:none;"></span>
+        </div>
+      </div>
+    </footer>
+
+    <div class="timer-modal" id="timerModal" style="display:none;" onclick="closeTimerModal(event)">
+      <div class="timer-modal-content" onclick="event.stopPropagation()">
+        <div class="timer-modal-header">
+          <h3 class="timer-modal-title">定时关闭与记录</h3>
+          <button type="button" class="btn-toolbar" onclick="closeTimerModal()"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);">选择睡眠定时关闭时长，倒计时结束将自动停止播放并安静退出：</div>
+        <div class="timer-chips" id="timerChips">
+          <div class="timer-chip active" data-mins="0" onclick="setSleepTimer(0)">关闭定时</div>
+          <div class="timer-chip" data-mins="15" onclick="setSleepTimer(15)">15 分钟</div>
+          <div class="timer-chip" data-mins="30" onclick="setSleepTimer(30)">30 分钟</div>
+          <div class="timer-chip" data-mins="45" onclick="setSleepTimer(45)">45 分钟</div>
+          <div class="timer-chip" data-mins="60" onclick="setSleepTimer(60)">60 分钟</div>
+          <div class="timer-chip" data-mins="90" onclick="setSleepTimer(90)">90 分钟</div>
+        </div>
+        <button type="button" class="btn-toolbar" style="width:100%;height:38px;border-radius:10px;gap:8px;" onclick="closeTimerModal(); openView('history');">
+          <svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+          <span style="font-size:12px;font-weight:600;">查看全部收听记录</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="subview" id="settingsView" style="display:none;">
+      <header class="subview-toolbar">
+        <button type="button" class="btn-toolbar" onclick="closeView('settings')"><svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+        <h1 class="subview-title">设置与偏好</h1>
+      </header>
+      <div class="subview-body">
+        <section class="settings-block">
+          <h2 class="settings-block-title">主题强调色</h2>
+          <p class="settings-block-hint">所选颜色用于按钮高亮、卡片边框与标签强调；实时适配明暗双色主题。</p>
+          <div class="theme-accent-grid" id="accentGrid"></div>
+        </section>
+        <section class="settings-block">
+          <h2 class="settings-block-title">黑胶唱片底色</h2>
+          <p class="settings-block-hint">主界面黑胶转盘的拟真质感底色。</p>
+          <div class="settings-chips" id="vinylColorChips">
+            <div class="settings-chip active" data-color="black" onclick="setVinylColor('black')"><span class="settings-swatch-dot" style="background:#2a2d35;"></span>经典黑</div>
+            <div class="settings-chip" data-color="white" onclick="setVinylColor('white')"><span class="settings-swatch-dot" style="background:#e4e7ef;"></span>象牙白</div>
+            <div class="settings-chip" data-color="blue" onclick="setVinylColor('blue')"><span class="settings-swatch-dot" style="background:#355a8c;"></span>复古蓝</div>
+            <div class="settings-chip" data-color="red" onclick="setVinylColor('red')"><span class="settings-swatch-dot" style="background:#a63d48;"></span>唱片红</div>
+            <div class="settings-chip" data-color="yellow" onclick="setVinylColor('yellow')"><span class="settings-swatch-dot" style="background:#c9a227;"></span>柠檬黄</div>
+          </div>
+        </section>
+        <section class="settings-block">
+          <h2 class="settings-block-title">唱片旋转速度</h2>
+          <p class="settings-block-hint">黑胶转盘旋转一整圈所需时长。</p>
+          <div class="settings-chips" id="vinylSpeedChips">
+            <div class="settings-chip active" data-speed="default" onclick="setVinylSpeed('default')">默认 (33⅓ RPM)</div>
+            <div class="settings-chip" data-speed="slow" onclick="setVinylSpeed('slow')">慢速 (舒缓)</div>
+            <div class="settings-chip" data-speed="fast" onclick="setVinylSpeed('fast')">快速 (律动)</div>
+          </div>
+        </section>
+        <section class="settings-block">
+          <h2 class="settings-block-title">显示机械唱臂</h2>
+          <p class="settings-block-hint">黑胶唱机左上方的金属唱针摆臂交互。</p>
+          <div class="switch-row">
+            <span style="font-size:12px;color:var(--text-muted);">否</span>
+            <button type="button" class="switch-btn active" id="tonearmSwitch" onclick="toggleTonearmSwitch()"><span class="switch-knob"></span></button>
+            <span style="font-size:12px;color:var(--text-muted);">是</span>
+          </div>
+        </section>
+        <section class="settings-block">
+          <h2 class="settings-block-title">显示电平示波器</h2>
+          <p class="settings-block-hint">底部播放栏内置的 11 列 × 8 行跳动矩阵电平。</p>
+          <div class="switch-row">
+            <span style="font-size:12px;color:var(--text-muted);">否</span>
+            <button type="button" class="switch-btn active" id="spectrumSwitch" onclick="toggleSpectrumSwitch()"><span class="switch-knob"></span></button>
+            <span style="font-size:12px;color:var(--text-muted);">是</span>
+          </div>
+        </section>
+        <div class="about-card">
+          <div class="about-header">
+            <div class="brand-mark" style="width:28px;height:28px;"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg></div>
+            <strong>关于 NetRadio 与开源致谢</strong>
+          </div>
+          <div class="about-desc">
+            <p style="margin:0 0 8px;"><strong>特别鸣谢：</strong>本项目基于开源项目 <strong>net-redio</strong> 转换适配。衷心感谢原作者 <strong>yichuancq</strong> 的杰出贡献！</p>
+            <p style="margin:0 0 8px;">原始仓库设计了优雅的黑胶唱机动效、拟真电平示波器、多主题调色系统以及精心维护的全球数百个网络电台清单。在转换为 Scripting 脚本后，深度集成了 iOS 原生 <code>AVPlayer</code> 音频框架、<code>SharedAudioSession</code> 后台保活与锁屏控制中心（NowPlayingInfo），实现真正的原生后台音频播放与耳机线控。</p>
+            <p style="margin:0;"><strong>Scripting 移植与增强：</strong><strong>vcncv</strong> · <a href="https://github.com/ckldy" style="color:var(--accent);">github.com/ckldy</a></p>
+          </div>
+          <div class="about-link-box">
+            <span>https://github.com/yichuancq/net-redio</span>
+            <div style="display:flex;gap:6px;">
+              <button type="button" class="btn-copy" onclick="openRepoInBrowser()">打开仓库</button>
+              <button type="button" class="btn-copy" onclick="copyRepoUrl()">复制链接</button>
+            </div>
+          </div>
+          <div style="font-size:10px;color:var(--text-muted);display:flex;justify-content:space-between;">
+            <span>版本：v1.0.0 · by vcncv (Scripting Native Edition)</span>
+            <span id="aboutStationCount">全球电台持续收听</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="subview" id="historyView" style="display:none;">
+      <header class="subview-toolbar">
+        <button type="button" class="btn-toolbar" onclick="closeView('history')"><svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+        <h1 class="subview-title">收听记录</h1>
+        <button type="button" class="btn-copy" style="color:var(--text-muted);" onclick="clearAllHistory()">清空全部</button>
+      </header>
+      <div class="subview-body" id="historyList"></div>
+    </div>
+  </div>
+
+  <script>
+    /* ===================== 常量 ===================== */
+    const CONTINENT_IDS = ['asia','europe','africa','north-america','central-america-caribbean','south-america','oceania','antarctica'];
+    const CONTINENT_NAMES_ZH = { asia:'亚洲', europe:'欧洲', africa:'非洲', 'north-america':'北美', 'central-america-caribbean':'中美与加勒比', 'south-america':'南美', oceania:'大洋洲', antarctica:'南极洲' };
+    const CONTINENT_COUNTRY_CODES = {
+      africa: ['za','ng','eg','ke','et','gh','tz','ug','dz','ma'],
+      asia: ['cn','hk','mo','tw','jp','kr','in','id','sa','ir','tr','pk','th','vn','my','sg','ph'],
+      europe: ['gb','de','fr','ru','it','es','nl','pl','ua','se','no','ch','at','be','ie','fi'],
+      'north-america': ['us','ca'],
+      'central-america-caribbean': ['mx','cu','do','gt','cr','pa','hn','jm'],
+      'south-america': ['br','ar','co','cl','pe','ve','ec','uy'],
+      oceania: ['au','nz','fj'],
+      antarctica: ['aq']
+    };
+    const ISO2_ZH_COUNTRY_NAMES = { cn:'中国',hk:'香港',tw:'台湾',mo:'澳门',us:'美国',gb:'英国',jp:'日本',kr:'韩国',fr:'法国',de:'德国',ca:'加拿大',au:'澳大利亚',nl:'荷兰',it:'意大利',es:'西班牙',ru:'俄罗斯',br:'巴西',in:'印度',sg:'新加坡',th:'泰国',my:'马来西亚',id:'印度尼西亚',mx:'墨西哥',ch:'瑞士',se:'瑞典',no:'挪威',fi:'芬兰',dk:'丹麦',be:'比利时',at:'奥地利',za:'南非',ng:'尼日利亚',eg:'埃及',ke:'肯尼亚',et:'埃塞俄比亚',gh:'加纳',tz:'坦桑尼亚',ug:'乌干达',dz:'阿尔及利亚',ma:'摩洛哥',sa:'沙特阿拉伯',ir:'伊朗',tr:'土耳其',pk:'巴基斯坦',vn:'越南',ph:'菲律宾',ar:'阿根廷',co:'哥伦比亚',cl:'智利',pe:'秘鲁',ve:'委内瑞拉',ec:'厄瓜多尔',uy:'乌拉圭',nz:'新西兰',fj:'斐济',do:'多米尼加',gt:'危地马拉',cr:'哥斯达黎加',pa:'巴拿马',hn:'洪都拉斯',jm:'牙买加',cu:'古巴',aq:'南极洲' };
+    const THEME_ACCENT_PALETTE = ['#e11d48','#f43f5e','#ec4899','#d946ef','#a855f7','#7c3aed','#6366f1','#3b82f6','#0ea5e9','#06b6d4','#14b8a6','#10b981','#22c55e','#84cc16','#eab308','#f97316','#fb923c','#f87171','#3d8bfd','#1e40af','#1d4ed8','#172554','#312e81','#4c1d95'];
+    const VINYL_DISC_BACKGROUNDS = {
+      black: 'radial-gradient(circle at 35% 30%, #2d3038 0%, #12141a 42%, #0a0b0f 100%)',
+      white: 'radial-gradient(circle at 35% 30%, #f4f5f8 0%, #d4d8e4 42%, #aeb4c4 100%)',
+      blue: 'radial-gradient(circle at 35% 30%, #3d5a8c 0%, #1a2d52 42%, #0d1528 100%)',
+      red: 'radial-gradient(circle at 35% 30%, #8c3d45 0%, #521a22 42%, #280d12 100%)',
+      yellow: 'radial-gradient(circle at 35% 30%, #c9a227 0%, #8a6a14 42%, #4a3a08 100%)'
+    };
+    const VINYL_SPEED_DURATIONS = { default: 1.8, slow: 4.0, fast: 0.92 };
+
+    const KEY_THEME = 'net-redio-theme';
+    const KEY_ACCENT = 'net-redio-theme-accent';
+    const KEY_FAVORITES = 'net-redio-favorite-station-ids-v1';
+    const KEY_HISTORY = 'net-redio-listen-history-v1';
+    const KEY_VINYL_COLOR = 'net-redio-vinyl-base-color';
+    const KEY_VINYL_SPEED = 'net-redio-vinyl-spin-speed';
+    const KEY_TONEARM = 'net-redio-show-tonearm';
+    const KEY_SPECTRUM = 'net-redio-show-spectrum';
+
+    /* ===================== 状态 ===================== */
+    let ALL_STATIONS = [];
+    let currentNav = 'all';
+    let currentQuery = '';
+    let currentStation = null;
+    let isPlaying = false;
+    let isMuted = false;
+    let currentVolume = 100;
+    let currentTheme = localStorage.getItem(KEY_THEME) || 'dark';
+    let currentAccent = localStorage.getItem(KEY_ACCENT) || '#3d8bfd';
+    let vinylBaseColor = localStorage.getItem(KEY_VINYL_COLOR) || 'black';
+    let vinylSpinSpeed = localStorage.getItem(KEY_VINYL_SPEED) || 'default';
+    let showTonearm = localStorage.getItem(KEY_TONEARM) !== '0';
+    let showSpectrum = localStorage.getItem(KEY_SPECTRUM) !== '0';
+    let favorites = new Set();
+    let listenHistory = [];
+    let sleepTimerTarget = 0;
+    let sleepTimerInterval = null;
+
+    try {
+      const favRaw = localStorage.getItem(KEY_FAVORITES);
+      if (favRaw) JSON.parse(favRaw).forEach(function (id) { favorites.add(id); });
+      const histRaw = localStorage.getItem(KEY_HISTORY);
+      if (histRaw) listenHistory = JSON.parse(histRaw);
+    } catch (e) {}
+
+    /* ===================== 工具 ===================== */
+    function postToNative(action, payload) {
+      const msg = Object.assign({ action: action }, payload || {});
+      try {
+        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nativeRadio) {
+          window.webkit.messageHandlers.nativeRadio.postMessage(msg);
+        }
+      } catch (e) {}
+    }
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function hexToRgb(hex) {
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [61, 139, 253];
+    }
+
+    /* ===================== 侧栏 ===================== */
+    function toggleSidebar(force) {
+      const sidebar = document.getElementById('sidebar');
+      const overlay = document.getElementById('sidebarOverlay');
+      const isOpen = sidebar.classList.contains('open');
+      const targetOpen = force !== undefined ? force : !isOpen;
+      if (targetOpen) { sidebar.classList.add('open'); overlay.classList.add('active'); }
+      else { sidebar.classList.remove('open'); overlay.classList.remove('active'); }
+    }
+    function renderContinentNav() {
+      const navContainer = document.getElementById('continentNav');
+      if (!navContainer) return;
+      navContainer.innerHTML = '';
+      CONTINENT_IDS.forEach(function (cId) {
+        const codes = CONTINENT_COUNTRY_CODES[cId] || [];
+        const validCodes = codes.filter(function (code) { return ALL_STATIONS.some(function (s) { return s.countrycode === code; }); });
+        if (validCodes.length === 0) return;
+        const details = document.createElement('details');
+        details.className = 'nav-continent';
+        const summary = document.createElement('summary');
+        summary.className = 'nav-continent-summary';
+        summary.textContent = CONTINENT_NAMES_ZH[cId] || cId;
+        details.appendChild(summary);
+        const listDiv = document.createElement('div');
+        listDiv.className = 'nav-country-list';
+        validCodes.forEach(function (code) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'nav-item nav-item--country' + (currentNav === 'country:' + code ? ' active' : '');
+          btn.onclick = function () { selectNav('country:' + code); toggleSidebar(false); };
+          const textSpan = document.createElement('span');
+          textSpan.className = 'nav-country-text';
+          const matchCount = ALL_STATIONS.filter(function (s) { return s.countrycode === code; }).length;
+          textSpan.textContent = (ISO2_ZH_COUNTRY_NAMES[code] || code.toUpperCase()) + ' (' + matchCount + ')';
+          btn.appendChild(textSpan);
+          listDiv.appendChild(btn);
+        });
+        details.appendChild(listDiv);
+        navContainer.appendChild(details);
+      });
+    }
+    function selectNav(navKey) {
+      currentNav = navKey;
+      const allBtn = document.getElementById('navAllBtn');
+      const favBtn = document.getElementById('favToggleBtn');
+      if (allBtn) allBtn.classList.toggle('active', navKey === 'all');
+      if (favBtn) favBtn.classList.toggle('active', navKey === 'favorites');
+      renderContinentNav();
+      renderStationsGrid();
+    }
+    function toggleFavoritesView() { if (currentNav === 'favorites') selectNav('all'); else selectNav('favorites'); }
+    function onSearchInput(val) { currentQuery = val.trim().toLowerCase(); renderStationsGrid(); }
+    function getFilteredStations() {
+      let list = ALL_STATIONS;
+      if (currentNav === 'favorites') list = list.filter(function (s) { return favorites.has(s.stationuuid); });
+      else if (currentNav.indexOf('country:') === 0) { const cc = currentNav.slice('country:'.length); list = list.filter(function (s) { return s.countrycode === cc; }); }
+      if (currentQuery) {
+        list = list.filter(function (s) {
+          const haystack = [s.name, s.title, s.country, s.tags, s.genre, s.description, s.dj, s.lastPlaying].filter(Boolean).join(' ').toLowerCase();
+          return haystack.indexOf(currentQuery) !== -1;
+        });
+      }
+      return list.slice().sort(function (a, b) { return (b.popularity || 0) - (a.popularity || 0); });
+    }
+
+    /* ===================== 电台网格 ===================== */
+    let gridList = [];
+    let gridRendered = 0;
+    const GRID_CHUNK = 60;
+
+    function buildCard(s, idx) {
+      const card = document.createElement('div');
+      card.className = 'card' + (currentStation && currentStation.stationuuid === s.stationuuid ? ' active' : '');
+      card.onclick = function () { playStation(s); };
+
+      const cover = s.largeimage || s.image || '';
+      const avatar = document.createElement('div');
+      avatar.className = 'card-avatar';
+      if (cover) avatar.style.backgroundImage = 'url(' + JSON.stringify(cover) + ')';
+      avatar.innerHTML = '<span class="card-live">LIVE</span>';
+      card.appendChild(avatar);
+
+      const body = document.createElement('div');
+      body.className = 'card-body';
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'card-name';
+      nameSpan.innerHTML = '<span class="card-name-num">' + (idx + 1) + '.</span>' + escapeHtml(s.name);
+      body.appendChild(nameSpan);
+
+      const genreLine = String(s.genre || '').replace(/\|/g, ' · ');
+      const subParts = [s.country, genreLine, s.listeners ? s.listeners + ' 收听' : ''].filter(Boolean);
+      if (subParts.length) {
+        const provSpan = document.createElement('span');
+        provSpan.className = 'card-provider';
+        provSpan.textContent = subParts.join(' · ');
+        body.appendChild(provSpan);
+      }
+      const descSpan = document.createElement('span');
+      descSpan.className = 'card-desc';
+      descSpan.textContent = s.description || (s.bitrate ? s.bitrate + ' kbps · ' + s.codec : '网络电台');
+      body.appendChild(descSpan);
+      card.appendChild(body);
+
+      const favBtn = document.createElement('button');
+      favBtn.type = 'button';
+      favBtn.className = 'card-fav' + (favorites.has(s.stationuuid) ? ' active' : '');
+      favBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>';
+      favBtn.onclick = function (e) { e.stopPropagation(); toggleFavorite(s.stationuuid); };
+      card.appendChild(favBtn);
+
+      return card;
+    }
+
+    // 分块渲染：每次只往 DOM 追加 60 张，避免 634 张卡片同时入 DOM 拖慢滚动
+    function appendGridChunk() {
+      const grid = document.getElementById('stationsGrid');
+      if (!grid) return;
+      const end = Math.min(gridList.length, gridRendered + GRID_CHUNK);
+      if (end <= gridRendered) return;
+      const frag = document.createDocumentFragment();
+      for (let i = gridRendered; i < end; i++) frag.appendChild(buildCard(gridList[i], i));
+      grid.appendChild(frag);
+      gridRendered = end;
+    }
+
+    function renderStationsGrid() {
+      const grid = document.getElementById('stationsGrid');
+      const emptyHint = document.getElementById('emptyHint');
+      const countBadge = document.getElementById('stationCountBadge');
+      const titleSpan = document.getElementById('gridSectionTitle');
+      if (!grid) return;
+      if (currentNav === 'favorites') titleSpan.textContent = '我的收藏';
+      else if (currentNav.indexOf('country:') === 0) { const cc = currentNav.slice('country:'.length); titleSpan.textContent = (ISO2_ZH_COUNTRY_NAMES[cc] || cc.toUpperCase()) + ' 电台'; }
+      else titleSpan.textContent = '免费流媒体电台';
+
+      gridList = getFilteredStations();
+      if (countBadge) countBadge.textContent = gridList.length + ' 个';
+      grid.innerHTML = '';
+      gridRendered = 0;
+      if (gridList.length === 0) { if (emptyHint) emptyHint.style.display = 'block'; return; }
+      if (emptyHint) emptyHint.style.display = 'none';
+      appendGridChunk();
+    }
+    function toggleFavorite(id) {
+      if (favorites.has(id)) favorites.delete(id); else favorites.add(id);
+      try { localStorage.setItem(KEY_FAVORITES, JSON.stringify(Array.from(favorites))); } catch (e) {}
+      updateFavBadge();
+      renderStationsGrid();
+    }
+    function updateFavBadge() {
+      const badge = document.getElementById('favBadge');
+      if (!badge) return;
+      badge.textContent = favorites.size;
+      badge.style.display = favorites.size > 0 ? 'block' : 'none';
+    }
+
+    /* ===================== 主题 ===================== */
+    function applyTheme(theme) {
+      currentTheme = theme;
+      try { localStorage.setItem(KEY_THEME, theme); } catch (e) {}
+      const dark = document.getElementById('themeIconDark');
+      const light = document.getElementById('themeIconLight');
+      if (theme === 'light') {
+        document.documentElement.classList.add('theme-light');
+        if (dark) dark.style.display = 'none';
+        if (light) light.style.display = 'block';
+      } else {
+        document.documentElement.classList.remove('theme-light');
+        if (dark) dark.style.display = 'block';
+        if (light) light.style.display = 'none';
+      }
+      applyAccent(currentAccent);
+    }
+    function toggleTheme() { applyTheme(currentTheme === 'dark' ? 'light' : 'dark'); }
+    function applyAccent(hex) {
+      currentAccent = hex;
+      try { localStorage.setItem(KEY_ACCENT, hex); } catch (e) {}
+      const rgb = hexToRgb(hex);
+      const root = document.documentElement;
+      root.style.setProperty('--accent', hex);
+      root.style.setProperty('--accent-dim', 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',0.16)');
+      root.style.setProperty('--card-active-border', 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',0.4)');
+      renderAccentPalette();
+    }
+    function renderAccentPalette() {
+      const container = document.getElementById('accentGrid');
+      if (!container) return;
+      container.innerHTML = '';
+      THEME_ACCENT_PALETTE.forEach(function (hex) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'theme-accent-swatch' + (currentAccent.toLowerCase() === hex.toLowerCase() ? ' active' : '');
+        btn.style.backgroundColor = hex;
+        btn.onclick = function () { applyAccent(hex); };
+        container.appendChild(btn);
+      });
+    }
+
+    /* ===================== 黑胶外观 ===================== */
+    function applyVinylAppearance() {
+      const disc = document.getElementById('vinylDisc');
+      if (disc) {
+        disc.style.background = VINYL_DISC_BACKGROUNDS[vinylBaseColor] || VINYL_DISC_BACKGROUNDS.black;
+        disc.style.setProperty('--vinyl-spin-duration', (VINYL_SPEED_DURATIONS[vinylSpinSpeed] || 1.8) + 's');
+      }
+      document.querySelectorAll('#vinylColorChips .settings-chip').forEach(function (el) { el.classList.toggle('active', el.dataset.color === vinylBaseColor); });
+      document.querySelectorAll('#vinylSpeedChips .settings-chip').forEach(function (el) { el.classList.toggle('active', el.dataset.speed === vinylSpinSpeed); });
+      const ta = document.getElementById('tonearm'); if (ta) ta.style.display = showTonearm ? 'block' : 'none';
+      const ts = document.getElementById('tonearmSwitch'); if (ts) ts.classList.toggle('active', showTonearm);
+      const ss = document.getElementById('spectrumSlot'); if (ss) ss.style.display = showSpectrum ? 'block' : 'none';
+      const sw = document.getElementById('spectrumSwitch'); if (sw) sw.classList.toggle('active', showSpectrum);
+    }
+    function setVinylColor(col) { vinylBaseColor = col; try { localStorage.setItem(KEY_VINYL_COLOR, col); } catch (e) {} applyVinylAppearance(); }
+    function setVinylSpeed(spd) { vinylSpinSpeed = spd; try { localStorage.setItem(KEY_VINYL_SPEED, spd); } catch (e) {} applyVinylAppearance(); }
+    function toggleTonearmSwitch() { showTonearm = !showTonearm; try { localStorage.setItem(KEY_TONEARM, showTonearm ? '1' : '0'); } catch (e) {} applyVinylAppearance(); }
+    function toggleSpectrumSwitch() { showSpectrum = !showSpectrum; try { localStorage.setItem(KEY_SPECTRUM, showSpectrum ? '1' : '0'); } catch (e) {} applyVinylAppearance(); }
+
+    /* ===================== 播放状态与 UI ===================== */
+    function setPlayingState(playing) {
+      isPlaying = playing;
+      const playIcon = document.getElementById('playIcon');
+      const pauseIcon = document.getElementById('pauseIcon');
+      const disc = document.getElementById('vinylDisc');
+      const wrap = document.getElementById('vinylWrap');
+      const tonearm = document.getElementById('tonearm');
+      const specSlot = document.getElementById('spectrumSlot');
+      if (!playIcon || !pauseIcon) return;
+      if (playing) {
+        playIcon.style.display = 'none'; pauseIcon.style.display = 'block';
+        if (disc) disc.classList.add('vinyl-disc--spin');
+        if (tonearm) tonearm.classList.add('tonearm--playing');
+        if (specSlot) specSlot.classList.remove('idle');
+      } else {
+        playIcon.style.display = 'block'; pauseIcon.style.display = 'none';
+        if (disc) disc.classList.remove('vinyl-disc--spin');
+        if (tonearm) tonearm.classList.remove('tonearm--playing');
+        if (specSlot) specSlot.classList.add('idle');
+      }
+    }
+    function updateStageUI(station) {
+      const title = document.getElementById('stageTitle');
+      const sub = document.getElementById('stageSub');
+      if (title) title.textContent = station.name;
+      if (sub) sub.textContent = station.lastPlaying || station.description || (station.country + ' · ' + (station.genre || '网络广播'));
+      const label = document.getElementById('vinylLabel');
+      if (label) {
+        const cover = station.largeimage || station.image || '';
+        if (cover) label.innerHTML = '<img src="' + escapeHtml(cover) + '" onerror="this.remove()">';
+        else label.innerHTML = '<div class="vinyl-label-fallback"><svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>';
+      }
+    }
+    function updatePlayerBarUI(station) {
+      const title = document.getElementById('playerTitle');
+      const detail = document.getElementById('playerDetail');
+      const btn = document.getElementById('playBtn');
+      if (title) title.textContent = station.name;
+      if (detail) detail.textContent = station.lastPlaying || station.country || '在线直播中';
+      if (btn) btn.disabled = false;
+      const thumb = document.getElementById('playerThumb');
+      if (thumb) {
+        const cover = station.largeimage || station.image || '';
+        if (cover) thumb.innerHTML = '<img src="' + escapeHtml(cover) + '" onerror="this.remove()">';
+        else thumb.innerHTML = '<div class="now-thumb-fallback"><svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>';
+      }
+    }
+    function updateVolumeUI() {
+      const volIcon = document.getElementById('volIcon');
+      const muteIcon = document.getElementById('muteIcon');
+      if (!volIcon || !muteIcon) return;
+      if (isMuted || currentVolume === 0) { volIcon.style.display = 'none'; muteIcon.style.display = 'block'; }
+      else { volIcon.style.display = 'block'; muteIcon.style.display = 'none'; }
+    }
+
+    /* ===================== 播放控制（走原生 AVPlayer） ===================== */
+    function playStation(station) {
+      if (!station) return;
+      currentStation = station;
+      recordListenHistory(station);
+      updateStageUI(station);
+      updatePlayerBarUI(station);
+      postToNative('play', { station: station, volume: isMuted ? 0 : currentVolume / 100 });
+      setPlayingState(true);
+      renderStationsGrid();
+    }
+    function togglePlay() {
+      if (!currentStation) return;
+      postToNative('togglePlay');
+    }
+    function playRelative(delta) {
+      const list = getFilteredStations();
+      if (list.length === 0 || !currentStation) return;
+      const idx = list.findIndex(function (s) { return s.stationuuid === currentStation.stationuuid; });
+      if (idx < 0) return;
+      playStation(list[(idx + delta + list.length) % list.length]);
+    }
+    function onVolumeInput(val) {
+      currentVolume = Number(val);
+      if (isMuted && currentVolume > 0) isMuted = false;
+      updateVolumeUI();
+      postToNative('setVolume', { volume: isMuted ? 0 : currentVolume / 100 });
+    }
+    function toggleMute() {
+      isMuted = !isMuted;
+      updateVolumeUI();
+      postToNative('setVolume', { volume: isMuted ? 0 : currentVolume / 100 });
+    }
+
+    /* ===================== 系统音量同步 ===================== */
+    window.__syncSystemVolume = function (vol) {
+      if (typeof vol === 'number' && !isNaN(vol)) {
+        const pct = Math.round(vol * 100);
+        currentVolume = pct;
+        const slider = document.getElementById('volSlider');
+        if (slider) slider.value = String(pct);
+        updateVolumeUI();
+      }
+    };
+
+    /* ===================== 示波器 ===================== */
+    const spectrumCanvas = document.getElementById('spectrumCanvas');
+    const spectrumCtx = spectrumCanvas ? spectrumCanvas.getContext('2d') : null;
+    const SPEC_COLS = 11;
+    const SPEC_ROWS = 8;
+    const specSmooth = new Float32Array(SPEC_COLS);
+    let specLastDraw = 0;
+    let specIdleDrawn = false;
+    let specScrolling = false;
+    let specScrollTimer = 0;
+
+    // 滚动期间暂停示波器重绘，避免与惯性滚动争抢合成资源
+    (function () {
+      const ca = document.getElementById('contentArea');
+      if (ca) {
+        ca.addEventListener('scroll', function () {
+          specScrolling = true;
+          clearTimeout(specScrollTimer);
+          specScrollTimer = setTimeout(function () { specScrolling = false; }, 140);
+          // 滚动接近底部时追加下一批卡片
+          if (ca.scrollTop + ca.clientHeight >= ca.scrollHeight - 600) appendGridChunk();
+        }, { passive: true });
+      }
+    })();
+
+    function drawSpectrum(ts) {
+      requestAnimationFrame(drawSpectrum);
+      if (!spectrumCtx || !spectrumCanvas) return;
+      const nowTs = ts || performance.now();
+      if (nowTs - specLastDraw < 33) return; // 节流到 ~30fps
+      specLastDraw = nowTs;
+      if (specScrolling) return; // 滚动中不重绘
+      if (!isPlaying) {
+        let moving = false;
+        for (let c = 0; c < SPEC_COLS; c++) { if (specSmooth[c] > 0.08) { moving = true; break; } }
+        if (!moving && specIdleDrawn) return; // 空闲静止帧已绘制，无需继续
+      }
+      specIdleDrawn = !isPlaying;
+      const w = spectrumCanvas.width, h = spectrumCanvas.height;
+      spectrumCtx.fillStyle = '#0c0e14';
+      spectrumCtx.fillRect(0, 0, w, h);
+      const padX = w * 0.05, padY = h * 0.08;
+      const innerW = w - padX * 2, innerH = h - padY * 2;
+      const gapX = 2, gapY = 2;
+      const colW = (innerW - gapX * (SPEC_COLS - 1)) / SPEC_COLS;
+      const blockH = (innerH - gapY * (SPEC_ROWS - 1)) / SPEC_ROWS;
+      const t = performance.now();
+      const mult = isPlaying ? (isMuted ? 0.15 : 1) : 0;
+      for (let c = 0; c < SPEC_COLS; c++) {
+        let target = 0;
+        if (isPlaying) {
+          const phase = t * 0.0035 + c * 0.85;
+          const wVal = Math.sin(phase) * 0.25 + Math.sin(phase * 1.8 + 1.1) * 0.2 + Math.sin(phase * 0.35) * 0.15 + 0.55;
+          target = Math.max(0, Math.min(SPEC_ROWS, wVal * SPEC_ROWS * 0.95 * mult));
+        }
+        specSmooth[c] += (target - specSmooth[c]) * (isPlaying ? 0.38 : 0.15);
+        const activeBlocks = Math.round(specSmooth[c]);
+        const x = padX + c * (colW + gapX);
+        for (let r = 0; r < SPEC_ROWS; r++) {
+          const y = padY + (SPEC_ROWS - 1 - r) * (blockH + gapY);
+          if (r < activeBlocks) spectrumCtx.fillStyle = r < 3 ? '#2dd4bf' : (r < 5 ? '#fbbf24' : '#ef4444');
+          else spectrumCtx.fillStyle = 'rgba(255,255,255,0.07)';
+          spectrumCtx.beginPath();
+          if (spectrumCtx.roundRect) spectrumCtx.roundRect(x, y, colW, blockH, 1.5); else spectrumCtx.rect(x, y, colW, blockH);
+          spectrumCtx.fill();
+        }
+      }
+    }
+
+    /* ===================== 收听历史 ===================== */
+    function recordListenHistory(station) {
+      listenHistory = [{ id: station.stationuuid, name: station.name, country: station.country, at: Date.now() }]
+        .concat(listenHistory.filter(function (h) { return h.id !== station.stationuuid; }))
+        .slice(0, 80);
+      try { localStorage.setItem(KEY_HISTORY, JSON.stringify(listenHistory)); } catch (e) {}
+    }
+    function renderHistoryList() {
+      const container = document.getElementById('historyList');
+      if (!container) return;
+      container.innerHTML = '';
+      if (listenHistory.length === 0) {
+        container.innerHTML = '<div class="empty-hint">暂无收听记录。在电台列表中点选播放后，会按时间显示在这里。</div>';
+        return;
+      }
+      listenHistory.forEach(function (item) {
+        const div = document.createElement('div');
+        div.className = 'history-item';
+        div.onclick = function () {
+          const found = ALL_STATIONS.find(function (s) { return s.stationuuid === item.id; });
+          if (found) { closeView('history'); playStation(found); }
+        };
+        const main = document.createElement('div');
+        main.className = 'history-main';
+        const nameP = document.createElement('div');
+        nameP.className = 'history-name';
+        nameP.textContent = item.name;
+        const metaP = document.createElement('div');
+        metaP.className = 'history-meta';
+        metaP.textContent = (item.country || '网络电台') + ' · ' + new Date(item.at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        main.appendChild(nameP);
+        main.appendChild(metaP);
+        div.appendChild(main);
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'btn-delete';
+        delBtn.innerHTML = '<svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:currentColor;"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>';
+        delBtn.onclick = function (e) { e.stopPropagation(); deleteHistoryItem(item.id); };
+        div.appendChild(delBtn);
+        container.appendChild(div);
+      });
+    }
+    function deleteHistoryItem(id) {
+      listenHistory = listenHistory.filter(function (h) { return h.id !== id; });
+      try { localStorage.setItem(KEY_HISTORY, JSON.stringify(listenHistory)); } catch (e) {}
+      renderHistoryList();
+    }
+    function clearAllHistory() {
+      listenHistory = [];
+      try { localStorage.setItem(KEY_HISTORY, JSON.stringify(listenHistory)); } catch (e) {}
+      renderHistoryList();
+    }
+
+    /* ===================== 定时 ===================== */
+    function openTimerHistoryModal() { const m = document.getElementById('timerModal'); if (m) m.style.display = 'flex'; }
+    function closeTimerModal(e) {
+      if (!e || e.target.id === 'timerModal') { const m = document.getElementById('timerModal'); if (m) m.style.display = 'none'; }
+    }
+    function setSleepTimer(minutes) {
+      if (sleepTimerInterval) { clearInterval(sleepTimerInterval); sleepTimerInterval = null; }
+      document.querySelectorAll('#timerChips .timer-chip').forEach(function (el) { el.classList.toggle('active', Number(el.dataset.mins) === minutes); });
+      const badge = document.getElementById('timerBadge');
+      if (minutes <= 0) { sleepTimerTarget = 0; if (badge) badge.style.display = 'none'; closeTimerModal(); return; }
+      sleepTimerTarget = Date.now() + minutes * 60 * 1000;
+      if (badge) { badge.textContent = minutes + 'm'; badge.style.display = 'block'; }
+      closeTimerModal();
+      sleepTimerInterval = setInterval(function () {
+        const remainingMs = sleepTimerTarget - Date.now();
+        if (remainingMs <= 0) {
+          clearInterval(sleepTimerInterval); sleepTimerInterval = null; sleepTimerTarget = 0;
+          if (badge) badge.style.display = 'none';
+          postToNative('exit');
+        } else if (badge) {
+          badge.textContent = Math.ceil(remainingMs / 60000) + 'm';
+        }
+      }, 5000);
+    }
+
+    /* ===================== 视图切换 ===================== */
+    function openView(viewName) {
+      if (viewName === 'settings') { const v = document.getElementById('settingsView'); if (v) v.style.display = 'flex'; }
+      else if (viewName === 'history') { renderHistoryList(); const v = document.getElementById('historyView'); if (v) v.style.display = 'flex'; }
+    }
+    function closeView(viewName) {
+      if (viewName === 'settings') { const v = document.getElementById('settingsView'); if (v) v.style.display = 'none'; }
+      else if (viewName === 'history') { const v = document.getElementById('historyView'); if (v) v.style.display = 'none'; }
+    }
+    function openRepoInBrowser() { postToNative('openExternalUrl', { url: 'https://github.com/yichuancq/net-redio' }); }
+    function copyRepoUrl() {
+      const url = 'https://github.com/yichuancq/net-redio';
+      if (navigator.clipboard) navigator.clipboard.writeText(url).then(function () { alert('原始仓库地址已复制！\n' + url); }).catch(function () { prompt('请长按复制仓库地址：', url); });
+      else prompt('请长按复制仓库地址：', url);
+    }
+
+    /* ===================== 原生回调 ===================== */
+    window.__onNativePlaybackState = function (state) { if (state && typeof state.playing === 'boolean') setPlayingState(state.playing); };
+    window.__onNativeRemoteCommand = function (cmd) {
+      if (cmd === 'play') setPlayingState(true);
+      else if (cmd === 'pause') setPlayingState(false);
+      else if (cmd === 'next') playRelative(1);
+      else if (cmd === 'prev') playRelative(-1);
+    };
+    window.__setStations = function (list) {
+      if (Array.isArray(list) && list.length > 0) {
+        ALL_STATIONS = list;
+        const countEl = document.getElementById('sidebarCount');
+        const aboutCountEl = document.getElementById('aboutStationCount');
+        if (countEl) countEl.textContent = '免费流媒体 · ' + list.length + ' 电台';
+        if (aboutCountEl) aboutCountEl.textContent = '已收录电台：' + list.length + ' 个';
+        renderContinentNav();
+        renderStationsGrid();
+      }
+    };
+
+    /* ===================== 初始化 ===================== */
+    function init() {
+      applyTheme(currentTheme);
+      applyVinylAppearance();
+      updateFavBadge();
+      renderContinentNav();
+      renderStationsGrid();
+      if (spectrumCtx) drawSpectrum();
+      // 向原生请求电台清单与系统音量
+      postToNative('getStations');
+      postToNative('getSystemVolume');
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else init();
+  </script>
+</body>
+</html>

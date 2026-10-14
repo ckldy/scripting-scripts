@@ -1,0 +1,29 @@
+{
+  "name": "NetRadio",
+  "version": "1.0.0",
+  "description": "基于 net-redio 的网络收音机：收录全球上千家公开流媒体电台，支持黑胶唱片旋转、电平示波器、主题调色板与后台锁屏播控。",
+  "color": "rgba(61, 139, 253, 1)",
+  "icon": "radio",
+  "runInApp": false,
+  "author": {
+    "name": "vcncv",
+    "homepage": "https://github.com/ckldy"
+  },
+  "contributors": [
+    {
+      "name": "yichuancq",
+      "homepage": "https://github.com/yichuancq/net-redio"
+    }
+  ],
+  "remoteResource": {
+    "url": "https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/NetRadio.zip"
+  },
+  "localizedNames": {
+    "zh": "网络收音机",
+    "en": "NetRadio"
+  },
+  "localizedDescriptions": {
+    "zh": "基于 net-redio 的网络收音机：收录全球上千家公开流媒体电台，支持黑胶唱片旋转、电平示波器、主题调色板与后台锁屏播控。",
+    "en": "Online Radio Player converted from net-redio with vinyl stage, audio spectrum, theme accents, and iOS NowPlaying lockscreen controls."
+  }
+}
