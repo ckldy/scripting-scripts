@@ -549,7 +549,7 @@
             </div>
           </div>
           <div style="font-size:10px;color:var(--text-muted);display:flex;justify-content:space-between;">
-            <span>版本：v1.0.0 · by vcncv (Scripting Native Edition)</span>
+            <span>版本：v1.0.1 · by vcncv (Scripting Native Edition)</span>
             <span id="aboutStationCount">全球电台持续收听</span>
           </div>
         </div>
@@ -939,27 +939,64 @@
       if (idx < 0) return;
       playStation(list[(idx + delta + list.length) % list.length]);
     }
+    /* ===================== 音量：即时 + 节流，避免「不跟手」 ===================== */
+    // 每个 input 事件都跨桥异步往返会滞后；改为本地即时反映 + 40ms 节流推送，松手立即补发最终值
+    let volPending = null;
+    let volFlushTimer = 0;
+    let volDragging = false;
+    let volDragEndTimer = 0;
+    let volUserAdjusted = false; // 用户是否手动调过 App 音量
+
+    function flushVolume() {
+      volFlushTimer = 0;
+      if (volPending !== null) {
+        const v = volPending;
+        volPending = null;
+        postToNative('setVolume', { volume: v });
+      }
+    }
+    function queueVolume(v) {
+      volPending = v;
+      if (!volFlushTimer) volFlushTimer = setTimeout(flushVolume, 40);
+    }
+    function applyVolumeNow() {
+      if (volFlushTimer) { clearTimeout(volFlushTimer); volFlushTimer = 0; }
+      volPending = null;
+      postToNative('setVolume', { volume: isMuted ? 0 : currentVolume / 100 });
+    }
     function onVolumeInput(val) {
       currentVolume = Number(val);
       if (isMuted && currentVolume > 0) isMuted = false;
+      volUserAdjusted = currentVolume < 100;
       updateVolumeUI();
-      postToNative('setVolume', { volume: isMuted ? 0 : currentVolume / 100 });
+      queueVolume(isMuted ? 0 : currentVolume / 100);
+      volDragging = true;
+      clearTimeout(volDragEndTimer);
+      volDragEndTimer = setTimeout(function () { volDragging = false; }, 400);
     }
     function toggleMute() {
       isMuted = !isMuted;
       updateVolumeUI();
-      postToNative('setVolume', { volume: isMuted ? 0 : currentVolume / 100 });
+      applyVolumeNow();
     }
+    (function () {
+      const s = document.getElementById('volSlider');
+      if (s) s.addEventListener('change', applyVolumeNow);
+    })();
 
     /* ===================== 系统音量同步 ===================== */
+    // iOS 不允许脚本修改系统音量（outputVolume 只读），故滑块只做“跟随显示”：
+    //  - 用户尚未手动调节 App 音量时，滑块实时跟随系统音量（硬件键一动就动，跟手）；
+    //  - 用户手动调小后，滑块归用户所有，不再被系统回调抢走（避免拖动时“跳”）。
     window.__syncSystemVolume = function (vol) {
-      if (typeof vol === 'number' && !isNaN(vol)) {
-        const pct = Math.round(vol * 100);
-        currentVolume = pct;
-        const slider = document.getElementById('volSlider');
-        if (slider) slider.value = String(pct);
-        updateVolumeUI();
-      }
+      if (typeof vol !== 'number' || isNaN(vol)) return;
+      if (volDragging) return;
+      if (volUserAdjusted) return;
+      const pct = Math.round(vol * 100);
+      currentVolume = pct;
+      const slider = document.getElementById('volSlider');
+      if (slider) slider.value = String(pct);
+      updateVolumeUI();
     };
 
     /* ===================== 示波器 ===================== */

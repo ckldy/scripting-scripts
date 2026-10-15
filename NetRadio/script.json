@@ -1,6 +1,6 @@
 {
   "name": "NetRadio",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "基于 net-redio 的网络收音机：收录全球上千家公开流媒体电台，支持黑胶唱片旋转、电平示波器、主题调色板与后台锁屏播控。",
   "color": "rgba(61, 139, 253, 1)",
   "icon": "radio",
