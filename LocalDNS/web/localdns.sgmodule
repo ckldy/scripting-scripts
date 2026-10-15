@@ -1,0 +1,8 @@
+#!name=LocalDNS for Surge
+#!desc=将 Surge 的 DNS 查询无缝转发至本地 Scripting LocalDNS 服务，获得 AdGuard 广告过滤、多级缓存与精准分流能力。
+#!author=Scripting LocalDNS
+#!system=ios,mac
+
+[Script]
+# 拦截全局 DNS 查询并交由 LocalDNS 处理
+localdns = type=dns,script-path=http://127.0.0.1:9099/ui/localdns-surge.js,timeout=3

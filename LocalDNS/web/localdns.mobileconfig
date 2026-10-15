@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>PayloadContent</key>
+    <array>
+        <dict>
+            <key>DNSSettings</key>
+            <dict>
+                <key>DNSProtocol</key>
+                <string>HTTPS</string>
+                <key>ServerURL</key>
+                <string>https://127.0.0.1:9099/dns-query</string>
+            </dict>
+            <key>PayloadDescription</key>
+            <string>配置 iOS 全局使用本地 Scripting LocalDNS 加密解析服务</string>
+            <key>PayloadDisplayName</key>
+            <string>LocalDNS 本地加密 DNS</string>
+            <key>PayloadIdentifier</key>
+            <string>com.localdns.scripting.dns</string>
+            <key>PayloadType</key>
+            <string>com.apple.dnsSettings.managed</string>
+            <key>PayloadUUID</key>
+            <string>A589F123-5A38-4F43-98C1-8B41D8B7A1C2</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+        </dict>
+    </array>
+    <key>PayloadDescription</key>
+    <string>LocalDNS 本地 DNS 配置文件，拦截广告、精准分流并启用多级缓存</string>
+    <key>PayloadDisplayName</key>
+    <string>LocalDNS (iOS 本地服务)</string>
+    <key>PayloadIdentifier</key>
+    <string>com.localdns.scripting</string>
+    <key>PayloadRemovalDisallowed</key>
+    <false/>
+    <key>PayloadType</key>
+    <string>Configuration</string>
+    <key>PayloadUUID</key>
+    <string>C849B231-1B47-49A1-8842-8812D7A5B9C3</string>
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+</dict>
+</plist>
