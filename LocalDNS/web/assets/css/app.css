@@ -705,8 +705,8 @@
 
     .outbound-donut-body {
       display: grid;
-      grid-template-columns: 128px minmax(0, 1fr);
-      gap: 16px;
+      grid-template-columns: 124px minmax(0, 1fr);
+      gap: 22px;
       align-items: center;
       flex: 1;
     }

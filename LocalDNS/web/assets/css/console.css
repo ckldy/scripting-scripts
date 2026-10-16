@@ -36,7 +36,7 @@ button:active{transform:translateY(1px)}button:disabled{opacity:.45;cursor:not-a
 .console-appearance-options .glass-action-capsule{padding:4px;border-radius:9px;background:var(--glass-pill)}
 .console-kpi{grid-column:span 2!important;order:1}.console-kpi .spark-kpi-card{min-height:108px;padding:15px 16px}
 .console-kpi .sk-val{font-size:26px}.console-kpi .sk-chart{width:58px;height:26px;opacity:.85}.console-kpi .sk-bottom{gap:6px}
-.view-title-row{order:0}.console-trend{grid-column:span 8!important;order:3}.console-donut{grid-column:span 4!important;order:3}
+.view-title-row{order:0}.console-trend{grid-column:span 6!important;order:3}.console-donut{grid-column:span 6!important;order:3}
 .console-topology{grid-column:span 12!important;order:4}.console-lower{grid-column:span 4!important;order:5}
 .console-shortcuts{grid-column:span 12;order:2;border:1px solid var(--border-glass);border-radius:12px;background:var(--glass-bg);overflow:hidden}
 .console-shortcuts>summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;padding:12px 16px;color:var(--text-2);font-size:12px}

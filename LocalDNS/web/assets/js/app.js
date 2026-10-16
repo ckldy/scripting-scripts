@@ -1217,8 +1217,8 @@
         </section>
       </div>
 
-      <!-- 第四层：8列系统运行体征与实时流量趋势 + 4列分流结果占比 = 12列 -->
-      <div class="col-8">
+      <!-- 第四层：6列系统运行体征与实时流量趋势 + 6列分流结果占比 = 12列 (平衡宽幅) -->
+      <div class="col-6">
         <div class="glass-card">
           <div class="gc-head">
             <div class="gc-title">服务运行体征与查询吞吐监控</div>
@@ -1245,7 +1245,7 @@
         </div>
       </div>
 
-      <div class="col-4">
+      <div class="col-6">
         <div class="glass-card">
           <div class="gc-head">
             <div class="gc-title">分流结果占比</div>
