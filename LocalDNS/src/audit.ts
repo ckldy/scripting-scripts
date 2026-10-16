@@ -348,12 +348,17 @@ export class AuditManager {
           recent_errors: [],
         };
 
-        lines.push(`localdns_upstream_query_total{group="${g}",tag="${node.tag}"} ${stats.query_total}`);
-        lines.push(`localdns_upstream_success_total{group="${g}",tag="${node.tag}"} ${stats.success_total}`);
-        lines.push(`localdns_upstream_upstream_winner_total{group="${g}",tag="${node.tag}"} ${stats.winner_total}`);
-        lines.push(`localdns_upstream_error_total{group="${g}",tag="${node.tag}"} ${stats.error_total}`);
-        lines.push(`localdns_upstream_response_latency_millisecond_sum{group="${g}",tag="${node.tag}"} ${stats.latency_sum}`);
-        lines.push(`localdns_upstream_response_latency_millisecond_count{group="${g}",tag="${node.tag}"} ${stats.latency_count}`);
+        lines.push(`localdns_upstream_query_total{metrics_tag="${g}",group="${g}",tag="${node.tag}"} ${stats.query_total}`);
+        lines.push(`localdns_upstream_success_total{metrics_tag="${g}",group="${g}",tag="${node.tag}"} ${stats.success_total}`);
+        lines.push(`localdns_upstream_upstream_winner_total{metrics_tag="${g}",group="${g}",tag="${node.tag}"} ${stats.winner_total}`);
+        lines.push(`localdns_upstream_error_total{metrics_tag="${g}",group="${g}",tag="${node.tag}"} ${stats.error_total}`);
+        lines.push(`localdns_upstream_response_latency_millisecond_sum{metrics_tag="${g}",group="${g}",tag="${node.tag}"} ${stats.latency_sum}`);
+        lines.push(`localdns_upstream_response_latency_millisecond_count{metrics_tag="${g}",group="${g}",tag="${node.tag}"} ${stats.latency_count}`);
+
+        if (stats.error_total > 0 && stats.recent_errors.length > 0) {
+          lines.push(`localdns_upstream_upstream_error_reason_total{metrics_tag="${g}",tag="${node.tag}",reason="other"} ${stats.error_total}`);
+          lines.push(`localdns_upstream_upstream_last_error_unixtime_seconds{metrics_tag="${g}",tag="${node.tag}"} ${stats.recent_errors[0].time}`);
+        }
       }
     }
 

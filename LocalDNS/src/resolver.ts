@@ -250,7 +250,7 @@ export class DnsResolver {
     clientIp: string,
     startTime: number
   ): Promise<Uint8Array> {
-    const candidatePromises: Array<Promise<{ node: UpstreamNode; rawBytes: Uint8Array }>> = [];
+    const candidatePromises: Array<Promise<{ node: UpstreamNode; rawBytes: Uint8Array; actualGroup: string }>> = [];
 
     // 1. Launch target group nodes
     nodes.forEach(node => {
@@ -262,7 +262,7 @@ export class DnsResolver {
     if (group !== 'domestic') {
       const domesticNodes = (Store.get().getUpstreamConfig().domestic || []).filter(n => n.enabled !== false);
       if (domesticNodes.length > 0) {
-        const domesticRacePromise = new Promise<{ node: UpstreamNode; rawBytes: Uint8Array }>((resolve, reject) => {
+        const domesticRacePromise = new Promise<{ node: UpstreamNode; rawBytes: Uint8Array; actualGroup: string }>((resolve, reject) => {
           setTimeout(() => {
             const domPromises = domesticNodes.map(n => this.querySingleNode(n, 'domestic', queryBytes, 2000));
             Promise.any(domPromises).then(resolve).catch(reject);
@@ -281,8 +281,8 @@ export class DnsResolver {
       let respPacket = parseDnsPacket(winner.rawBytes);
       respPacket.id = query.id; // Align ID with query
 
-      // Record upstream winner metrics
-      AuditManager.get().recordUpstreamResult(group, winner.node.tag, latency, true, true);
+      // Record upstream winner metrics using node's actual group
+      AuditManager.get().recordUpstreamResult(winner.actualGroup, winner.node.tag, latency, true, true);
 
       // Check switch1: 请求屏蔽 (对无解析结果屏蔽)
       const switches = Store.get().getSwitches();
@@ -347,7 +347,7 @@ export class DnsResolver {
     group: string,
     queryBytes: Uint8Array,
     timeoutMs: number
-  ): Promise<{ node: UpstreamNode; rawBytes: Uint8Array }> {
+  ): Promise<{ node: UpstreamNode; rawBytes: Uint8Array; actualGroup: string }> {
     const nodeStart = Date.now();
     let url = node.addr;
 
@@ -394,7 +394,7 @@ export class DnsResolver {
       const duration = Date.now() - nodeStart;
 
       AuditManager.get().recordUpstreamResult(group, node.tag, duration, true, false);
-      return { node, rawBytes };
+      return { node, rawBytes, actualGroup: group };
     } catch (e: any) {
       clearTimeout(timer);
       const duration = Date.now() - nodeStart;
