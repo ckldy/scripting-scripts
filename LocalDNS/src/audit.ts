@@ -9,6 +9,11 @@ export class AuditManager {
   private startTimeSeconds = Math.floor(Date.now() / 1000);
   private totalQueries = 0;
   private blockedQueries = 0;
+  private adguardBlockedQueries = 0;
+  private domesticQueries = 0;
+  private foreignQueries = 0;
+  private foreignEcsQueries = 0;
+  private proxyQueries = 0;
   private totalDurationMs = 0;
   private uniqueClients = new Set<string>();
   private uniqueDomains = new Set<string>();
@@ -31,8 +36,20 @@ export class AuditManager {
     this.uniqueClients.add(entry.client);
     this.uniqueDomains.add(entry.domain);
 
-    if (entry.domain_set === 'adguard' || entry.domain_set === 'blocklist') {
+    const ds = (entry.domain_set || '').toLowerCase();
+    if (ds === 'adguard') {
+      this.adguardBlockedQueries++;
       this.blockedQueries++;
+    } else if (ds === 'blocklist' || ds.includes('block')) {
+      this.blockedQueries++;
+    } else if (ds.includes('cn') || ds === 'whitelist' || ds === 'force_realip') {
+      this.domesticQueries++;
+    } else if (ds.includes('ecs')) {
+      this.foreignEcsQueries++;
+    } else if (ds === 'proxy' || ds === 'fakeip') {
+      this.proxyQueries++;
+    } else {
+      this.foreignQueries++;
     }
 
     if (!Store.get().isAuditCapturing()) return;
@@ -170,7 +187,22 @@ export class AuditManager {
     };
   }
 
-  getRank(type: string, limit = 10): Array<{ key: string; value: number }> {
+  getRank(type: string, limit = 10): any[] {
+    if (type === 'slowest') {
+      return [...this.logs]
+        .sort((a, b) => b.duration_ms - a.duration_ms)
+        .slice(0, limit)
+        .map(log => ({
+          query_name: log.domain,
+          client_ip: log.client_alias ? `${log.client_alias} (${log.client})` : log.client,
+          duration_ms: log.duration_ms,
+          query_type: log.query_type,
+          key: log.domain,
+          value: log.duration_ms,
+          count: log.duration_ms,
+        }));
+    }
+
     const counts = new Map<string, number>();
     for (const log of this.logs) {
       let k = '';
@@ -184,9 +216,35 @@ export class AuditManager {
     }
 
     return Array.from(counts.entries())
-      .map(([key, value]) => ({ key, value }))
+      .map(([key, value]) => ({ key, value, count: value }))
       .sort((a, b) => b.value - a.value)
       .slice(0, limit);
+  }
+
+  getDetailedStats(): AuditStats & {
+    domestic: number;
+    foreign: number;
+    foreign_ecs: number;
+    fakeip: number;
+    proxy: number;
+    blocked: number;
+    adguard_blocked: number;
+    client_count: number;
+    domain_count: number;
+  } {
+    const base = this.getStats();
+    return {
+      ...base,
+      client_count: this.uniqueClients.size,
+      domain_count: this.uniqueDomains.size,
+      domestic: this.domesticQueries,
+      foreign: this.foreignQueries,
+      foreign_ecs: this.foreignEcsQueries,
+      fakeip: this.proxyQueries,
+      proxy: this.proxyQueries,
+      blocked: this.blockedQueries,
+      adguard_blocked: this.adguardBlockedQueries,
+    };
   }
 
   getStats(): AuditStats {

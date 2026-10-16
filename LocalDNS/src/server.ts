@@ -432,14 +432,24 @@ export class LocalDnsServer {
 
     // 1. /api/v1/status
     if (cleanPath === '/api/v1/status' && method === 'GET') {
-      const stats = AuditManager.get().getStats();
+      const detailedStats = AuditManager.get().getDetailedStats();
       const upstreamStats = AuditManager.get().getUpstreamStatsList();
+      const fileCounts = DiversionEngine.get().getSourceFileCounts();
+      const adCount = AdGuardEngine.get().getRuleCount();
+
       return jsonResponse({
         status: 'online',
         version: 'FJG20',
         upstream_stats: upstreamStats,
-        rules: AdGuardEngine.get().getRuleCount(),
-        stats,
+        rules: {
+          geosite_cn: fileCounts.geosite_cn || 0,
+          force_domestic: (fileCounts.whitelist || 0) + (fileCounts.custom_cn || 0),
+          geosite_non_cn: (fileCounts.geosite_non_cn || 0) + (fileCounts.custom_non_cn || 0),
+          force_foreign_fakeip: fileCounts.greylist || 0,
+          block: fileCounts.blocklist || 0,
+        },
+        adguard_rules: adCount,
+        stats: detailedStats,
       });
     }
 
@@ -514,7 +524,7 @@ export class LocalDnsServer {
 
     // 8. /api/v2/audit/stats
     if (path === '/api/v2/audit/stats' && method === 'GET') {
-      return jsonResponse(AuditManager.get().getStats());
+      return jsonResponse(AuditManager.get().getDetailedStats());
     }
 
     // 9. /api/v2/audit/rank/:type
