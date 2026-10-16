@@ -720,15 +720,60 @@
     }
     .ring-legend { display: flex; flex-direction: column; gap: 10px; }
     .rl-item {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
-      gap: 6px; align-items: center; font-size: 11px; line-height: 1.4;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      line-height: 1.4;
+      min-width: 0;
+      width: 100%;
     }
-    .rl-name { display: flex; align-items: center; gap: 6px; color: var(--text-1); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .rl-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-    .rl-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-    .rl-count { color: var(--text-2); text-align: right; white-space: nowrap; flex-shrink: 0; font-variant-numeric: tabular-nums; min-width: 24px; }
-    .rl-pct { color: var(--text-3); text-align: right; white-space: nowrap; flex-shrink: 0; font-variant-numeric: tabular-nums; min-width: 30px; }
+    .rl-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1 1 auto;
+      overflow: hidden;
+    }
+    .rl-name-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+      display: block;
+      color: var(--text-1);
+    }
+    .rl-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .rl-right {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex: 0 0 auto;
+      white-space: nowrap;
+      min-width: 72px;
+    }
+    .rl-count {
+      color: var(--text-2);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      min-width: 26px;
+    }
+    .rl-pct {
+      color: var(--text-3);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      min-width: 32px;
+    }
 
     .uniform-4rows {
       display: flex;

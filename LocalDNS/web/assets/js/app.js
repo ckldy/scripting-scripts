@@ -1279,9 +1279,14 @@
                 };
                 const labelName = labelMap[rawKey] || rawKey;
                 return `<div class="rl-item">
-                  <span class="rl-name" title="${esc(rawKey)}"><i class="rl-dot" style="background:${ringColors[i%ringColors.length]}"></i><span class="rl-name-text">${esc(labelName)}</span></span>
-                  <span class="rl-count mono">${compactNum(x.count)}</span>
-                  <span class="rl-pct mono">${p}%</span>
+                  <div class="rl-left">
+                    <i class="rl-dot" style="background:${ringColors[i%ringColors.length]}"></i>
+                    <span class="rl-name-text" title="${esc(rawKey)}">${esc(labelName)}</span>
+                  </div>
+                  <div class="rl-right mono">
+                    <span class="rl-count">${compactNum(x.count)}</span>
+                    <span class="rl-pct">${p}%</span>
+                  </div>
                 </div>`;
               }).join('') || `<div style="color:var(--text-3);font-size:12px">暂无分流分类统计</div>`}
             </div>

@@ -335,7 +335,9 @@ export class LocalDnsServer {
           return HttpResponse.raw(200, 'OK', {
             headers: {
               'Content-Type': contentType,
-              'Cache-Control': 'public, max-age=86400',
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0',
               'Access-Control-Allow-Origin': '*',
             },
             body: file,
