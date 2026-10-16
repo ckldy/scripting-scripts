@@ -129,6 +129,22 @@ export class Store {
     this.auditCapturing = this.loadOrDefault('localdns_audit_capturing', true);
     this.upstreamEcs = this.loadOrDefault('localdns_upstream_ecs', '');
     this.requeryConfig = this.loadOrDefault('localdns_requery_config', this.requeryConfig);
+
+    // Auto-healing: Ensure primary AdGuard filter source and switch7 are enabled so ad blocking works out of the box!
+    let sourcesChanged = false;
+    for (const s of this.adguardSources) {
+      if ((s.id === 'adguard_dns' || s.rule_count > 0) && !s.enabled) {
+        s.enabled = true;
+        sourcesChanged = true;
+      }
+    }
+    if (sourcesChanged) {
+      this.persist('localdns_adguard_sources', this.adguardSources);
+    }
+    if (this.switches.switch7 !== 'A') {
+      this.switches.switch7 = 'A';
+      this.persist('localdns_switches', this.switches);
+    }
   }
 
   static get(): Store {

@@ -399,19 +399,31 @@ function LocalDnsApp() {
 
         {/* 本地 DNS 实时解析排障 */}
         <Section
-          header={<Text>DNS 实时解析测试</Text>}
-          footer={<Text>通过本地引擎实时测试分流策略、上游采纳与拦截结果</Text>}
+          header={<Text>DNS 实时解析与广告拦截测试</Text>}
+          footer={<Text>{`🛡️ AdGuard 引擎: ${AdGuardEngine.get().getRuleCount().toLocaleString()} 条过滤规则生效中 · 开关: ${switchAdguard ? '已开启' : '已关闭'}`}</Text>}
         >
           <HStack alignment="center">
             <TextField
               title="测试域名"
-              prompt="输入待测试域名 (例如 baidu.com)"
+              prompt="输入待测试域名 (例如 baidu.com 或广告域名)"
               value={testDomain}
               onChanged={setTestDomain}
             />
             <Button
               title={isTesting ? '解析中...' : '测试'}
               action={handleTestDns}
+            />
+          </HStack>
+
+          <HStack>
+            <Button
+              title="测试: 正常域名 (baidu.com)"
+              action={() => { setTestDomain('baidu.com'); setTimeout(handleTestDns, 50); }}
+            />
+            <Spacer />
+            <Button
+              title="测试: 广告域名 (mobads.baidu.com)"
+              action={() => { setTestDomain('mobads.baidu.com'); setTimeout(handleTestDns, 50); }}
             />
           </HStack>
 

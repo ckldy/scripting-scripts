@@ -27,6 +27,43 @@ async function fetchRuleWithFallback(url: string): Promise<string> {
   throw lastError || new Error('All download attempts failed');
 }
 
+const BUILTIN_AD_RULES = `
+! Builtin High-frequency Mobile Ads & Tracking Filters
+||adservice.google.com^
+||pagead2.googlesyndication.com^
+||googleads.g.doubleclick.net^
+||ads.google.com^
+||analytics.google.com^
+||mobads.baidu.com^
+||mobads-logs.baidu.com^
+||pos.baidu.com^
+||cpro.baidu.com^
+||adash.m.taobao.com^
+||adashx.m.taobao.com^
+||alimama.com^
+||tanx.com^
+||pgdt.gtimg.cn^
+||adnet.qq.com^
+||e.qq.com^
+||mi.gdt.qq.com^
+||tmead.y.qq.com^
+||ad.tencent.com^
+||pangolin-sdk-toutiao.com^
+||pglstatp-toutiao.com^
+||toblog.ctobsnssdk.com^
+||ads.tiktok.com^
+||analytics.tiktok.com^
+||e.kuaishou.com^
+||corp.kuaishou.com^
+||ad.xiaohongshu.com^
+||track.uc.cn^
+||umeng.com^
+||talkingdata.net^
+||sensorsdata.cn^
+||growingio.com^
+||tracking.example.com^
+`;
+
 export class AdGuardEngine {
   private static instance: AdGuardEngine;
 
@@ -59,8 +96,11 @@ export class AdGuardEngine {
     this.whitelistDomains.clear();
     this.whitelistSuffixes.clear();
 
+    // 1. Load built-in high-frequency ad rules first (guarantees out-of-the-box blocking!)
+    let total = this.parseRules(BUILTIN_AD_RULES);
+
+    // 2. Load stored subscription rules from Store
     const sources = Store.get().getAdguardSources();
-    let total = 0;
     for (const source of sources) {
       if (!source.enabled) continue;
       const rawText = Store.get().getRule(`adguard_source_${source.id}`);

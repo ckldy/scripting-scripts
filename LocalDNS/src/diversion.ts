@@ -142,29 +142,24 @@ export class DiversionEngine {
     const store = Store.get();
     const switches = store.getSwitches();
 
-    // 1. Rewrite check
+    // 1. Rewrite check (Custom redirection highest priority)
     if (this.rewrites.has(d)) {
       return { group: 'rewrite', domainSet: 'rewrite', rewriteIp: this.rewrites.get(d) };
     }
 
-    // 2. Exact Blocklist check (specific domain blocking overrides broader parent whitelist)
-    if (this.blocklist.has(d)) {
+    // 2. Exact & Wildcard Blocklist check (Local custom blacklist highest priority block)
+    if (this.blocklist.has(d) || this.matchSet(d, this.blocklist)) {
       return { group: 'blocked', domainSet: 'blocklist' };
     }
 
-    // 3. Local Whitelist (exact and wildcard)
-    if (this.matchSet(d, this.whitelist)) {
-      return { group: 'domestic', domainSet: 'whitelist' };
-    }
-
-    // 4. Local Blocklist (wildcard/subdomains)
-    if (this.matchSet(d, this.blocklist)) {
-      return { group: 'blocked', domainSet: 'blocklist' };
-    }
-
-    // 4. AdGuard ad blocking (if switch7 is enabled)
+    // 3. AdGuard ad blocking (Checked before broad root-domain whitelist to prevent ad subdomains from leaking through!)
     if (switches.switch7 === 'A' && AdGuardEngine.get().isBlocked(d)) {
       return { group: 'blocked', domainSet: 'adguard' };
+    }
+
+    // 4. Local Whitelist (Checked after ad blocking)
+    if (this.matchSet(d, this.whitelist)) {
+      return { group: 'domestic', domainSet: 'whitelist' };
     }
 
     // 5. Local Greylist (Force foreign)
