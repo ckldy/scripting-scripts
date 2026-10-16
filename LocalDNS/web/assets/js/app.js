@@ -1262,10 +1262,26 @@
             <div class="ring-legend">
               ${ds.slice(0, 4).map((x, i) => {
                 const p = Math.round((+x.count || 0) / dsTotal * 100);
+                const rawKey = String(x.key || '未分类');
+                const labelMap = {
+                  default_foreign: '国外默认',
+                  default_cn: '国内直连',
+                  custom_cn: '国内规则',
+                  custom_non_cn: '国外规则',
+                  geosite_cn: 'Geosite CN',
+                  geosite_non_cn: 'Geosite 海外',
+                  whitelist: '白名单',
+                  blocklist: '黑名单',
+                  adguard: '广告拦截',
+                  rewrite: '重定向',
+                  force_realip: '强制 RealIP',
+                  greylist: '灰名单'
+                };
+                const labelName = labelMap[rawKey] || rawKey;
                 return `<div class="rl-item">
-                  <span class="rl-name" title="${esc(x.key||'未分类')}"><i class="rl-dot" style="background:${ringColors[i%ringColors.length]}"></i>${esc(x.key||'未分类')}</span>
-                  <span class="mono" style="color:var(--text-2);text-align:right">${compactNum(x.count)}</span>
-                  <span class="mono" style="color:var(--text-3);text-align:right">${p}%</span>
+                  <span class="rl-name" title="${esc(rawKey)}"><i class="rl-dot" style="background:${ringColors[i%ringColors.length]}"></i><span class="rl-name-text">${esc(labelName)}</span></span>
+                  <span class="rl-count mono">${compactNum(x.count)}</span>
+                  <span class="rl-pct mono">${p}%</span>
                 </div>`;
               }).join('') || `<div style="color:var(--text-3);font-size:12px">暂无分流分类统计</div>`}
             </div>
