@@ -1,5 +1,7 @@
 import { Store } from './store';
 import { AdGuardEngine } from './adguard';
+import { ModuleManager } from './modules/module-manager';
+import { FakeIpPool } from './mitm/fakeip';
 import type { UpstreamGroup, DiversionSource } from './types';
 
 export interface RouteResult {
@@ -152,7 +154,13 @@ export class DiversionEngine {
       return { group: 'blocked', domainSet: 'blocklist' };
     }
 
-    // 3. AdGuard ad blocking (Checked before broad root-domain whitelist to prevent ad subdomains from leaking through!)
+    // 3. Module MITM Host check (L7 Stream Cleaning via FakeIP)
+    if (ModuleManager.get().isMitmHost(d)) {
+      const fakeIp = FakeIpPool.get().allocate(d);
+      return { group: 'rewrite', domainSet: 'mitm_fakeip', rewriteIp: fakeIp };
+    }
+
+    // 4. AdGuard ad blocking (Checked before broad root-domain whitelist to prevent ad subdomains from leaking through!)
     if (switches.switch7 === 'A' && AdGuardEngine.get().isBlocked(d)) {
       return { group: 'blocked', domainSet: 'adguard' };
     }

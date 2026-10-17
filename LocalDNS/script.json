@@ -2,9 +2,9 @@
   "name": "LocalDNS",
   "icon": "shield.lefthalf.filled",
   "color": "#6366f1",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "author": "vcncv",
-  "description": "本地 DNS 服务管理系统，集成人文羊皮纸与流光毛玻璃双皮肤 Web 控制台及 DoH 服务。致敬上游开源仓库 yyhoworks/LocalDNS 与 R 大，由 vcncv 移植为 Scripting 原生双通道架构，对齐 FJG4Z 内核与 UI 2026.10.17.2，彻底修复控制台首页空指针崩溃。",
+  "description": "本地 DNS 与流清洗服务系统，支持 Surge/Loon/QX 跨平台模块、FakeIP 劫持、HLS M3U8 流清洗与 JS 沙箱去广告，集成人文羊皮纸与流光毛玻璃双皮肤 Web 控制台及 DoH 安全服务。致敬上游开源仓库 yyhoworks/LocalDNS 与 R 大，由 vcncv 移植构建。",
   "remoteResource": {
     "url": "https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/LocalDNS.zip"
   }

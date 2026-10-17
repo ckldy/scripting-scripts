@@ -159,7 +159,7 @@ export class DnsResolver {
         client: clientIp,
         domain,
         query_type: q.typeName,
-        domain_set: 'rewrite',
+        domain_set: diversion.domainSet,
         response_code: 'NOERROR',
         duration_ms: Date.now() - startTime,
         answers: [diversion.rewriteIp],

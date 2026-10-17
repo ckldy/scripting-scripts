@@ -25,6 +25,9 @@ import { AdGuardEngine } from './src/adguard';
 import { DiversionEngine } from './src/diversion';
 import { DnsResolver, cleanDomain } from './src/resolver';
 import { parseDnsPacket, serializeDnsPacket } from './src/dns-packet';
+import { ModuleManager } from './src/modules/module-manager';
+import { FakeIpPool } from './src/mitm/fakeip';
+import { StreamCleaner } from './src/stream/cleaner';
 import type { DnsPacket } from './src/types';
 
 // WebViewController global declaration for TypeScript
@@ -41,7 +44,7 @@ declare namespace Safari {
   function openURL(url: string): Promise<void>;
 }
 
-const APP_VERSION = 'v1.3.1';
+const APP_VERSION = 'v1.4.0';
 const APP_BUILD = '20261018';
 const APP_AUTHOR = 'vcncv';
 const UPSTREAM_REPO = 'https://github.com/yyhoworks/LocalDNS';
@@ -64,6 +67,8 @@ function LocalDnsApp() {
 
   // Stats state
   const [stats, setStats] = useState(AuditManager.get().getStats());
+  const [moduleStats, setModuleStats] = useState(ModuleManager.get().getStats());
+  const [fakeipStats, setFakeipStats] = useState(FakeIpPool.get().getStats());
   const [lastRefreshed, setLastRefreshed] = useState<string>(
     new Date().toLocaleTimeString('zh-CN', { hour12: false })
   );
@@ -86,7 +91,28 @@ function LocalDnsApp() {
 
   const refreshStats = () => {
     setStats(AuditManager.get().getStats());
+    setModuleStats(ModuleManager.get().getStats());
+    setFakeipStats(FakeIpPool.get().getStats());
     setLastRefreshed(new Date().toLocaleTimeString('zh-CN', { hour12: false }));
+  };
+
+  const handleTestYoutubeStreamAd = () => {
+    const url = 'https://rr1---sn-4g5edn6e.googlevideo.com/videoplayback?id=123&adformat=1';
+    const hit = ModuleManager.get().matchRewrite(url);
+    if (hit) {
+      setStatusMessage(`🎬 YouTube 视频流切片阻断测试: 命中 [${hit.rule.pattern}] ➔ 动作: ${hit.action} (成功消除前贴/中插切片)`);
+    } else {
+      setStatusMessage('未命中 YouTube 阻断规则');
+    }
+    refreshStats();
+  };
+
+  const handleTestTwitchM3u8Clean = () => {
+    const dirty = `#EXTM3U\n#EXT-X-DATERANGE:ID="stitched-ad-123",PLANNED-DURATION=15.0\n#EXTINF:6.0,\nhttps://video.com/seg1.ts\n#EXT-X-TWITCH-PREFETCH:https://video.com/pref.ts\n#EXTINF:6.0,\nhttps://video.com/ad_segment.ts\n#EXT-X-DISCONTINUITY\n#EXTINF:6.0,\nhttps://video.com/seg2.ts`;
+    const cleaned = StreamCleaner.cleanM3U8(dirty, 'https://usher.ttvnw.net/test.m3u8');
+    const strippedAd = !cleaned.includes('stitched-ad') && !cleaned.includes('ad_segment.ts');
+    setStatusMessage(`📺 Twitch M3U8 流清洗测试: ${strippedAd ? '成功剥离 SSAI 广告切片与预取行！' : '清洗未变动'}`);
+    refreshStats();
   };
 
   const handleToggleServer = async () => {
@@ -395,6 +421,54 @@ function LocalDnsApp() {
             value={switchReqBlock}
             onChanged={(val) => handleSwitchChange('switch1', val, setSwitchReqBlock)}
           />
+        </Section>
+
+        {/* 跨平台模块与流清洗 (Surge/Loon/QX) */}
+        <Section
+          header={<Text>跨平台模块与视频流清洗 (Surge/Loon/QX)</Text>}
+          footer={<Text>支持无缝载入 Surge (.sgmodule)、Loon (.plugin) 与 Quantumult X 规则，通过 FakeIP 截获流量并剥离 HLS M3U8 切片与播放器 JSON 广告。</Text>}
+        >
+          <HStack>
+            <Text>模块状态</Text>
+            <Spacer />
+            <Text bold>{moduleStats.activeModules} / {moduleStats.totalModules} 个已激活</Text>
+          </HStack>
+
+          <HStack>
+            <Text>MITM 域名监听</Text>
+            <Spacer />
+            <Text bold>{moduleStats.totalMitmHosts} 个通配主机</Text>
+          </HStack>
+
+          <HStack>
+            <Text>重写规则 / 脚本</Text>
+            <Spacer />
+            <Text>{moduleStats.totalRewrites} 条 / {moduleStats.totalScripts} 个</Text>
+          </HStack>
+
+          <HStack>
+            <Text>流清洗命中 / 静态阻断</Text>
+            <Spacer />
+            <Text bold foregroundStyle="systemGreen">{moduleStats.cleanedStreams} 次 / {moduleStats.hitRewrites} 次</Text>
+          </HStack>
+
+          <HStack>
+            <Text>FakeIP 池占用 (198.18.0.0/15)</Text>
+            <Spacer />
+            <Text>{fakeipStats.allocated} 个已分配</Text>
+          </HStack>
+
+          <HStack>
+            <Button
+              title="测试: YouTube 视频流切片阻断"
+              action={handleTestYoutubeStreamAd}
+            />
+            <Spacer />
+            <Button
+              title="测试: Twitch M3U8 清单清洗"
+              action={handleTestTwitchM3u8Clean}
+            />
+          </HStack>
         </Section>
 
         {/* 本地 DNS 实时解析排障 */}

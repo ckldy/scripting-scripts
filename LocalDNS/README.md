@@ -1,10 +1,10 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.3.1 (Build 20261018)`  
+> **当前版本**：`v1.4.0 (Build 20261018)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，修复控制台首页空指针崩溃）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，集成跨平台模块引擎与流清洗架构）
 
-将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地 DNS 服务与管理系统。
+将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地 DNS 与应用层流清洗服务系统。
 
 ---
 
@@ -15,7 +15,7 @@
 | **R 大（折腾日记交流群）** | **原版 DNS 核心架构，主要使用 Rust 编写** |
 | **[yyhoworks](https://github.com/yyhoworks)** | **Web UI 设计、双皮肤体系（人文羊皮纸与流光毛玻璃）与前端交互系统** |
 | **[@clone-fan](https://github.com/clone-fan)** | **通过 PR #1 贡献玻璃细节、交互动效、字体上传与数字动画修复** |
-| **vcncv** | **面向 iOS Scripting 环境的纯 TypeScript 核心重构、双通道 DoH 服务端、原生仪表盘开发、实时脉冲监控与网络防死锁** |
+| **vcncv** | **面向 iOS Scripting 环境的纯 TypeScript 核心重构、双通道 DoH 服务端、Surge/Loon/QX 跨平台模块引擎、FakeIP 与 HLS/JSON 视频流清洗流水线、JS 沙箱运行时、原生仪表盘开发、实时脉冲监控与网络防死锁** |
 
 ---
 
@@ -23,27 +23,51 @@
 
 ### 1. 本地 DNS 核心引擎 (TypeScript 原生实现)
 - **RFC 1035 / 3596 二进制 DNS 编解码**：纯 TypeScript 实现，支持 A、AAAA、CNAME、PTR、SOA、TXT、HTTPS (SVCB) 等协议格式解析与打包。
-- **DNS-over-HTTPS (DoH) 服务端**：在本地 `http://127.0.0.1:9099/dns-query` 提供标准 DoH 接口，支持 POST（二进制 wire format）与 GET（base64url 格式）。
+- **DNS-over-HTTPS (DoH) 服务端**：在本地 `http://127.0.0.1:9099/dns-query` 与 `https://127.0.0.1:9443/dns-query` 提供双通道 DoH 接口，支持 POST（二进制 wire format）与 GET（base64url 格式）。
 - **多上游并发竞速**：支持国内组 (`domestic`)、国外组 (`foreign`)、国外 ECS 组 (`foreign_ecs`) 和代理组 (`proxy`) 的多节点并发请求与最快采纳（Winner 统计）。
 - **四级缓存池 (`CacheManager`)**：包含核心缓存、国内缓存、国外缓存与国外 ECS 缓存；支持动态 TTL 递减与过期缓存回退（Stale-while-revalidate）。
-- **AdGuard 广告拦截引擎 (`AdGuardEngine`)**：支持 AdGuard 规则语法（`||domain^`、`@@` 白名单例外）与 Hosts 语法拦截，支持多订阅源在线更新。
-- **多维度分流路由器 (`DiversionEngine`)**：涵盖名单管理（白名单/黑名单/灰名单/强制 RealIP/重定向 Rewrite）与在线分流（自定义 CN/Non-CN、Geosite CN/Non-CN），支持同组来源合并去重。
+- **AdGuard 广告拦截引擎 (`AdGuardEngine`)**：支持 AdGuard 规则语法（`||domain^`、`@@` 白名单例外）与 Hosts 语法拦截，支持多订阅源在线更新与 18.5 万条过滤规则开箱即用。
+- **多维度分流路由器 (`DiversionEngine`)**：涵盖名单管理（白名单/黑名单/灰名单/强制 RealIP/重定向 Rewrite/MITM 劫持）与在线分流（自定义 CN/Non-CN、Geosite CN/Non-CN），支持同组来源合并去重。
 
-### 2. 100% 契约对齐的 LocalDNS REST API & Prometheus 指标
+### 2. 跨平台模块引擎与应用层流清洗 (Surge / Loon / Quantumult X)
+- **统一模块规范解析器 (`ModuleParser`)**：
+  - 自动识别并解析 **Surge 模块 (`.sgmodule`)**、**Loon 插件 (`.plugin`)** 与 **Quantumult X 重写 (`.conf`)**；
+  - 提取 `[MITM] hostname`（支持通配符与负向排除名单，如 `-excluded.domain.com`）；
+  - 提取 `[URL Rewrite]` 与重写指令（`reject`、`reject-200`、`reject-img`、`reject-dict`、`302/307 redirect`）；
+  - 提取 `[Script]` 定义，解析请求/响应事件类型、正则匹配模式、脚本路径与超时设置。
+- **FakeIP 虚拟地址池 (`FakeIpPool`)**：
+  - 符合 RFC 2544 规范的 `198.18.0.0/15` 保留地址池分配器；
+  - 命中已启用模块 MITM 列表的域名自动由 DNS 路由器分配 FakeIP，并将流量引导至本地处理管线；
+  - 支持 FakeIP 与原始域名双向高频秒级反查与幂等复用。
+- **HLS M3U8 清单清洗与 JSON 广告递归剪枝 (`StreamCleaner`)**：
+  - **HLS M3U8 流清洗**：流式剥离 Twitch/Kick/通用 SSAI 中的 `#EXT-X-DATERANGE:ID="stitched-ad..."` 广告段、`#EXT-X-TWITCH-PREFETCH` 预取切片以及 `ad_segment` TS 分片，并自动去重连续断流标记 `#EXT-X-DISCONTINUITY`；
+  - **播放器 JSON 剪枝**：深度递归遍历视频元数据与播放器 API 响应，剔除 YouTube 的 `adPlacements`、`playerAds`、`adSlots` 与 `videostatsPlaybackUrl` 等追踪项，彻底抹除前贴片、中插和暂停广告。
+- **兼容多协议规范的 JavaScript 沙箱运行时 (`ScriptSandbox`)**：
+  - 提供兼容 Surge / Loon / Quantumult X 规范的沙箱执行上下文；
+  - 完整注入 `$request`、`$response`（包含 `status`/`statusCode`、`headers` 与 `body`）、`$done()`；
+  - 模拟支持 `$httpClient`（GET/POST/PUT/DELETE/HEAD）、`$persistentStore`（本地持久化键值对）、`$notification` 与 QX `$prefs` / `$notify`；
+  - 支持超时自动熔断降级放行，保证网络高可用。
+
+### 3. 100% 契约对齐的 LocalDNS REST API & Prometheus 指标
 - 服务端提供与原 FJG20 后端完全一致的 API：
-  - `/api/v1/status`: 运行状态、版本、上游健康度、拦截与查询指标
+  - `/api/v1/status`: 运行状态、版本、上游健康度、拦截指标、模块状态与 FakeIP 池统计
+  - `/api/v1/modules/*`: 模块列表、在线导入、开关切换、更新与统计
+  - `/api/v1/modules/clean-stream`: 在线流清洗能力测试
+  - `/api/v1/modules/execute-script`: 沙箱脚本实时执行测试
+  - `/api/v1/modules/fakeip/*`: FakeIP 动态分配与反查接口
   - `/api/v1/upstream/*`: 上游节点配置查询与修改、ECS 配置、分组管理
   - `/api/v1/audit/*`: 审计开关、日志容量配置、清空日志
   - `/api/v2/audit/*`: 详细查询日志检索、多条件筛选、分页、客户端/域名排行
   - `/plugins/*`: 8 类策略开关状态读写、AdGuard 订阅更新、分流数据统计、多级缓存查看与清空
   - `/metrics`: 标准 Prometheus 文本格式导出（含 QPS、缓存命中率、延迟分布与上游节点健康度）
 
-### 3. 双端统一交互界面
+### 4. 双端统一交互界面
 - **iOS 原生仪表盘 (`index.tsx`)**：
-  - 服务启停与端口显示
-  - 核心指标实时卡片（累计查询、拦截请求、缓存命中率、平均延迟、活跃设备、追踪域名）
-  - 5 大核心策略快捷开关（广告拦截、核心缓存、过期缓存、IPv6 屏蔽、请求屏蔽）
-  - 本地 DNS 实时解析测试工具（实时查看解析耗时、命中策略、所属上游组与返回 IP）
+  - 服务启停与端口显示；
+  - 核心指标实时卡片（累计查询、拦截请求、缓存命中率、平均延迟、活跃设备、追踪域名）；
+  - **跨平台模块与视频流清洗专区**：展示激活模块数、MITM 域名数、流清洗次数与 FakeIP 分配量，内置 YouTube 视频流切片阻断与 Twitch M3U8 流清洗一键实测；
+  - 5 大核心策略快捷开关（广告拦截、核心缓存、过期缓存、IPv6 屏蔽、请求屏蔽）；
+  - 本地 DNS 实时解析测试工具（实时查看解析耗时、命中策略、所属上游组与返回 IP）。
 - **内嵌全功能双皮肤 Web 控制台 (UI 2026.10.17.2)**：
   - 一键在原生 `WebViewController` 中弹出完整的 Web 控制台，支持**双皮肤无刷新即时切换**：
     - **「人文羊皮纸 · Claude」**：温润象牙色底纸、深炭墨色、赤陶红与鼠尾草绿，自带宣纸纤维肌理层，提供 5 款预设色调与纸张肌理/温润层次调节；
@@ -59,27 +83,42 @@
 
 ```text
 LocalDNS/
-├── script.json             # Scripting 脚本配置元数据
-├── index.tsx               # iOS 原生仪表盘入口 & Web 控制台拉起
+├── script.json             # Scripting 脚本配置元数据 (v1.4.0)
+├── index.tsx               # iOS 原生仪表盘入口 & 模块/流清洗状态卡片
 ├── web/                    # 完整玻璃质感 Web 控制台静态资源
 │   ├── index.html
 │   ├── config.js
 │   └── assets/
-│       ├── css/            # app.css, console.css, material.css, fonts.css 等
-│       ├── js/             # app.js, console.js, chart.umd.min.js 等
+│       ├── css/            # app.css, console.css, skin-claude.css, material.css 等
+│       ├── js/             # app.js, console.js, skin.js, appearance.js, topology-flow.js 等
 │       ├── fonts/          # noto-serif-sc, ibm-plex-mono, instrument-serif
 │       └── img/            # logo 与背景纹理
-└── src/
-    ├── types.ts            # 全局 TypeScript 接口定义
-    ├── globals.d.ts        # Scripting 运行时全局类型声明
-    ├── dns-packet.ts       # 二进制 DNS 报文 Parser 与 Serializer
-    ├── store.ts            # 持久化存储与配置管理器 (基于 Scripting Storage)
-    ├── cache.ts            # 四级缓存池管理
-    ├── adguard.ts          # AdGuard 规则与广告拦截引擎
-    ├── diversion.ts        # 名单与 SRS 分流引擎
-    ├── audit.ts            # 查询审计日志与 Prometheus metrics 生成器
-    ├── resolver.ts         # DNS 核心解析器与并发上游竞速调度器
-    └── server.ts           # HttpServer 服务端、DoH 处理与 REST API 路由
+├── src/
+│   ├── types.ts            # 全局 TypeScript 接口定义
+│   ├── globals.d.ts        # Scripting 运行时全局类型声明
+│   ├── dns-packet.ts       # 二进制 DNS 报文 Parser 与 Serializer
+│   ├── store.ts            # 持久化存储与配置管理器 (基于 Scripting Storage)
+│   ├── cache.ts            # 四级缓存池管理
+│   ├── adguard.ts          # AdGuard 规则与广告拦截引擎
+│   ├── diversion.ts        # 名单与 SRS 分流引擎 (支持 MITM FakeIP 路由)
+│   ├── audit.ts            # 查询审计日志与 Prometheus metrics 生成器
+│   ├── resolver.ts         # DNS 核心解析器与并发上游竞速调度器
+│   ├── server.ts           # HttpServer 服务端、DoH 处理、模块 API 与代理管道
+│   ├── modules/            # 【新增】跨平台模块引擎
+│   │   ├── types.ts        # 统一 CleanModule 与 Rewrite/Script 契约
+│   │   ├── parser.ts       # Surge / Loon / Quantumult X 统一解析转换器
+│   │   └── module-manager.ts # 模块在线下载、存储持久化与 MITM 匹配分发
+│   ├── mitm/               # 【新增】中间人与 FakeIP
+│   │   ├── fakeip.ts       # 198.18.0.0/15 地址池分配与反查
+│   │   └── proxy-handler.ts # HTTP/HTTPS 代理处理与流清洗流水线
+│   ├── stream/             # 【新增】流清洗流水线
+│   │   └── cleaner.ts      # HLS M3U8 清单标签剥离与 JSON 递归深度剪枝
+│   └── runtime/            # 【新增】JS 异步沙箱
+│       └── sandbox.ts      # Surge/Loon/QX 标准兼容的 JS 脚本执行器
+└── tools/
+    ├── generate-cert.sh    # CA 根证书与 PKCS#12 自动化签发脚本
+    ├── test-suite.ts       # 核心服务全量回归验证套件 (39 项测试)
+    └── test-modules-suite.ts # 跨平台模块引擎与流清洗自动化测试套件 (55 项测试)
 ```
 
 ---

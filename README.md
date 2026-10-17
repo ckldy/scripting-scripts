@@ -6,7 +6,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 
 | 脚本 | 版本 | 说明 | 安装链接 |
 |---|---|---|---|
-| LocalDNS（本地 DNS 服务） | 1.3.1 | 本地 DNS 服务管理系统，集成人文羊皮纸与流光毛玻璃双皮肤 Web 控制台及 DoH 服务（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大，修复首页空指针解引用） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
+| LocalDNS（本地 DNS 服务） | 1.4.0 | 本地 DNS 与应用层流清洗系统，支持 Surge/Loon/QX 跨平台模块、FakeIP 劫持、HLS M3U8 流清洗与 JS 沙箱去广告，集成人文羊皮纸与流光毛玻璃双皮肤 Web 控制台及 DoH 服务（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
 | 台风路径 | 2.3.1 | 实时台风路径、多机构预报与气象图层；主程序刷新后会同步重载用户小组件，大号组件地图缓存批处理仅重载一次 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F台风路径.zip%22%5D) |
 | 黃豆短劇 | 1.2.0 | 浏览、搜索与收藏黃豆短劇内容，支持播放历史、剧集播放、上下滑切集与进度条 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D) |
 | NetRadio（网络收音机） | 1.0.1 | 全球 1000+ 公开网络电台（按 36 个国家/地区归类），黑胶唱机舞台、电平示波器、主题调色板与 iOS 原生后台/锁屏播控（基于 net-redio 移植，作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D) |
@@ -20,9 +20,13 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 
 ## 🌟 脚本功能详解与直链
 
-### 🛡️ LocalDNS (本地 DNS 服务管理系统)
-- **版本**：`1.3.1` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
+### 🛡️ LocalDNS (本地 DNS 服务与流清洗管理系统)
+- **版本**：`1.4.0` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
 - **特性**：
+  - **跨平台模块引擎 (Surge / Loon / Quantumult X)**：原生统一解析器 (`ModuleParser`)，直接加载 `.sgmodule`、`.plugin` 与 QX 重写规则，支持通配主机名、静态 Reject (204/200/img/dict)、302 重定向与脚本绑定；
+  - **FakeIP 虚拟地址池 (RFC 2544 198.18.0.0/15)**：命中的 MITM 视频域名自动由 DNS 路由器分配 FakeIP，并将流量引导至本地处理管线，支持高频双向毫秒级反查；
+  - **HLS M3U8 清单清洗与 JSON 广告递归剪枝**：流式剥离 Twitch/Kick/SSAI 中的 `#EXT-X-DATERANGE` 广告段、预取切片与 ad_segment 分片；递归剪除 YouTube 播放器 `adPlacements`、`playerAds`、`adSlots` 与追踪 URL；
+  - **兼容多协议规范的 JavaScript 沙箱运行时**：完整支持 `$request`、`$response`、`$done()`、`$httpClient`、`$persistentStore`、`$notification` 与 QX `$prefs` / `$notify`，带超时自动熔断降级；
   - **纯 TypeScript DNS 核心引擎 (对齐 FJG4Z)**：纯 TS 实现 RFC 1035 / 3596 标准二进制 DNS 报文编解码，全面对齐 FJG4Z 契约规范，支持 A, AAAA, CNAME, PTR, SOA, TXT, HTTPS 等；
   - **双通道共生架构**：HTTP 端口 9099（Web 双皮肤控制台/REST API/普通 DoH 秒开免证书）+ HTTPS 端口 9443（Surge 专用的安全 TLS 1.3 DoH，支持自签名证书链与热重载）；
   - **全新双皮肤体系 (UI 2026.10.17.2)**：

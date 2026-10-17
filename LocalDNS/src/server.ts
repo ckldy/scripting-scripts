@@ -5,6 +5,11 @@ import { AdGuardEngine } from './adguard';
 import { DiversionEngine } from './diversion';
 import { AuditManager } from './audit';
 import { DnsResolver, cleanDomain } from './resolver';
+import { ModuleManager } from './modules/module-manager';
+import { FakeIpPool } from './mitm/fakeip';
+import { StreamCleaner } from './stream/cleaner';
+import { ScriptSandbox } from './runtime/sandbox';
+import { ProxyHandler } from './mitm/proxy-handler';
 
 function parseJsonBody(req: HttpRequest): any {
   try {
@@ -451,6 +456,8 @@ export class LocalDnsServer {
           block: fileCounts.blocklist || 0,
         },
         adguard_rules: adCount,
+        modules: ModuleManager.get().getStats(),
+        fakeip: FakeIpPool.get().getStats(),
         stats: detailedStats,
       });
     }
@@ -632,6 +639,166 @@ $httpClient.get({
 });
 `;
       return textResponse(scriptContent, 200, 'application/javascript; charset=utf-8');
+    }
+
+    // 14. /api/v1/modules (跨平台模块引擎管理与流清洗接口)
+    if (cleanPath === '/api/v1/modules' || cleanPath === '/api/v1/modules/') {
+      if (method === 'GET') {
+        return jsonResponse({
+          success: true,
+          modules: ModuleManager.get().getModules(),
+          stats: ModuleManager.get().getStats(),
+          fakeip: FakeIpPool.get().getStats(),
+        });
+      }
+      if (method === 'POST') {
+        const body = parseJsonBody(req);
+        if (!body.content && !body.url) {
+          return jsonResponse({ error: 'Missing content or url parameter' }, 400);
+        }
+        let content = body.content || '';
+        if (!content && body.url) {
+          try {
+            const res = await fetch(body.url);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            content = await res.text();
+          } catch (e: any) {
+            return jsonResponse({ error: `Failed to download module: ${e.message}` }, 502);
+          }
+        }
+        const created = ModuleManager.get().addModule(content, body.url);
+        return jsonResponse({ success: true, module: created });
+      }
+    }
+
+    // 15. /api/v1/modules/stats
+    if (cleanPath === '/api/v1/modules/stats' && method === 'GET') {
+      return jsonResponse({
+        success: true,
+        modules: ModuleManager.get().getStats(),
+        fakeip: FakeIpPool.get().getStats(),
+      });
+    }
+
+    // 16. /api/v1/modules/clean-stream (流清洗测试接口)
+    if (cleanPath === '/api/v1/modules/clean-stream' && method === 'POST') {
+      const body = parseJsonBody(req);
+      const text = body.content || '';
+      const url = body.url || '';
+      const type = (body.type || '').toLowerCase();
+
+      let cleaned = text;
+      if (type === 'm3u8' || text.includes('#EXTM3U')) {
+        cleaned = StreamCleaner.cleanM3U8(text, url);
+      } else {
+        cleaned = StreamCleaner.cleanJSON(text, url);
+      }
+      return jsonResponse({
+        success: true,
+        modified: cleaned !== text,
+        cleaned,
+      });
+    }
+
+    // 17. /api/v1/modules/execute-script (沙箱执行测试接口)
+    if (cleanPath === '/api/v1/modules/execute-script' && method === 'POST') {
+      const body = parseJsonBody(req);
+      const scriptCode = body.script || '';
+      const context = body.context || {
+        request: { url: 'https://example.com/test', method: 'GET', headers: {} },
+      };
+
+      const result = await ScriptSandbox.execute(
+        {
+          id: 'test_script',
+          name: 'Test Script',
+          type: 'http-response',
+          pattern: '.*',
+          regex: /.*/,
+          scriptPath: 'inline.js',
+          scriptContent: scriptCode,
+          requiresBody: true,
+          timeout: 5,
+        },
+        context
+      );
+      return jsonResponse({ success: true, result });
+    }
+
+    // 18. /api/v1/modules/fakeip/...
+    if (cleanPath.startsWith('/api/v1/modules/fakeip/lookup/')) {
+      const ip = cleanPath.replace('/api/v1/modules/fakeip/lookup/', '').trim();
+      const domain = FakeIpPool.get().lookup(ip);
+      return jsonResponse({ ip, domain: domain || null, isFakeIp: FakeIpPool.get().isFakeIp(ip) });
+    }
+    if (cleanPath.startsWith('/api/v1/modules/fakeip/allocate/')) {
+      const domain = cleanPath.replace('/api/v1/modules/fakeip/allocate/', '').trim();
+      const fakeIp = FakeIpPool.get().allocate(domain);
+      return jsonResponse({ domain, fakeIp });
+    }
+
+    // 19. /api/v1/modules/:id
+    if (cleanPath.startsWith('/api/v1/modules/')) {
+      const remaining = cleanPath.replace('/api/v1/modules/', '');
+      if (remaining.endsWith('/update') && method === 'POST') {
+        const id = remaining.replace('/update', '');
+        const updated = await ModuleManager.get().updateModule(id);
+        if (updated) {
+          return jsonResponse({ success: true, module: updated });
+        }
+        return jsonResponse({ error: 'Module not found' }, 404);
+      }
+
+      const id = remaining;
+      if (method === 'GET') {
+        const mod = ModuleManager.get().getModule(id);
+        if (mod) return jsonResponse({ success: true, module: mod });
+        return jsonResponse({ error: 'Module not found' }, 404);
+      }
+      if (method === 'PUT') {
+        const body = parseJsonBody(req);
+        if (body.enabled !== undefined) {
+          const ok = ModuleManager.get().toggleModule(id, !!body.enabled);
+          if (ok) return jsonResponse({ success: true, enabled: body.enabled });
+        }
+        return jsonResponse({ error: 'Module not found or invalid body' }, 400);
+      }
+      if (method === 'DELETE') {
+        const ok = ModuleManager.get().removeModule(id);
+        if (ok) return jsonResponse({ success: true });
+        return jsonResponse({ error: 'Module not found' }, 404);
+      }
+    }
+
+    // 20. /proxy 或 /api/v1/proxy (代理转发与流清洗处理管道)
+    if (cleanPath === '/proxy' || cleanPath === '/api/v1/proxy') {
+      const getParam = (key: string) => req.queryParams.find((p) => p.key === key)?.value;
+      const targetUrl = getParam('url') || req.headers['x-target-url'] || '';
+      if (!targetUrl) {
+        return jsonResponse({ error: 'Missing target url parameter (?url=https://...)' }, 400);
+      }
+
+      let reqBody: string | undefined;
+      try {
+        reqBody = req.body ? req.body.toRawString('utf-8') : undefined;
+      } catch {}
+
+      const proxyResult = await ProxyHandler.get().processRequest({
+        url: targetUrl,
+        method: req.method || 'GET',
+        headers: req.headers || {},
+        body: reqBody,
+      });
+
+      const bodyData = Data.fromRawString(proxyResult.body, 'utf-8');
+      return HttpResponse.raw(proxyResult.status, 'OK', {
+        headers: {
+          ...proxyResult.headers,
+          'X-LocalDNS-Cleaned': proxyResult.intercepted ? 'true' : 'false',
+          'Access-Control-Allow-Origin': '*',
+        },
+        body: bodyData,
+      });
     }
 
     return jsonResponse({ error: 'Unknown API endpoint' }, 404);
