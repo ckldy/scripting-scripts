@@ -2,7 +2,7 @@
   "name": "LocalDNS",
   "icon": "shield.lefthalf.filled",
   "color": "#6366f1",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": "vcncv",
   "description": "本地 DNS 服务管理系统，带全功能玻璃质感 Web 控制台与 DoH 服务。致敬上游开源仓库 yyhoworks/LocalDNS 与 R 大，由 vcncv 移植为 Scripting 原生双通道架构。",
   "remoteResource": {

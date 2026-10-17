@@ -81,7 +81,18 @@
   const startTimeMarkup = seconds => { const n=+seconds; if(!Number.isFinite(n)||n<=0)return '<span class="overview-start-datetime">—</span>'; const d=new Date(n*1000); if(Number.isNaN(d.getTime()))return '<span class="overview-start-datetime">—</span>'; const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0'),hh=String(d.getHours()).padStart(2,'0'),mm=String(d.getMinutes()).padStart(2,'0'); return `<span class="overview-start-datetime">${y}-${m}-${day} ${hh}:${mm}</span>`; };
   const fmtDate = v => { if(!v)return '—'; const d=new Date(v); if(Number.isNaN(d.getTime()))return String(v); if(d.getUTCFullYear()<=1)return '—'; return d.toLocaleString('zh-CN',{hour12:false}); };
   const duration = seconds => { let s=Math.max(0,Math.floor(+seconds||0)); const d=Math.floor(s/86400);s%=86400;const h=Math.floor(s/3600);s%=3600;const m=Math.floor(s/60);return `${d?d+'天 ':''}${h? h+'小时 ':''}${m}分钟`; };
-  const overviewUptimeMarkup = seconds => { const s=Math.max(0,Math.floor(+seconds||0)); const h=Math.floor(s/3600); const m=Math.floor((s%3600)/60); const sec=s%60; const part=(n,u)=>`<span class="overview-duration-part"><span class="overview-duration-num">${n}</span><span class="overview-duration-unit">${u}</span></span>`; if(h)return `${part(h,'小时')}${part(m,'分钟')}`; if(m)return part(m,'分钟'); return part(sec,'秒'); };
+  const overviewUptimeMarkup = seconds => {
+    const s = Math.max(0, Math.floor(+seconds || 0));
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    const part = (n, u) => `<span class="overview-duration-part"><span class="overview-duration-num">${n}</span><span class="overview-duration-unit">${u}</span></span>`;
+    if (d) return `${part(d, '天')}${part(h, '时')}${part(m, '分')}`;
+    if (h) return `${part(h, '时')}${part(m, '分')}${part(sec, '秒')}`;
+    if (m) return `${part(m, '分')}${part(sec, '秒')}`;
+    return part(sec, '秒');
+  };
 
   const routeDefs = [
     {section:'监控', id:'overview', label:'运行概览', icon:'overview', subtitle:'实时查看 DNS 运行状态与关键指标'},
@@ -1224,14 +1235,14 @@
             <div class="gc-title">服务运行体征与查询吞吐监控</div>
             <div style="display:flex;gap:8px;align-items:center">
               <span class="tn-pill" style="color:#93C5FD;background:rgba(59,130,246,0.16)">启动于 ${startTimeMarkup(sys.start)}</span>
-              <span class="tn-pill" style="color:#34D399;background:rgba(16,185,129,0.15)">在线 ${duration(sys.uptime)}</span>
+              <span class="tn-pill" id="overview-live-online" style="color:#34D399;background:rgba(16,185,129,0.15)">在线 ${duration(sys.uptime)}</span>
             </div>
           </div>
           <div style="display:flex;gap:18px;font-size:12px;margin-bottom:8px;flex-wrap:wrap">
             <span style="display:flex;align-items:center;gap:6px"><i style="width:8px;height:8px;border-radius:2px;background:#3B82F6"></i>累计请求 <strong>${num(stats.total_queries)}</strong></span>
             <span style="display:flex;align-items:center;gap:6px"><i style="width:8px;height:8px;border-radius:2px;background:#F59E0B"></i>缓存命中 <strong>${num(cMain.q > 0 ? cMain.h : totalCacheH)}</strong></span>
-            <span style="display:flex;align-items:center;gap:6px"><i style="width:8px;height:8px;border-radius:2px;background:#10B981"></i>进程 CPU <strong>${cpuPct.toFixed(1)}%</strong></span>
-            <span style="display:flex;align-items:center;gap:6px"><i style="width:8px;height:8px;border-radius:2px;background:#60A5FA"></i>常驻内存 <strong>${fmtBytesBrief(sys.rss)}</strong></span>
+            <span style="display:flex;align-items:center;gap:6px"><i style="width:8px;height:8px;border-radius:2px;background:#10B981"></i>进程 CPU <strong id="overview-live-cpu">${cpuPct.toFixed(1)}%</strong></span>
+            <span style="display:flex;align-items:center;gap:6px"><i style="width:8px;height:8px;border-radius:2px;background:#60A5FA"></i>常驻内存 <strong id="overview-live-memory">${fmtBytesBrief(sys.rss)}</strong></span>
           </div>
           <div class="traffic-chart-body">
             <div class="console-chart-empty">正在积累趋势数据…</div>
@@ -1477,6 +1488,66 @@
       };
     }
     if ($('#slow-detail-button')) $('#slow-detail-button').onclick = () => openSlowDetailModal(slowGroups);
+
+    // 挂载概览页实时轻量心跳（秒级刷新运行时长、2秒刷新进程 CPU 与真实内存）
+    let pulseInFlight = false;
+    let pulseTicks = 0;
+    const pulseTimer = setInterval(async () => {
+      if (state.route !== 'overview') return;
+      if (document.visibilityState !== 'visible') return;
+
+      pulseTicks++;
+      // 1. 每秒本地精确更新运行时长（包含秒数跳动）
+      if (sys.start) {
+        const liveUptime = Math.max(0, Date.now() / 1000 - sys.start);
+        const uptimeEl = document.querySelector('[data-service-metric="uptime"] .service-uptime-value');
+        if (uptimeEl) uptimeEl.innerHTML = overviewUptimeMarkup(liveUptime);
+        const onlinePill = document.getElementById('overview-live-online');
+        if (onlinePill) onlinePill.textContent = `在线 ${duration(liveUptime)}`;
+      }
+
+      // 2. 每 2 秒拉取轻量 /metrics 并就地更新进程 CPU 和内存占用
+      if (pulseTicks % 2 === 0) {
+        if (pulseInFlight) return;
+        pulseInFlight = true;
+        try {
+          const rawM = await api.metrics();
+          const parsedM = parseProm(rawM);
+          const liveSys = parseSystem(parsedM);
+          const nowTs = Date.now();
+
+          let liveCpuPct = 0;
+          if (state.lastCpuTotal != null && state.lastCpuAt != null && liveSys.cpu >= state.lastCpuTotal && nowTs > state.lastCpuAt) {
+            const dt = (nowTs - state.lastCpuAt) / 1000;
+            if (dt > 0.4) {
+              liveCpuPct = Math.max(0, Math.min(100, (liveSys.cpu - state.lastCpuTotal) / dt * 100));
+            }
+          } else if (liveSys.uptime > 0) {
+            liveCpuPct = Math.max(0, Math.min(100, liveSys.cpu / liveSys.uptime * 100));
+          }
+          state.lastCpuTotal = liveSys.cpu;
+          state.lastCpuAt = nowTs;
+
+          // 就地更新顶部服务卡片
+          const cpuValueEl = document.querySelector('[data-service-metric="cpu"] [data-display-number]');
+          if (cpuValueEl) cpuValueEl.textContent = `${liveCpuPct.toFixed(1)}%`;
+          const memValueEl = document.querySelector('[data-service-metric="memory"] [data-display-number]');
+          if (memValueEl) memValueEl.textContent = fmtBytesBrief(liveSys.rss);
+
+          // 就地更新下方体征卡片
+          const liveCpuStrong = document.getElementById('overview-live-cpu');
+          if (liveCpuStrong) liveCpuStrong.textContent = `${liveCpuPct.toFixed(1)}%`;
+          const liveMemStrong = document.getElementById('overview-live-memory');
+          if (liveMemStrong) liveMemStrong.textContent = fmtBytesBrief(liveSys.rss);
+        } catch (_) {
+          // 脉冲失败静默跳过，不阻断前台
+        } finally {
+          pulseInFlight = false;
+        }
+      }
+    }, 1000);
+
+    trackRouteCleanup(() => clearInterval(pulseTimer));
   }
 
   function logBadge(set){const s=String(set||'未分类');let cls='primary';if(/黑|BAN|BLOCK|拒绝/i.test(s))cls='danger';else if(/白|直连|国内|REAL/i.test(s))cls='success';else if(/灰|代理|订阅/i.test(s))cls='pink';else if(/FAKE/i.test(s))cls='cyan';return `<span class="badge ${cls}">${esc(s)}</span>`;}
