@@ -50,15 +50,19 @@ async function runTests() {
   assert(cssStr.includes('.rl-name-text'), 'app.css includes fortified .rl-name-text class');
   assert(cssStr.includes('font-variant-numeric: tabular-nums'), 'app.css has tabular numbers for legends');
 
-  // 检查 app.js 中脉冲监控与 6:6 布局
+  // 检查 console.js 中防御性 closest 选择器，避免空指针解引用
+  const consoleJsStr = await FileManager.readAsString(Path.join(webDir, 'assets/js/console.js'));
+  assert(consoleJsStr.includes("trend?.closest('.col-8, .col-6')"), 'console.js includes safe trend column query');
+
+  // 检查 app.js 中脉冲监控与全量 safe 保护
   const appJsStr = await FileManager.readAsString(Path.join(webDir, 'assets/js/app.js'));
   assert(appJsStr.includes('挂载概览页实时轻量心跳'), 'app.js includes realtime pulse timer');
-  assert(appJsStr.includes('col-6'), 'app.js includes 6:6 balanced layout');
+  assert(appJsStr.includes('safe(()=>api.stats()'), 'app.js includes safe() wrapper for api.stats');
   assert(appJsStr.includes('国外默认') && appJsStr.includes('国内直连'), 'app.js includes Chinese legend labels');
 
   // 2. 服务端与 API 契约测试
   console.log('\n--- Test 2: Server Startup & API Contract Verification ---');
-  const server = new LocalDnsServer();
+  const server = LocalDnsServer.get();
   const startRes = server.start(9199);
   assert(startRes.success === true, `HTTP Server started on port ${startRes.port}`);
 

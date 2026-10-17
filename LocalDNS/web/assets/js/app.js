@@ -844,12 +844,12 @@
     await loadAliases().catch(()=>{});
     const switchTags = ['switch1','switch5','switch7','switch6','switch13','switch4','switch2','switch12'];
     const [stats,domains,clients,slowest,sets,metricsRaw,engineStatus,upCfg,switchVals] = await Promise.all([
-      api.stats(),
-      api.rank('domain',1000),
-      api.rank('client',1000),
-      api.rank('slowest',1000),
-      api.rank('domain_set',64),
-      api.metrics(),
+      safe(()=>api.stats(), {total_queries:0,blocked_queries:0,average_duration_ms:0,cache_hit_rate:0,active_clients:0}),
+      safe(()=>api.rank('domain',1000), []),
+      safe(()=>api.rank('client',1000), []),
+      safe(()=>api.rank('slowest',1000), []),
+      safe(()=>api.rank('domain_set',64), []),
+      safe(()=>api.metrics(), ''),
       safe(()=>api.request('/api/v1/status'),{}),
       safe(()=>api.request('/api/v1/upstream/config'),{}),
       Promise.all(switchTags.map(t=>safe(()=>api.request(`/plugins/${t}/show`),'B')))

@@ -64,11 +64,23 @@
     $$('.spark-kpi-card',main).forEach((card,i)=>{card.parentElement.classList.add('console-kpi');const key=['total','cache','clients','blocked','latency','domains'][i];const values=series.slice(-60).map(p=>p[key]).filter(Number.isFinite);const svg=$('.sk-chart',card);if(svg){if(values.length<2){svg.remove();}else{svg.innerHTML=`<path d="${tinyPath(values)}" fill="none" stroke="var(--console-line)" stroke-width="1.8"/>`;svg.setAttribute('aria-label','当前会话采样趋势');}}});
     const service=$('.console-service-summary',main);if(service){$$('.console-kpi',main).forEach(kpi=>service.append(kpi));$('.view-title-row>div:first-child>.mono',main)?.remove();}
     const topo=$('.topology-glass-card');topo.parentElement.classList.add('console-topology');if(!$('.console-topology-heading',topo))topo.insertAdjacentHTML('afterbegin','<div class="console-topology-heading"><h2>DNS 解析路径</h2><span>选择节点查看详情 · 连线为解析路径示意</span></div>');
-    const trend=$('.traffic-chart-body');trend.closest('.col-8').classList.add('console-trend');
-    const head=$('.gc-head',trend.closest('.glass-card'));$('.gc-title',head).innerHTML='查询吞吐趋势<span class="console-chart-sub">QPS · 当前浏览器会话采样</span>';
-    const range=head.lastElementChild;range.className='console-range';range.removeAttribute('style');range.innerHTML='<button type="button" data-chart-range="15" aria-pressed="false">15 分钟</button><button type="button" data-chart-range="30" aria-pressed="true">30 分钟</button>';
-    drawTraffic(trend);$$('[data-chart-range]',head).forEach(b=>b.onclick=()=>{$$('[data-chart-range]',head).forEach(x=>x.setAttribute('aria-pressed',String(x===b)));drawTraffic(trend,+b.dataset.chartRange);});
-    $('.outbound-donut-body')?.closest('.col-4').classList.add('console-donut');$$('.uniform-4rows').forEach(e=>e.closest('.col-4')?.classList.add('console-lower'));
+    const trend=$('.traffic-chart-body');
+    const trendCol=trend?.closest('.col-8, .col-6');
+    if(trendCol)trendCol.classList.add('console-trend');
+    const head=trend?$('.gc-head',trend.closest('.glass-card')):null;
+    if(head){
+      $('.gc-title',head).innerHTML='查询吞吐趋势<span class="console-chart-sub">QPS · 当前浏览器会话采样</span>';
+      const range=head.lastElementChild;
+      if(range){
+        range.className='console-range';
+        range.removeAttribute('style');
+        range.innerHTML='<button type="button" data-chart-range="15" aria-pressed="false">15 分钟</button><button type="button" data-chart-range="30" aria-pressed="true">30 分钟</button>';
+      }
+      drawTraffic(trend);
+      $$('[data-chart-range]',head).forEach(b=>b.onclick=()=>{$$('[data-chart-range]',head).forEach(x=>x.setAttribute('aria-pressed',String(x===b)));drawTraffic(trend,+b.dataset.chartRange);});
+    }
+    $('.outbound-donut-body')?.closest('.col-4, .col-6')?.classList.add('console-donut');
+    $$('.uniform-4rows').forEach(e=>e.closest('.col-4, .col-6')?.classList.add('console-lower'));
     $$('.t-node').forEach(node=>{const name=$('.tn-name',node),sub=$('.tn-sub',node);if(!node.title)node.title=[name?.textContent,sub?.textContent].filter(Boolean).join(' · ');if(labels[node.dataset.nodeId]&&!$('.tn-proto-tag',name))name.textContent=labels[node.dataset.nodeId];if(node.dataset.nodeId==='e_core')node.setAttribute('aria-label','查看多级缓存管理');});
     const names={whitelist:'白名单',greylist:'灰名单',blocklist:'黑名单'};$$('.rl-name').forEach(e=>{const t=e.lastChild;if(t?.nodeType===3)t.textContent=names[t.textContent.trim()]||t.textContent;});requestAnimationFrame(()=>window.dispatchEvent(new Event('resize')));
   }
