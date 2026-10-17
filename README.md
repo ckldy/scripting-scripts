@@ -6,7 +6,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 
 | 脚本 | 版本 | 说明 | 安装链接 |
 |---|---|---|---|
-| LocalDNS（本地 DNS 服务） | 1.4.2 | 本地 DNS 与应用层流清洗系统，支持在“功能开关”中独立控制 MITM 流量接管与 HTTP 重写引擎，支持正则捕获组跳转、Mock 响应、Header/Body 替换、Surge/Loon/QX 跨平台模块导入与 DNS 解析路径全分流动态交互推演（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
+| LocalDNS（本地 DNS 服务） | 1.4.3 | 本地 DNS 与应用层流清洗系统，支持在“规则管理”进行 HTTP 重写可视化与纯文本深度编辑、单条启闭控制、在线实时推演测试，在“功能开关”独立控制 MITM 流量接管与 HTTP 重写引擎，支持正则捕获组跳转、Mock 响应、Header/Body 替换、Surge/Loon/QX 跨平台模块导入与 DNS 解析路径全分流动态交互推演（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
 | 台风路径 | 2.3.1 | 实时台风路径、多机构预报与气象图层；主程序刷新后会同步重载用户小组件，大号组件地图缓存批处理仅重载一次 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F台风路径.zip%22%5D) |
 | 黃豆短劇 | 1.2.0 | 浏览、搜索与收藏黃豆短劇内容，支持播放历史、剧集播放、上下滑切集与进度条 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D) |
 | NetRadio（网络收音机） | 1.0.1 | 全球 1000+ 公开网络电台（按 36 个国家/地区归类），黑胶唱机舞台、电平示波器、主题调色板与 iOS 原生后台/锁屏播控（基于 net-redio 移植，作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D) |
@@ -21,8 +21,9 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 ## 🌟 脚本功能详解与直链
 
 ### 🛡️ LocalDNS (本地 DNS 服务与流清洗管理系统)
-- **版本**：`1.4.2` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
+- **版本**：`1.4.3` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
 - **特性**：
+  - **规则管理 HTTP 重写深度编辑与在线推演**：在 Web 控制台“规则管理”新增「HTTP 重写」专区，支持双视图一键无缝切换（可视化列表 + 纯文本配置编辑），支持单条规则独立启闭开关、编辑、推演与删除；内置经典预设模版（重定向、Mock、UA替换、敏感头剥离、广告开关替换等）；内置 HTTP 重写实时推演与在线测试器，即时反馈命中规则、模拟返回状态码、重定向 Location、报文预览及执行动作；
   - **核心功能策略独立开关**：在 Web 控制台“功能开关”页面与 iOS 原生仪表盘中新增「MITM 流量接管 (`switch_mitm`)」与「HTTP 重写引擎 (`switch_rewrite`)」，支持一键启闭与热重载，方便精准排障；
   - **完善的高性能 HTTP 重写引擎**：支持 `302 / 307` 正则捕获组重定向（`$1, $2` 路径替换）、支持 `mock 200/204` 虚拟响应（零上游开销）、支持请求 Header 替换与删除 (`header-replace` / `header-del`)、支持响应 Body 全局正则替换 (`body-replace`)；
   - **规则管理跨平台模块导入入口**：在 Web 控制台“规则管理”新增「模块管理 (Surge / Loon / QX)」专区，支持一键填入常用社区预设（YouTube 纯净流净化、B站去广告、Twitch SSAI 清洗、爱奇艺去广告等）、输入远程订阅 URL 或直接粘贴规则配置，支持查看规则条目详情与在线流清洗测试器；

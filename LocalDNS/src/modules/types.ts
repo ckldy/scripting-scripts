@@ -16,11 +16,21 @@ export type RewriteAction =
 
 export interface CleanRewriteRule {
   id: string;
+  name?: string;
   pattern: string;
   regex: RegExp;
   action: RewriteAction;
   target?: string;
   extra?: string;
+  enabled?: boolean;
+  note?: string;
+}
+
+export interface EnrichedRewriteRule extends CleanRewriteRule {
+  moduleId: string;
+  moduleName: string;
+  moduleEnabled: boolean;
+  isCustom: boolean;
 }
 
 export interface CleanScriptRule {

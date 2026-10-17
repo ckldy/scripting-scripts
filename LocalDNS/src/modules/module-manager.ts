@@ -3,6 +3,7 @@ import type {
   CleanModule,
   CleanRewriteRule,
   CleanScriptRule,
+  EnrichedRewriteRule,
   ModuleManagerStats,
   RewriteAction,
 } from './types';
@@ -60,6 +61,7 @@ export class ModuleManager {
         const rewrites: CleanRewriteRule[] = (m.rewrites || []).map((rw: any) => ({
           ...rw,
           regex: new RegExp(rw.pattern),
+          enabled: rw.enabled !== false,
         }));
         const scripts: CleanScriptRule[] = (m.scripts || []).map((sc: any) => ({
           ...sc,
@@ -72,13 +74,31 @@ export class ModuleManager {
         };
       });
     } else {
-      // 预置高频社区经典去广告模块
+      // 预置高频社区经典去广告模块与自定义重写
       this.initDefaultPresets();
     }
+
+    // 确保存在自定义重写模块 (custom_rewrites)
+    if (!this.modules.some((m) => m.id === 'custom_rewrites')) {
+      const customModuleRaw = `#!name=自定义 HTTP 重写
+#!desc=本地自定义 URL 重定向、Mock 虚拟响应、Header 篡改与 Body 替换规则
+[URL Rewrite]
+`;
+      const mCustom = ModuleParser.parse(customModuleRaw, 'custom_rewrites');
+      this.modules.unshift(mCustom);
+      this.saveModules();
+    }
+
     this.rebuildMitmIndex();
   }
 
   private initDefaultPresets(): void {
+    // 预置 0: 自定义 HTTP 重写模块
+    const customModuleRaw = `#!name=自定义 HTTP 重写
+#!desc=本地自定义 URL 重定向、Mock 虚拟响应、Header 篡改与 Body 替换规则
+[URL Rewrite]
+`;
+
     // 预置 1: YouTube 视频去广告与清爽模块 (Surge 规范)
     const ytModuleRaw = `#!name=YouTube 纯净去广告与流净化
 #!desc=屏蔽 YouTube 贴片广告、中插广告、信息流推广与后台跟踪
@@ -106,9 +126,10 @@ hostname = *.ttvnw.net, *.twitch.tv
 ^https?:\/\/spade\.twitch\.tv\/track reject-200
 `;
 
+    const m0 = ModuleParser.parse(customModuleRaw, 'custom_rewrites');
     const m1 = ModuleParser.parse(ytModuleRaw, 'preset_youtube');
     const m2 = ModuleParser.parse(twitchModuleRaw, 'preset_twitch');
-    this.modules = [m1, m2];
+    this.modules = [m0, m1, m2];
     this.saveModules();
   }
 
@@ -118,10 +139,13 @@ hostname = *.ttvnw.net, *.twitch.tv
       ...m,
       rewrites: m.rewrites.map((rw) => ({
         id: rw.id,
+        name: rw.name,
         pattern: rw.pattern,
         action: rw.action,
         target: rw.target,
         extra: rw.extra,
+        enabled: rw.enabled !== false,
+        note: rw.note,
       })),
       scripts: m.scripts.map((sc) => ({
         id: sc.id,
@@ -222,6 +246,7 @@ hostname = *.ttvnw.net, *.twitch.tv
     for (const mod of this.modules) {
       if (!mod.enabled) continue;
       for (const rw of mod.rewrites) {
+        if (rw.enabled === false) continue; // 支持单条重写规则独立开关
         if (rw.regex.test(url)) {
           this.stats.hitRewrites++;
           return {
@@ -234,6 +259,166 @@ hostname = *.ttvnw.net, *.twitch.tv
       }
     }
     return null;
+  }
+
+  // ================= HTTP 重写规则专属管理接口 =================
+
+  /**
+   * 获取所有模块与自定义集合中的全部重写规则
+   */
+  public getAllRewrites(): EnrichedRewriteRule[] {
+    const list: EnrichedRewriteRule[] = [];
+    for (const mod of this.modules) {
+      for (const rw of mod.rewrites) {
+        list.push({
+          ...rw,
+          moduleId: mod.id,
+          moduleName: mod.name,
+          moduleEnabled: mod.enabled,
+          isCustom: mod.id === 'custom_rewrites',
+        });
+      }
+    }
+    return list;
+  }
+
+  /**
+   * 获取专供用户自定义重写规则的模块对象
+   */
+  public getCustomRewritesModule(): CleanModule {
+    let custom = this.modules.find((m) => m.id === 'custom_rewrites');
+    if (!custom) {
+      const customModuleRaw = `#!name=自定义 HTTP 重写\n#!desc=本地自定义 URL 重定向、Mock 虚拟响应、Header 篡改与 Body 替换规则\n[URL Rewrite]\n`;
+      custom = ModuleParser.parse(customModuleRaw, 'custom_rewrites');
+      this.modules.unshift(custom);
+      this.saveModules();
+    }
+    return custom;
+  }
+
+  /**
+   * 添加一条自定义 HTTP 重写规则
+   */
+  public addCustomRewrite(item: {
+    name?: string;
+    pattern: string;
+    action: RewriteAction;
+    target?: string;
+    extra?: string;
+    enabled?: boolean;
+    note?: string;
+  }): CleanRewriteRule {
+    const custom = this.getCustomRewritesModule();
+    const id = `rw_cust_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const rule: CleanRewriteRule = {
+      id,
+      name: item.name || '',
+      pattern: item.pattern,
+      regex: new RegExp(item.pattern),
+      action: item.action,
+      target: item.target,
+      extra: item.extra,
+      enabled: item.enabled !== false,
+      note: item.note,
+    };
+    custom.rewrites.unshift(rule);
+    this.saveModules();
+    return rule;
+  }
+
+  /**
+   * 更新单条重写规则 (可以修改 pattern, action, target, extra, name, enabled, note 等)
+   */
+  public updateRewrite(
+    id: string,
+    patch: Partial<CleanRewriteRule>
+  ): CleanRewriteRule | null {
+    for (const mod of this.modules) {
+      const idx = mod.rewrites.findIndex((r) => r.id === id);
+      if (idx !== -1) {
+        const cur = mod.rewrites[idx];
+        const next: CleanRewriteRule = {
+          ...cur,
+          ...patch,
+          id: cur.id,
+        };
+        if (patch.pattern) {
+          next.regex = new RegExp(patch.pattern);
+        }
+        mod.rewrites[idx] = next;
+        this.saveModules();
+        return next;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 切换单条重写规则的启闭状态
+   */
+  public toggleRewrite(id: string, enabled: boolean): boolean {
+    const res = this.updateRewrite(id, { enabled });
+    return res !== null;
+  }
+
+  /**
+   * 删除单条重写规则
+   */
+  public deleteRewrite(id: string): boolean {
+    for (const mod of this.modules) {
+      const prevLen = mod.rewrites.length;
+      mod.rewrites = mod.rewrites.filter((r) => r.id !== id);
+      if (mod.rewrites.length !== prevLen) {
+        this.saveModules();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 从纯文本批量导入保存自定义重写规则
+   */
+  public saveCustomRewritesFromText(text: string): CleanModule {
+    const custom = this.getCustomRewritesModule();
+    let surgeText = text.trim();
+    if (!surgeText.toUpperCase().includes('[URL REWRITE]') && !surgeText.toUpperCase().includes('[REWRITE]')) {
+      surgeText = `[URL Rewrite]\n${surgeText}`;
+    }
+    const parsed = ModuleParser.parse(surgeText, 'custom_rewrites');
+    custom.rewrites = parsed.rewrites;
+    custom.rawSource = text;
+    custom.lastUpdated = new Date().toISOString();
+    this.saveModules();
+    return custom;
+  }
+
+  /**
+   * 导出自定义重写为 Surge/Loon 格式文本
+   */
+  public exportCustomRewritesText(): string {
+    const custom = this.getCustomRewritesModule();
+    const lines: string[] = ['# LocalDNS 自定义 HTTP 重写规则', ''];
+    for (const r of custom.rewrites) {
+      if (r.name) lines.push(`# ${r.name}`);
+      const enabledPrefix = r.enabled === false ? '# ' : '';
+      let line = '';
+      if (r.action === 'redirect') {
+        line = `${r.pattern} 302 ${r.target || ''}`;
+      } else if (r.action === 'mock') {
+        line = `${r.pattern} mock ${r.target || '200'} ${r.extra || ''}`;
+      } else if (r.action === 'header-replace') {
+        line = `${r.pattern} header-replace ${r.target || ''} ${r.extra || ''}`;
+      } else if (r.action === 'header-del') {
+        line = `${r.pattern} header-del ${r.target || ''}`;
+      } else if (r.action === 'body-replace') {
+        line = `${r.pattern} response-body ${r.target || ''} ${r.extra || ''}`;
+      } else {
+        line = `${r.pattern} ${r.action}`;
+      }
+      lines.push(`${enabledPrefix}${line}`.trim());
+    }
+    return lines.join('\n');
   }
 
   /**

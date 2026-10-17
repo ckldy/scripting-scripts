@@ -1,8 +1,8 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.4.2 (Build 20261018)`  
+> **当前版本**：`v1.4.3 (Build 20261018)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，集成 MITM/HTTP重写功能开关与增强重写引擎）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，集成规则管理 HTTP 重写可视化/文本编辑与在线推演调试能力）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地 DNS 与应用层流清洗服务系统。
 
@@ -30,6 +30,17 @@
 - **多维度分流路由器 (`DiversionEngine`)**：涵盖名单管理（白名单/黑名单/灰名单/强制 RealIP/重定向 Rewrite/MITM 劫持）与在线分流（自定义 CN/Non-CN、Geosite CN/Non-CN），支持同组来源合并去重。
 
 ### 2. 跨平台模块引擎与应用层流清洗 (Surge / Loon / Quantumult X)
+- **规则管理 HTTP 重写深度编辑与在线推演 (`renderRewrites`)**：
+  - 在 Web 控制台“规则管理”新增 **「HTTP 重写」** 专区，支持双视图一键无缝切换：
+    - **可视化列表视图**：展示动作标签（重定向/Mock/Header/Body/Reject）、规则名称、匹配正则、目标参数、所属来源；支持单条规则独立启闭开关、编辑、推演与删除；
+    - **纯文本编辑视图**：支持 Surge/Loon 标准语法直接批量查看、编辑、保存与下载自定义重写配置文本；
+  - **单条重写规则编辑/新建弹窗 (`openRewriteModal`)**：
+    - 提供经典预设模版一键载入（API 路径重定向、广告接口 Mock、伪装 User-Agent、删除敏感头、Body 广告开关替换、204 快速阻断等）；
+    - 根据选择的动作动态切换参数表单，实时校验正则表达式合法性；
+  - **HTTP 重写实时推演与在线测试器 (`openRewriteTestModal`)**：
+    - 输入任意测试 URL 与请求方法，实时模拟重写匹配引擎；
+    - 即时反馈命中规则、模拟返回状态码、重定向 Location、报文预览及执行动作，便于上线前精准排障；
+  - 提供重写指标卡片（总规则数、已生效数、重定向/Mock 数、Header/Body 替换数、静态拟真阻断数、自定义规则数）。
 - **核心功能策略开关 (`switch_mitm` & `switch_rewrite`)**：
   - 在 Web 控制台“功能开关”页面与 iOS 原生仪表盘中新增 **「MITM 流量接管」** 与 **「HTTP 重写引擎」** 独立控制项；
   - 关闭 `switch_mitm` 时，DNS 路由器自动绕过 FakeIP 劫持，恢复原始上游寻址；

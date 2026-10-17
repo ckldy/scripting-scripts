@@ -60,17 +60,23 @@ async function runTests() {
   assert(appJsStr.includes('safe(()=>api.stats()'), 'app.js includes safe() wrapper for api.stats');
   assert(appJsStr.includes('国外默认') && appJsStr.includes('国内直连'), 'app.js includes Chinese legend labels');
 
-  // 检查规则管理模块导入与动态视图
+  // 检查规则管理模块导入、HTTP重写与动态视图
   assert(appJsStr.includes('data-rule-tab="modules"'), 'app.js includes modules tab button in rules management');
+  assert(appJsStr.includes('data-rule-tab="rewrites"'), 'app.js includes rewrites tab button in rules management');
   assert(appJsStr.includes('renderModules'), 'app.js implements renderModules component');
+  assert(appJsStr.includes('renderRewrites'), 'app.js implements renderRewrites component');
+  assert(appJsStr.includes('openRewriteModal'), 'app.js implements openRewriteModal component');
+  assert(appJsStr.includes('openRewriteTestModal'), 'app.js implements openRewriteTestModal component');
   assert(appJsStr.includes('openModuleModal'), 'app.js implements openModuleModal import modal');
   assert(appJsStr.includes('topo-dynamic-toolbar'), 'app.js includes topo-dynamic-toolbar HTML');
   assert(appJsStr.includes('runTopoTracer'), 'app.js implements runTopoTracer dynamic path reasoning');
   assert(appJsStr.includes('switch_mitm') && appJsStr.includes('switch_rewrite'), 'app.js switchProfiles includes switch_mitm and switch_rewrite');
 
-  // 检查 app.css 中动态视图工具栏样式
+  // 检查 app.css 中动态视图工具栏与重写样式
   assert(cssStr.includes('.topo-dynamic-toolbar'), 'app.css includes .topo-dynamic-toolbar styles');
   assert(cssStr.includes('.topo-pill-btn'), 'app.css includes .topo-pill-btn styles');
+  assert(cssStr.includes('.rewrite-stat-grid'), 'app.css includes .rewrite-stat-grid styles');
+  assert(cssStr.includes('.rewrite-rules-table'), 'app.css includes .rewrite-rules-table styles');
 
   // 检查 topology-flow.js 动态分流引擎
   const topoFlowJsStr = await FileManager.readAsString(Path.join(webDir, 'assets/js/topology-flow.js'));
@@ -161,6 +167,76 @@ async function runTests() {
     });
     const getMitmA = await (await fetch(`${baseUrl}/plugins/switch_mitm/show`)).text();
     assert(getMitmA.trim() === 'A', `switch_mitm restored to A`);
+
+    // 2.9 验证 /api/v1/rewrites 全套 CRUD 与测试接口
+    const resGetRw = await fetch(`${baseUrl}/api/v1/rewrites`);
+    assert(resGetRw.status === 200, `GET /api/v1/rewrites returns 200 OK`);
+    const rwData = await resGetRw.json();
+    assert(rwData.success === true, 'rewrites api returns success true');
+    assert(Array.isArray(rwData.rewrites), 'rewrites list is an array');
+    assert(typeof rwData.rawText === 'string', 'rawText export is string');
+
+    // 添加单条自定义重写规则
+    const resAddRw = await fetch(`${baseUrl}/api/v1/rewrites`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: '测试自定义重写',
+        pattern: '^https?:\\/\\/api\\.testsuite\\.com\\/mock-unit',
+        action: 'mock',
+        target: '200',
+        extra: '{"unitTest":true}',
+        enabled: true,
+        note: '自动化测试生成'
+      }),
+    });
+    assert(resAddRw.status === 200, `POST /api/v1/rewrites returns 200 OK`);
+    const addedRw = await resAddRw.json();
+    assert(addedRw.success === true && addedRw.rewrite && addedRw.rewrite.id, 'Created rewrite has id');
+    const newRwId = addedRw.rewrite.id;
+
+    // 验证在线重写推演测试接口
+    const resSimRw = await fetch(`${baseUrl}/api/v1/rewrites/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: 'https://api.testsuite.com/mock-unit',
+        method: 'GET'
+      }),
+    });
+    assert(resSimRw.status === 200, `POST /api/v1/rewrites/test returns 200 OK`);
+    const simData = await resSimRw.json();
+    assert(simData.matched === true, 'Test simulation matched newly created rewrite rule');
+    assert(simData.simulation.status === 200, 'Test simulation returned status 200');
+    assert(simData.simulation.bodySnippet.includes('unitTest'), 'Simulation body includes mock payload');
+
+    // 切换单条规则状态
+    const resToggleRw = await fetch(`${baseUrl}/api/v1/rewrites/${encodeURIComponent(newRwId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: false }),
+    });
+    assert(resToggleRw.status === 200, `PUT /api/v1/rewrites/:id returns 200 OK`);
+    const toggledRw = await resToggleRw.json();
+    assert(toggledRw.rewrite.enabled === false, 'Rewrite enabled toggled to false');
+
+    // 删除单条规则
+    const resDelRw = await fetch(`${baseUrl}/api/v1/rewrites/${encodeURIComponent(newRwId)}`, {
+      method: 'DELETE',
+    });
+    assert(resDelRw.status === 200, `DELETE /api/v1/rewrites/:id returns 200 OK`);
+
+    // 验证纯文本批量保存
+    const resTextRw = await fetch(`${baseUrl}/api/v1/rewrites/text`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: '^https?:\\/\\/api\\.testsuite\\.com\\/batch-text mock 204\n^https?:\\/\\/api\\.testsuite\\.com\\/u\\/(.+) 302 https://new.com/$1'
+      }),
+    });
+    assert(resTextRw.status === 200, `POST /api/v1/rewrites/text returns 200 OK`);
+    const textSaved = await resTextRw.json();
+    assert(textSaved.count === 2, 'Batch text parsed 2 rewrite rules');
   } catch (err: any) {
     console.error('API Test Error:', err);
     failed++;

@@ -2067,6 +2067,7 @@
         <button type="button" class="seg-item" data-rule-tab="adguard">广告拦截 (AdGuard)</button>
         <button type="button" class="seg-item" data-rule-tab="diversion">在线分流 (SRS)</button>
         <button type="button" class="seg-item" data-rule-tab="modules">模块管理 (Surge / Loon / QX)</button>
+        <button type="button" class="seg-item" data-rule-tab="rewrites">HTTP 重写</button>
       </div>
     </div>
     <div id="rule-tab-body" class="col-12"></div>`;
@@ -2079,6 +2080,7 @@
     if(tab==='lists')return renderListRules(body);
     if(tab==='adguard')return renderAdguard(body);
     if(tab==='modules')return renderModules(body);
+    if(tab==='rewrites')return renderRewrites(body);
     return renderDiversion(body);
   }
   async function renderListRules(body){
@@ -2623,6 +2625,610 @@
         toast('流清洗完成');
       }catch(e){
         $('#clean-status').textContent='清洗失败: ' + e.message;
+      }
+    };
+  }
+
+  /* ================= HTTP 重写规则可视化与文本编辑组件 ================= */
+  let currentRewriteViewMode = 'gui'; // 'gui' | 'text'
+
+  async function renderRewrites(body){
+    let data = null;
+    try {
+      data = await api.request('/api/v1/rewrites');
+    } catch(e) {
+      body.innerHTML = `<div class="error-panel"><strong>HTTP 重写规则加载失败</strong><p>${esc(e.message)}</p></div>`;
+      return;
+    }
+
+    const rewrites = (data?.rewrites || []).slice();
+    const customModule = data?.customModule || {};
+    const rawText = data?.rawText || '';
+    const isGlobalEnabled = data?.enabled !== false;
+
+    // 统计指标
+    const totalCount = rewrites.length;
+    const activeCount = rewrites.filter(r => r.enabled !== false && r.moduleEnabled !== false).length;
+    const redirectCount = rewrites.filter(r => r.action === 'redirect').length;
+    const mockCount = rewrites.filter(r => r.action === 'mock').length;
+    const replaceCount = rewrites.filter(r => r.action === 'header-replace' || r.action === 'header-del' || r.action === 'body-replace').length;
+    const rejectCount = rewrites.filter(r => r.action.startsWith('reject')).length;
+    const customCount = rewrites.filter(r => r.isCustom).length;
+
+    const actionBadge = (action) => {
+      const map = {
+        'redirect': ['302/307 重定向', '#3B82F6', 'rgba(59,130,246,0.12)'],
+        'mock': ['Mock 虚拟响应', '#8B5CF6', 'rgba(139,92,246,0.14)'],
+        'header-replace': ['Header 替换', '#10B981', 'rgba(16,185,129,0.12)'],
+        'header-del': ['Header 删除', '#F59E0B', 'rgba(245,158,11,0.12)'],
+        'body-replace': ['Body 替换', '#EC4899', 'rgba(236,72,153,0.12)'],
+        'reject-200': ['拟真阻断 204', '#EF4444', 'rgba(239,68,68,0.12)'],
+        'reject-dict': ['空字典阻断 {}', '#EF4444', 'rgba(239,68,68,0.12)'],
+        'reject-array': ['空数组阻断 []', '#EF4444', 'rgba(239,68,68,0.12)'],
+        'reject-img': ['透明 GIF 阻断', '#EF4444', 'rgba(239,68,68,0.12)'],
+        'reject': ['直接阻断 (404)', '#EF4444', 'rgba(239,68,68,0.12)'],
+      };
+      const [lbl, col, bg] = map[action] || [action, '#94A3B8', 'rgba(148,163,184,0.12)'];
+      return `<span class="tn-pill mono" style="color:${col};background:${bg};font-weight:700;font-size:11px">${lbl}</span>`;
+    };
+
+    const headerMarkup = `
+      ${!isGlobalEnabled ? `<div class="error-panel" style="margin-bottom:14px;background:rgba(245,158,11,0.1);border-color:#F59E0B">
+        <strong>⚠️ 提示：当前「HTTP 重写引擎」主开关处于关闭状态</strong>
+        <p style="margin-top:4px">请前往“系统管理”➔“功能开关”中开启「HTTP 重写引擎」，重写规则才会对经过代理的请求实际生效。</p>
+      </div>` : ''}
+
+      <div class="rewrite-stat-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px">
+        <div class="glass-card" style="padding:12px 14px">
+          <div style="font-size:12px;color:var(--text-3);margin-bottom:4px">重写规则总数</div>
+          <div style="font-size:18px;font-weight:700;color:var(--text-1)"><strong class="tabular">${totalCount}</strong><span style="font-size:13px;font-weight:400;color:var(--text-3)"> 条</span></div>
+        </div>
+        <div class="glass-card" style="padding:12px 14px">
+          <div style="font-size:12px;color:var(--text-3);margin-bottom:4px">已生效规则</div>
+          <div style="font-size:18px;font-weight:700;color:#10B981"><strong class="tabular">${activeCount}</strong><span style="font-size:13px;font-weight:400;color:var(--text-3)"> / ${totalCount}</span></div>
+        </div>
+        <div class="glass-card" style="padding:12px 14px">
+          <div style="font-size:12px;color:var(--text-3);margin-bottom:4px">重定向 / Mock</div>
+          <div style="font-size:18px;font-weight:700;color:#3B82F6"><strong class="tabular">${redirectCount}</strong><span style="font-size:13px;font-weight:400;color:var(--text-3)"> / ${mockCount}</span></div>
+        </div>
+        <div class="glass-card" style="padding:12px 14px">
+          <div style="font-size:12px;color:var(--text-3);margin-bottom:4px">Header/Body 替换</div>
+          <div style="font-size:18px;font-weight:700;color:#EC4899"><strong class="tabular">${replaceCount}</strong><span style="font-size:13px;font-weight:400;color:var(--text-3)"> 条</span></div>
+        </div>
+        <div class="glass-card" style="padding:12px 14px">
+          <div style="font-size:12px;color:var(--text-3);margin-bottom:4px">静态拟真阻断</div>
+          <div style="font-size:18px;font-weight:700;color:#EF4444"><strong class="tabular">${rejectCount}</strong><span style="font-size:13px;font-weight:400;color:var(--text-3)"> 条</span></div>
+        </div>
+        <div class="glass-card" style="padding:12px 14px">
+          <div style="font-size:12px;color:var(--text-3);margin-bottom:4px">自定义重写</div>
+          <div style="font-size:18px;font-weight:700;color:#8B5CF6"><strong class="tabular">${customCount}</strong><span style="font-size:13px;font-weight:400;color:var(--text-3)"> 条</span></div>
+        </div>
+      </div>
+    `;
+
+    // 1. GUI 列表视图
+    const guiTableMarkup = `
+      <div class="table-wrap rewrite-table-wrap mobile-card-table">
+        <table class="rewrite-rules-table adguard-card-table">
+          <colgroup>
+            <col class="col-enabled" style="width:60px">
+            <col style="width:140px">
+            <col style="width:180px">
+            <col style="width:260px">
+            <col>
+            <col style="width:130px">
+            <col class="col-actions" style="width:160px">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>启用</th>
+              <th>动作类型</th>
+              <th>规则名称</th>
+              <th>匹配正则 (Pattern)</th>
+              <th>重写目标 / 参数</th>
+              <th>来源</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rewrites.length ? rewrites.map(r => {
+              const targetDesc = r.action === 'redirect' ? (r.target || '—') :
+                (r.action === 'mock' ? `状态: ${r.target || '200'} (${r.extra ? r.extra.substring(0, 30) + '...' : '空内容'})` :
+                (r.action === 'header-replace' ? `${r.target}: ${r.extra || ''}` :
+                (r.action === 'header-del' ? `删除: ${r.target}` :
+                (r.action === 'body-replace' ? `${r.target} ➔ ${r.extra || ''}` :
+                '—'))));
+
+              return `
+              <tr data-id="${esc(r.id)}" data-is-custom="${r.isCustom ? '1' : '0'}">
+                <td class="mobile-toggle-cell">
+                  <label class="switch">
+                    <input class="rw-enable" type="checkbox" ${r.enabled !== false && r.moduleEnabled !== false ? 'checked' : ''}>
+                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                  </label>
+                </td>
+                <td data-label="动作类型">${actionBadge(r.action)}</td>
+                <td data-label="规则名称">
+                  <div style="display:flex;flex-direction:column;gap:2px">
+                    <strong style="color:var(--text-1)">${esc(r.name || r.id)}</strong>
+                    ${r.note ? `<span style="font-size:11px;color:var(--text-3)">${esc(r.note)}</span>` : ''}
+                  </div>
+                </td>
+                <td data-label="匹配正则">
+                  <span class="mono" style="font-size:12px;color:var(--primary);word-break:break-all" title="${esc(r.pattern)}">${esc(r.pattern)}</span>
+                </td>
+                <td data-label="重写目标 / 参数">
+                  <span class="mono" style="font-size:12px;color:var(--text-2);word-break:break-all" title="${esc(targetDesc)}">${esc(targetDesc)}</span>
+                </td>
+                <td data-label="来源">
+                  ${r.isCustom 
+                    ? `<span class="tn-pill mono" style="color:#8B5CF6;background:rgba(139,92,246,0.12);font-weight:700">自定义</span>` 
+                    : `<span class="tn-pill mono" style="color:#60A5FA;background:rgba(59,130,246,0.12)" title="${esc(r.moduleName)}">${esc(r.moduleName.length > 10 ? r.moduleName.substring(0, 10) + '...' : r.moduleName)}</span>`}
+                </td>
+                <td class="mobile-actions-cell">
+                  <div class="table-row-actions card-actions">
+                    <button class="button small rw-edit">${icon('sliders')}编辑</button>
+                    <button class="button small rw-test" title="推演测试">${icon('spark')}测试</button>
+                    ${r.isCustom ? `<button class="button small danger rw-delete">删除</button>` : ''}
+                  </div>
+                </td>
+              </tr>`;
+            }).join('') : `<tr><td colspan="7" class="table-empty">暂无 HTTP 重写规则，点击上方“添加重写”配置</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    // 2. 纯文本 Surge 语法编辑视图
+    const textEditorMarkup = `
+      <section class="card" style="margin-top:0">
+        <div class="section-header">
+          <div>
+            <h2>自定义 HTTP 重写规则配置文本 (Surge / Loon 语法)</h2>
+            <p>支持 302/307 路径捕获组重定向、mock 虚拟响应、header-replace/del、response-body 与 reject-200 等，每行一条</p>
+          </div>
+          <div class="section-header-actions">
+            <button class="button small" id="rw-download-text">${icon('download')}下载配置</button>
+            <button class="button primary" id="rw-save-text">${icon('save')}保存并重载</button>
+          </div>
+        </div>
+        <textarea id="rw-raw-textarea" class="rule-textarea" style="height:360px;font-family:var(--font-mono);font-size:12.5px" spellcheck="false">${esc(rawText)}</textarea>
+        <div class="rule-editor-footer">
+          <span id="rw-text-lines">共 ${rawText ? rawText.split('\n').filter(Boolean).length : 0} 行有效规则</span>
+        </div>
+      </section>
+    `;
+
+    const mainContent = currentRewriteViewMode === 'gui' ? guiTableMarkup : textEditorMarkup;
+
+    body.innerHTML = card('HTTP 重写规则管理与编辑', headerMarkup + mainContent, {
+      iconName: 'rules',
+      actions: `
+        <div class="seg-group" id="rw-view-mode-tabs" style="margin-right:8px">
+          <button type="button" class="seg-item ${currentRewriteViewMode === 'gui' ? 'active' : ''}" id="btn-rw-mode-gui">列表视图</button>
+          <button type="button" class="seg-item ${currentRewriteViewMode === 'text' ? 'active' : ''}" id="btn-rw-mode-text">纯文本编辑</button>
+        </div>
+        <button class="button" id="btn-open-rw-test">${icon('spark')}重写在线推演</button>
+        <button class="button primary" id="btn-add-rewrite">${icon('plus')}添加重写规则</button>
+      `
+    });
+
+    // 视图切换
+    $('#btn-rw-mode-gui').onclick = () => {
+      currentRewriteViewMode = 'gui';
+      renderRewrites(body);
+    };
+    $('#btn-rw-mode-text').onclick = () => {
+      currentRewriteViewMode = 'text';
+      renderRewrites(body);
+    };
+
+    // 纯文本视图事件
+    if ($('#rw-raw-textarea')) {
+      $('#rw-raw-textarea').oninput = () => {
+        const lines = $('#rw-raw-textarea').value.split('\n').filter(Boolean).length;
+        $('#rw-text-lines').textContent = `共 ${lines} 行有效规则`;
+      };
+      $('#rw-download-text').onclick = () => downloadText('custom_rewrites.txt', $('#rw-raw-textarea').value);
+      $('#rw-save-text').onclick = async () => {
+        const btn = $('#rw-save-text');
+        const text = $('#rw-raw-textarea').value;
+        btn.disabled = true;
+        try {
+          await api.json('/api/v1/rewrites/text', 'POST', { text });
+          toast('自定义 HTTP 重写规则已保存并重载生效！');
+          await renderRewrites(body);
+        } catch(e) {
+          toast('保存失败', 'error', e.message);
+        } finally {
+          btn.disabled = false;
+        }
+      };
+    }
+
+    // GUI 列表事件
+    const findRule = tr => rewrites.find(r => r.id === tr.dataset.id);
+
+    $$('.rw-enable').forEach(x => x.onchange = async () => {
+      const tr = x.closest('tr');
+      const rule = findRule(tr);
+      if (!rule) return;
+      x.disabled = true;
+      try {
+        await api.json(`/api/v1/rewrites/${encodeURIComponent(rule.id)}`, 'PUT', { enabled: x.checked });
+        toast(`重写规则“${rule.name || rule.pattern}”已${x.checked ? '开启' : '关闭'}`);
+        await renderRewrites(body);
+      } catch(e) {
+        x.checked = !x.checked;
+        toast('切换失败', 'error', e.message);
+      } finally {
+        x.disabled = false;
+      }
+    });
+
+    $$('.rw-edit').forEach(x => x.onclick = () => {
+      const rule = findRule(x.closest('tr'));
+      if (rule) openRewriteModal(rule, body);
+    });
+
+    $$('.rw-test').forEach(x => x.onclick = () => {
+      const rule = findRule(x.closest('tr'));
+      if (rule) {
+        // 去除正则符号作为测试 URL 样本
+        const sampleUrl = rule.pattern.replace(/^\^/, '').replace(/\\\//g, '/').replace(/\\/g, '');
+        openRewriteTestModal(sampleUrl);
+      }
+    });
+
+    $$('.rw-delete').forEach(x => x.onclick = async () => {
+      const rule = findRule(x.closest('tr'));
+      if (!rule || !confirm(`确定删除重写规则“${rule.name || rule.pattern}”？`)) return;
+      x.disabled = true;
+      try {
+        await api.request(`/api/v1/rewrites/${encodeURIComponent(rule.id)}`, { method: 'DELETE' });
+        toast('重写规则已删除');
+        await renderRewrites(body);
+      } catch(e) {
+        toast('删除失败', 'error', e.message);
+      } finally {
+        x.disabled = false;
+      }
+    });
+
+    $('#btn-add-rewrite').onclick = () => openRewriteModal(null, body);
+    $('#btn-open-rw-test').onclick = () => openRewriteTestModal('https://api.example.com/user/1001');
+  }
+
+  /**
+   * 单条重写规则可视化编辑/添加弹窗
+   */
+  function openRewriteModal(rule, body){
+    const isEdit = Boolean(rule && rule.id);
+    const r = rule || {
+      name: '',
+      pattern: '',
+      action: 'redirect',
+      target: '',
+      extra: '',
+      enabled: true,
+      note: ''
+    };
+
+    const actionOptions = [
+      ['redirect', '302/307 路径重定向 (Redirect)'],
+      ['mock', 'Mock 本地虚拟响应 (直接返回自定义状态码与报文)'],
+      ['header-replace', '请求 Header 替换 (header-replace)'],
+      ['header-del', '请求 Header 删除 (header-del)'],
+      ['body-replace', '响应 Body 全局正则替换 (body-replace)'],
+      ['reject-200', '拟真阻断 (204 No Content)'],
+      ['reject-dict', '空 JSON 字典阻断 ({})'],
+      ['reject-array', '空 JSON 数组阻断 ([])'],
+      ['reject-img', '透明 GIF 阻断 (1x1 Pixel)'],
+      ['reject', '直接断开连接 (404/Reset)'],
+    ];
+
+    const presets = [
+      { name: 'API 路径正则重定向', pattern: '^https?:\\/\\/api\\.example\\.com\\/user\\/(.+)', action: 'redirect', target: 'https://newapi.example.com/u/$1', extra: '', note: '使用 $1 捕获组重定向至新 API' },
+      { name: '广告初始化接口 Mock 拦截', pattern: '^https?:\\/\\/ad\\.example\\.com\\/init', action: 'mock', target: '200', extra: '{"code":0,"ads":[],"msg":"mocked"}', note: '本地拦截广告请求，返回成功但无广告' },
+      { name: '伪装 User-Agent 请求头', pattern: '^https?:\\/\\/.*\\.example\\.com\\/.*', action: 'header-replace', target: 'User-Agent', extra: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)', note: '统一伪装客户端 UA' },
+      { name: '剔除隐私跟踪 Header', pattern: '^https?:\\/\\/.*\\.example\\.com\\/.*', action: 'header-del', target: 'Sec-CH-UA', extra: '', note: '剥离敏感客户端提示头' },
+      { name: '解除去广告客户端开关 (Body 替换)', pattern: '^https?:\\/\\/api\\.example\\.com\\/config', action: 'body-replace', target: '"show_ads":true', extra: '"show_ads":false', note: '将响应文本中的广告开关改为 false' },
+      { name: '极速静默阻断 (204 No Content)', pattern: '^https?:\\/\\/.*\\.googlevideo\\.com\\/videoplayback\\?.*(&adformat=).*', action: 'reject-200', target: '', extra: '', note: 'YouTube 贴片切片无感阻断' },
+    ];
+
+    const html = `
+      <div class="stack" style="max-height:68vh;overflow-y:auto;padding-right:4px">
+        ${!isEdit ? `
+        <div class="field">
+          <label>快速填入模版预设</label>
+          <select id="modal-rw-preset">
+            <option value="">-- 选择重写经典场景一键载入 --</option>
+            ${presets.map((p, i) => `<option value="${i}">${esc(p.name)} (${p.action})</option>`).join('')}
+          </select>
+        </div>` : ''}
+
+        <div class="grid grid-2">
+          <div class="field">
+            <label>规则名称 (描述用)</label>
+            <input id="modal-rw-name" value="${esc(r.name || '')}" placeholder="例如：用户 API 路径重定向">
+          </div>
+          <div class="field">
+            <label>重写动作类型</label>
+            <select id="modal-rw-action">
+              ${actionOptions.map(([val, txt]) => `<option value="${val}" ${r.action === val ? 'selected' : ''}>${esc(txt)}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>匹配正则表达式 (URL Regex Pattern)</label>
+          <input id="modal-rw-pattern" class="mono" value="${esc(r.pattern)}" placeholder="例如：^https?:\\/\\/api\\.example\\.com\\/user\\/(.+)">
+          <p class="form-note">支持标准 JS 正则表达式，支持括号捕获组（如 (.*) 或 (\\d+)）。</p>
+        </div>
+
+        <!-- 动态参数容器 -->
+        <div id="modal-rw-params-box"></div>
+
+        <div class="field">
+          <label>备注说明 (可选)</label>
+          <input id="modal-rw-note" value="${esc(r.note || '')}" placeholder="规则使用场景或备忘说明">
+        </div>
+
+        <div class="grid grid-2">
+          <label class="switch">
+            <input id="modal-rw-enabled" type="checkbox" ${r.enabled !== false ? 'checked' : ''}>
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+            <span class="switch-label">立即启用此重写规则</span>
+          </label>
+        </div>
+      </div>
+    `;
+
+    modalOpen(isEdit ? `编辑重写规则: ${r.name || r.pattern}` : '新建 HTTP 重写规则', '本地配置重定向、Mock 响应、请求头修改与响应体正则替换', html, async () => {
+      const name = $('#modal-rw-name').value.trim();
+      const pattern = $('#modal-rw-pattern').value.trim();
+      const action = $('#modal-rw-action').value;
+      const enabled = $('#modal-rw-enabled').checked;
+      const note = $('#modal-rw-note').value.trim();
+
+      if (!pattern) throw new Error('匹配正则表达式不能为空');
+      try {
+        new RegExp(pattern);
+      } catch(e) {
+        throw new Error('正则表达式语法错误: ' + e.message);
+      }
+
+      let target = '';
+      let extra = '';
+
+      if (action === 'redirect') {
+        target = $('#param-redirect-target')?.value.trim() || '';
+        if (!target) throw new Error('重定向目标 URL 不能为空');
+      } else if (action === 'mock') {
+        target = $('#param-mock-code')?.value.trim() || '200';
+        extra = $('#param-mock-body')?.value || '';
+      } else if (action === 'header-replace') {
+        target = $('#param-header-key')?.value.trim() || '';
+        extra = $('#param-header-val')?.value.trim() || '';
+        if (!target) throw new Error('Header 键名不能为空');
+      } else if (action === 'header-del') {
+        target = $('#param-header-del-key')?.value.trim() || '';
+        if (!target) throw new Error('待删除 Header 键名不能为空');
+      } else if (action === 'body-replace') {
+        target = $('#param-body-find')?.value || '';
+        extra = $('#param-body-replace')?.value || '';
+        if (!target) throw new Error('待替换的文本或正则不能为空');
+      }
+
+      const payload = {
+        name,
+        pattern,
+        action,
+        target,
+        extra,
+        enabled,
+        note
+      };
+
+      if (isEdit) {
+        await api.json(`/api/v1/rewrites/${encodeURIComponent(r.id)}`, 'PUT', payload);
+        toast('重写规则已更新！');
+      } else {
+        await api.json('/api/v1/rewrites', 'POST', payload);
+        toast('新重写规则已创建！');
+      }
+      await renderRewrites(body);
+    });
+
+    // 动态渲染不同动作对应的字段
+    const updateParamsUi = () => {
+      const act = $('#modal-rw-action').value;
+      const box = $('#modal-rw-params-box');
+      if (!box) return;
+
+      if (act === 'redirect') {
+        box.innerHTML = `
+          <div class="field">
+            <label>重定向目标 URL (Target URL)</label>
+            <input id="param-redirect-target" class="mono" value="${esc(r.target || '')}" placeholder="https://newapi.example.com/u/$1">
+            <p class="form-note">支持用 $1, $2 引用正则匹配到的捕获组变量。</p>
+          </div>
+        `;
+      } else if (act === 'mock') {
+        box.innerHTML = `
+          <div class="grid grid-2">
+            <div class="field">
+              <label>Mock 响应状态码</label>
+              <input id="param-mock-code" type="number" value="${esc(r.target || '200')}" placeholder="200">
+            </div>
+          </div>
+          <div class="field">
+            <label>Mock 响应体内容 (Body Text / JSON)</label>
+            <textarea id="param-mock-body" class="rule-textarea" style="height:110px;font-family:var(--font-mono);font-size:12px" placeholder="在此粘贴自定义 JSON 或文本响应内容...">${esc(r.extra || '')}</textarea>
+            <p class="form-note">请求将被本地直接截断并返回该报文，完全不向上游发起网络连接。</p>
+          </div>
+        `;
+      } else if (act === 'header-replace') {
+        box.innerHTML = `
+          <div class="grid grid-2">
+            <div class="field">
+              <label>Header 键名 (Header Name)</label>
+              <input id="param-header-key" class="mono" value="${esc(r.target || '')}" placeholder="User-Agent / Authorization">
+            </div>
+            <div class="field">
+              <label>替换为的值 (Header Value)</label>
+              <input id="param-header-val" class="mono" value="${esc(r.extra || '')}" placeholder="Bearer token123...">
+            </div>
+          </div>
+        `;
+      } else if (act === 'header-del') {
+        box.innerHTML = `
+          <div class="field">
+            <label>待删除的 Header 键名 (Header Name)</label>
+            <input id="param-header-del-key" class="mono" value="${esc(r.target || '')}" placeholder="Sec-CH-UA / Cookie">
+            <p class="form-note">向上游真实服务器发包前将从请求头中彻底剥离该字段。</p>
+          </div>
+        `;
+      } else if (act === 'body-replace') {
+        box.innerHTML = `
+          <div class="field">
+            <label>查找的正则或文本 (Find String / Regex)</label>
+            <input id="param-body-find" class="mono" value="${esc(r.target || '')}" placeholder='"show_ads":true'>
+          </div>
+          <div class="field">
+            <label>替换为的新文本 (Replacement)</label>
+            <input id="param-body-replace" class="mono" value="${esc(r.extra || '')}" placeholder='"show_ads":false'>
+            <p class="form-note">接收到上游响应后，在传输给客户端前执行全局正则文本替换。</p>
+          </div>
+        `;
+      } else {
+        box.innerHTML = `
+          <div class="field">
+            <p class="form-note" style="color:var(--text-2);padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:6px">
+              当前动作为静态拟真阻断：匹配该规则的请求将在本地瞬间返回伪装内容（HTTP 204空内容 / 1x1透明图 / 空字典 {}），无需配置附加参数。
+            </p>
+          </div>
+        `;
+      }
+    };
+
+    $('#modal-rw-action').onchange = updateParamsUi;
+    updateParamsUi();
+
+    if ($('#modal-rw-preset')) {
+      $('#modal-rw-preset').onchange = () => {
+        const idx = $('#modal-rw-preset').value;
+        if (idx !== '' && presets[+idx]) {
+          const p = presets[+idx];
+          $('#modal-rw-name').value = p.name;
+          $('#modal-rw-pattern').value = p.pattern;
+          $('#modal-rw-action').value = p.action;
+          $('#modal-rw-note').value = p.note;
+          r.target = p.target;
+          r.extra = p.extra;
+          updateParamsUi();
+        }
+      };
+    }
+  }
+
+  /**
+   * HTTP 重写实时推演与在线测试弹窗
+   */
+  function openRewriteTestModal(presetUrl = ''){
+    const sampleTests = [
+      { name: '用户 API 重定向测试', url: 'https://api.example.com/user/88001' },
+      { name: '广告配置 Mock 拦截测试', url: 'https://api.example.com/mock-test' },
+      { name: 'YouTube 贴片切片阻断测试', url: 'https://rr1---sn-4g5edn6e.googlevideo.com/videoplayback?id=123&adformat=1' },
+      { name: 'Twitch 直播频道 M3U8 测试', url: 'https://usher.ttvnw.net/api/channel/hls/test.m3u8' }
+    ];
+
+    const html = `
+      <div class="stack">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:12px;color:var(--text-3)">快速测试：</span>
+          ${sampleTests.map((t, i) => `<button type="button" class="topo-pill-btn btn-fill-rw-sample" data-sample-url="${esc(t.url)}">${esc(t.name)}</button>`).join('')}
+        </div>
+
+        <div class="field">
+          <label>测试请求 URL</label>
+          <input id="test-rw-url" class="mono" value="${esc(presetUrl)}" placeholder="https://api.example.com/path...">
+        </div>
+
+        <div class="grid grid-2">
+          <div class="field">
+            <label>请求方法 (Method)</label>
+            <select id="test-rw-method">
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+              <option value="HEAD">HEAD</option>
+            </select>
+          </div>
+        </div>
+
+        <button type="button" class="button primary" id="btn-run-rw-sim" style="align-self:flex-start">${icon('spark')}执行匹配推演</button>
+
+        <div class="field">
+          <label>推演结果与模拟响应 (<span id="test-rw-status" style="color:var(--text-3)">等待测试</span>)</label>
+          <div id="test-rw-result-card" style="padding:12px 14px;background:rgba(255,255,255,0.03);border:1px solid var(--border-glass);border-radius:8px;font-size:12px;display:flex;flex-direction:column;gap:8px">
+            <div style="color:var(--text-3)">输入 URL 并点击上方按钮，即时模拟重写匹配与响应。</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    modalOpen('HTTP 重写在线测试与推演器', '实时验证重定向、Mock 响应、请求头与响应体匹配效果', html, null, false);
+
+    $$('.btn-fill-rw-sample').forEach(b => b.onclick = () => {
+      $('#test-rw-url').value = b.dataset.sampleUrl;
+      $('#btn-run-rw-sim')?.click();
+    });
+
+    $('#btn-run-rw-sim').onclick = async () => {
+      const url = $('#test-rw-url').value.trim();
+      const method = $('#test-rw-method').value;
+      if (!url) { toast('请输入测试 URL', 'warning'); return; }
+
+      $('#test-rw-status').textContent = '正在推演...';
+      const card = $('#test-rw-result-card');
+
+      try {
+        const res = await api.json('/api/v1/rewrites/test', 'POST', { url, method });
+        if (res.matched) {
+          $('#test-rw-status').innerHTML = `<strong style="color:#10B981">🎯 命中重写规则！</strong>`;
+          const sim = res.simulation || {};
+          card.innerHTML = `
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="tn-pill mono" style="color:#8B5CF6;background:rgba(139,92,246,0.14);font-weight:700">${esc(res.rule?.action || 'rewrite')}</span>
+              <strong style="color:var(--text-1)">${esc(res.rule?.name || '未命名规则')}</strong>
+            </div>
+            <div class="mono" style="color:var(--primary);font-size:11px">Pattern: ${esc(res.rule?.pattern || '')}</div>
+            ${res.rule?.target ? `<div class="mono" style="color:var(--text-2);font-size:11px">Target: ${esc(res.rule.target)} ${res.rule.extra ? esc(res.rule.extra) : ''}</div>` : ''}
+            <div style="margin-top:6px;padding-top:8px;border-top:1px solid var(--border-glass)">
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <span style="color:var(--text-3)">模拟返回状态码:</span>
+                <strong class="mono" style="color:${sim.status === 200 || sim.status === 204 ? '#10B981' : (sim.status === 302 || sim.status === 307 ? '#3B82F6' : '#EF4444')}">${sim.status}</strong>
+              </div>
+              ${sim.cleanAction ? `<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:var(--text-3)">执行动作:</span><span class="mono" style="color:var(--text-1)">${esc(sim.cleanAction)}</span></div>` : ''}
+              ${sim.headers?.['Location'] ? `<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:var(--text-3)">重定向 Location:</span><span class="mono" style="color:#3B82F6">${esc(sim.headers['Location'])}</span></div>` : ''}
+              ${sim.bodySnippet ? `
+                <div style="margin-top:6px">
+                  <span style="color:var(--text-3);display:block;margin-bottom:4px">报文预览:</span>
+                  <pre class="mono" style="padding:6px 8px;background:rgba(0,0,0,0.3);border-radius:4px;max-height:120px;overflow-y:auto;font-size:11px">${esc(sim.bodySnippet)}</pre>
+                </div>` : ''}
+            </div>
+          `;
+          toast('推演成功：命中重写规则');
+        } else {
+          $('#test-rw-status').innerHTML = `<span style="color:#F59E0B">未命中任何重写规则</span>`;
+          card.innerHTML = `
+            <div style="color:var(--text-2)">URL <code>${esc(url)}</code> 未匹配到任何重写规则。</div>
+            <div style="font-size:11px;color:var(--text-3)">该请求将正常直连真实上游服务器。</div>
+          `;
+        }
+      } catch(e) {
+        $('#test-rw-status').textContent = '推演失败: ' + e.message;
+        card.innerHTML = `<div style="color:#EF4444">请求失败: ${esc(e.message)}</div>`;
       }
     };
   }

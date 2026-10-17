@@ -770,7 +770,121 @@ $httpClient.get({
       }
     }
 
-    // 20. /proxy 或 /api/v1/proxy (代理转发与流清洗处理管道)
+    // 20. /api/v1/rewrites (HTTP 重写规则全套管理与编辑接口)
+    if (cleanPath === '/api/v1/rewrites' || cleanPath === '/api/v1/rewrites/') {
+      if (method === 'GET') {
+        const all = ModuleManager.get().getAllRewrites();
+        const custom = ModuleManager.get().getCustomRewritesModule();
+        const rawText = ModuleManager.get().exportCustomRewritesText();
+        const switches = store.getSwitches();
+        return jsonResponse({
+          success: true,
+          rewrites: all,
+          customModule: custom,
+          rawText,
+          enabled: switches.switch_rewrite !== 'B',
+        });
+      }
+      if (method === 'POST') {
+        const body = parseJsonBody(req);
+        if (!body.pattern || !body.action) {
+          return jsonResponse({ error: 'Missing pattern or action' }, 400);
+        }
+        try {
+          new RegExp(body.pattern);
+        } catch (e: any) {
+          return jsonResponse({ error: `Invalid regex pattern: ${e.message}` }, 400);
+        }
+        const created = ModuleManager.get().addCustomRewrite({
+          name: body.name || '',
+          pattern: body.pattern,
+          action: body.action,
+          target: body.target,
+          extra: body.extra,
+          enabled: body.enabled !== false,
+          note: body.note,
+        });
+        return jsonResponse({ success: true, rewrite: created });
+      }
+    }
+
+    // 21. /api/v1/rewrites/text (纯文本批量保存自定义重写规则)
+    if (cleanPath === '/api/v1/rewrites/text' && method === 'POST') {
+      const body = parseJsonBody(req);
+      const text = typeof body.text === 'string' ? body.text : (body.content || '');
+      const updated = ModuleManager.get().saveCustomRewritesFromText(text);
+      return jsonResponse({
+        success: true,
+        count: updated.rewrites.length,
+        rawText: ModuleManager.get().exportCustomRewritesText(),
+      });
+    }
+
+    // 22. /api/v1/rewrites/test (在线重写测试与调试接口)
+    if (cleanPath === '/api/v1/rewrites/test' && method === 'POST') {
+      const body = parseJsonBody(req);
+      const testUrl = (body.url || '').trim();
+      if (!testUrl) {
+        return jsonResponse({ error: 'Missing url parameter' }, 400);
+      }
+
+      const match = ModuleManager.get().matchRewrite(testUrl);
+      const proxyResult = await ProxyHandler.get().processRequest({
+        url: testUrl,
+        method: body.method || 'GET',
+        headers: body.headers || {},
+        body: body.body,
+      });
+
+      return jsonResponse({
+        success: true,
+        matched: match !== null,
+        rule: match ? {
+          id: match.rule.id,
+          name: match.rule.name,
+          pattern: match.rule.pattern,
+          action: match.action,
+          target: match.target,
+          extra: match.extra,
+        } : null,
+        simulation: {
+          status: proxyResult.status,
+          headers: proxyResult.headers,
+          bodySnippet: proxyResult.body ? proxyResult.body.substring(0, 500) : '',
+          intercepted: proxyResult.intercepted,
+          cleanAction: proxyResult.cleanAction,
+        },
+      });
+    }
+
+    // 23. /api/v1/rewrites/:id (更新与删除单条重写规则)
+    if (cleanPath.startsWith('/api/v1/rewrites/')) {
+      const id = cleanPath.replace('/api/v1/rewrites/', '').trim();
+      if (id && id !== 'text' && id !== 'test') {
+        if (method === 'PUT') {
+          const body = parseJsonBody(req);
+          if (body.pattern) {
+            try {
+              new RegExp(body.pattern);
+            } catch (e: any) {
+              return jsonResponse({ error: `Invalid regex pattern: ${e.message}` }, 400);
+            }
+          }
+          const updated = ModuleManager.get().updateRewrite(id, body);
+          if (updated) {
+            return jsonResponse({ success: true, rewrite: updated });
+          }
+          return jsonResponse({ error: 'Rewrite rule not found' }, 404);
+        }
+        if (method === 'DELETE') {
+          const ok = ModuleManager.get().deleteRewrite(id);
+          if (ok) return jsonResponse({ success: true });
+          return jsonResponse({ error: 'Rewrite rule not found' }, 404);
+        }
+      }
+    }
+
+    // 24. /proxy 或 /api/v1/proxy (代理转发与流清洗处理管道)
     if (cleanPath === '/proxy' || cleanPath === '/api/v1/proxy') {
       const getParam = (key: string) => req.queryParams.find((p) => p.key === key)?.value;
       const targetUrl = getParam('url') || req.headers['x-target-url'] || '';
