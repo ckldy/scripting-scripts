@@ -857,10 +857,36 @@ $httpClient.get({
       });
     }
 
-    // 23. /api/v1/rewrites/:id (更新与删除单条重写规则)
+    // 23. /api/v1/rewrites/logs (HTTP 重写与流清洗实时审计日志查询)
+    if (cleanPath === '/api/v1/rewrites/logs' && method === 'GET') {
+      const getParam = (key: string) => req.queryParams.find((p) => p.key === key)?.value;
+      const logsResult = AuditManager.get().getHttpRewriteLogs({
+        page: Number(getParam('page')) || 1,
+        limit: Number(getParam('limit')) || 50,
+        q: getParam('q'),
+        action: getParam('action'),
+        host: getParam('host'),
+        client: getParam('client'),
+        intercepted: getParam('intercepted') === 'true' ? true : (getParam('intercepted') === 'false' ? false : undefined),
+      });
+      return jsonResponse({ success: true, ...logsResult });
+    }
+
+    // 24. /api/v1/rewrites/logs/clear (清空 HTTP 重写审计日志)
+    if (cleanPath === '/api/v1/rewrites/logs/clear' && method === 'POST') {
+      AuditManager.get().clearHttpRewriteLogs();
+      return jsonResponse({ success: true });
+    }
+
+    // 25. /api/v1/rewrites/stats (HTTP 重写引擎运行统计)
+    if (cleanPath === '/api/v1/rewrites/stats' && method === 'GET') {
+      return jsonResponse({ success: true, stats: AuditManager.get().getHttpRewriteStats() });
+    }
+
+    // 26. /api/v1/rewrites/:id (更新与删除单条重写规则)
     if (cleanPath.startsWith('/api/v1/rewrites/')) {
       const id = cleanPath.replace('/api/v1/rewrites/', '').trim();
-      if (id && id !== 'text' && id !== 'test') {
+      if (id && id !== 'text' && id !== 'test' && id !== 'logs' && id !== 'stats' && !id.startsWith('logs/')) {
         if (method === 'PUT') {
           const body = parseJsonBody(req);
           if (body.pattern) {
@@ -884,7 +910,7 @@ $httpClient.get({
       }
     }
 
-    // 24. /proxy 或 /api/v1/proxy (代理转发与流清洗处理管道)
+    // 27. /proxy 或 /api/v1/proxy (代理转发与流清洗处理管道)
     if (cleanPath === '/proxy' || cleanPath === '/api/v1/proxy') {
       const getParam = (key: string) => req.queryParams.find((p) => p.key === key)?.value;
       const targetUrl = getParam('url') || req.headers['x-target-url'] || '';
@@ -897,11 +923,14 @@ $httpClient.get({
         reqBody = req.body ? req.body.toRawString('utf-8') : undefined;
       } catch {}
 
+      const clientIp = req.address?.split(':')[0] || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || '127.0.0.1';
+
       const proxyResult = await ProxyHandler.get().processRequest({
         url: targetUrl,
         method: req.method || 'GET',
         headers: req.headers || {},
         body: reqBody,
+        clientIp,
       });
 
       const bodyData = Data.fromRawString(proxyResult.body, 'utf-8');

@@ -3,13 +3,16 @@ import { Store } from '../store';
 import { ModuleManager } from '../modules/module-manager';
 import { StreamCleaner } from '../stream/cleaner';
 import { ScriptSandbox } from '../runtime/sandbox';
+import { AuditManager } from '../audit';
 import type { SandboxContext } from '../runtime/sandbox';
+import type { CleanRewriteRule } from '../modules/types';
 
 export interface ProxyIncomingRequest {
   url: string;
   method: string;
   headers: Record<string, string>;
   body?: string;
+  clientIp?: string;
 }
 
 export interface ProxyOutgoingResponse {
@@ -36,25 +39,68 @@ export class ProxyHandler {
    * 处理 HTTP 请求流经模块引擎全生命周期
    */
   async processRequest(req: ProxyIncomingRequest): Promise<ProxyOutgoingResponse> {
+    const startTime = Date.now();
     const url = req.url;
     const moduleMgr = ModuleManager.get();
     const switches = Store.get().getSwitches();
     const isRewriteEnabled = switches.switch_rewrite !== 'B';
 
+    let host = '';
+    try {
+      host = new URL(url).hostname;
+    } catch {
+      host = (req.headers['host'] || '').split(':')[0];
+    }
+
+    const recordAudit = (
+      resp: ProxyOutgoingResponse,
+      ruleInfo?: {
+        id?: string;
+        name?: string;
+        pattern?: string;
+        action?: string;
+        target?: string;
+        extra?: string;
+      }
+    ) => {
+      const durationMs = Date.now() - startTime;
+      AuditManager.get().recordHttpRewrite({
+        id: `hr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        timestamp: Math.floor(Date.now() / 1000),
+        url,
+        method: req.method || 'GET',
+        host,
+        clientIp: req.clientIp || '127.0.0.1',
+        ruleId: ruleInfo?.id,
+        ruleName: ruleInfo?.name,
+        rulePattern: ruleInfo?.pattern,
+        action: ruleInfo?.action || (resp.intercepted ? (resp.cleanAction || 'rewrite') : 'passthrough'),
+        target: ruleInfo?.target,
+        extra: ruleInfo?.extra,
+        status: resp.status,
+        durationMs,
+        intercepted: Boolean(resp.intercepted),
+        cleanAction: resp.cleanAction,
+      });
+    };
+
     let currentReq = { ...req, headers: { ...req.headers } };
     let matchedBodyReplace: { search: string; replace: string } | null = null;
     let rewriteActionSummary = '';
+    let matchedRule: CleanRewriteRule | null = null;
 
     // 1. 匹配重写/阻断规则 (Reject / Redirect / Mock / Header / Body)，受控于 switch_rewrite 开关
     if (isRewriteEnabled) {
       const rewriteMatch = moduleMgr.matchRewrite(url);
       if (rewriteMatch) {
+        matchedRule = rewriteMatch.rule;
         const { action, target, extra } = rewriteMatch;
 
         // 1.1 302/307 重定向 (支持 $1, $2 等正则捕获组替换)
         if (action === 'redirect' && target) {
           const targetUrl = url.replace(rewriteMatch.rule.regex, target);
-          return {
+          const outResp: ProxyOutgoingResponse = {
             status: 302,
             headers: {
               'Location': targetUrl,
@@ -64,6 +110,14 @@ export class ProxyHandler {
             intercepted: true,
             cleanAction: `redirect -> ${targetUrl}`,
           };
+          recordAudit(outResp, {
+            id: matchedRule.id,
+            name: matchedRule.name,
+            pattern: matchedRule.pattern,
+            action: 'redirect',
+            target: targetUrl,
+          });
+          return outResp;
         }
 
         // 1.2 Mock 虚拟响应 (不发真实上游请求，直接返回指定状态码与内容)
@@ -73,7 +127,7 @@ export class ProxyHandler {
           const isJson =
             (content.startsWith('{') && content.endsWith('}')) ||
             (content.startsWith('[') && content.endsWith(']'));
-          return {
+          const outResp: ProxyOutgoingResponse = {
             status: statusCode,
             headers: {
               'Content-Type': isJson ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8',
@@ -84,6 +138,15 @@ export class ProxyHandler {
             intercepted: true,
             cleanAction: `mock (${statusCode})`,
           };
+          recordAudit(outResp, {
+            id: matchedRule.id,
+            name: matchedRule.name,
+            pattern: matchedRule.pattern,
+            action: 'mock',
+            target: String(statusCode),
+            extra: content,
+          });
+          return outResp;
         }
 
         // 1.3 静态阻断 (204 / {} / [] / 1x1 GIF / 404)
@@ -95,13 +158,20 @@ export class ProxyHandler {
           action === 'reject-array'
         ) {
           const rej = StreamCleaner.getRejectResponse(action);
-          return {
+          const outResp: ProxyOutgoingResponse = {
             status: rej.status,
             headers: rej.headers,
             body: rej.body,
             intercepted: true,
             cleanAction: action,
           };
+          recordAudit(outResp, {
+            id: matchedRule.id,
+            name: matchedRule.name,
+            pattern: matchedRule.pattern,
+            action,
+          });
+          return outResp;
         }
 
         // 1.4 请求 Header 修改与删除
@@ -162,12 +232,14 @@ export class ProxyHandler {
       }
       upstreamBody = await res.text();
     } catch (err: any) {
-      return {
+      const errResp: ProxyOutgoingResponse = {
         status: 502,
         headers: { 'Content-Type': 'text/plain; charset=utf-8' },
         body: `Bad Gateway: ${err.message || 'Upstream connection error'}`,
         intercepted: false,
       };
+      recordAudit(errResp);
+      return errResp;
     }
 
     // 4. 流清洗处理 (HLS M3U8 清单清洗 或 JSON 响应剪枝 或 正则 Body 替换)
@@ -184,19 +256,30 @@ export class ProxyHandler {
     }
 
     // 4.2 执行流式 M3U8 清洗与 JSON 剪枝
+    let streamCleaned = false;
     if (
       url.includes('.m3u8') ||
       contentType.includes('mpegurl') ||
       contentType.includes('application/x-mpegurl') ||
       contentType.includes('application/vnd.apple.mpegurl')
     ) {
+      const prev = cleanedBody;
       cleanedBody = StreamCleaner.cleanM3U8(cleanedBody, url);
+      if (cleanedBody !== prev) {
+        streamCleaned = true;
+        rewriteActionSummary = 'stream-clean (M3U8)';
+      }
     } else if (
       contentType.includes('json') ||
       url.includes('/youtubei/v1/player') ||
       (cleanedBody.startsWith('{') && cleanedBody.endsWith('}'))
     ) {
+      const prev = cleanedBody;
       cleanedBody = StreamCleaner.cleanJSON(cleanedBody, url);
+      if (cleanedBody !== prev) {
+        streamCleaned = true;
+        rewriteActionSummary = 'stream-clean (JSON)';
+      }
     }
 
     // 5. 匹配并执行后置 Response 脚本
@@ -204,7 +287,7 @@ export class ProxyHandler {
       status: upstreamStatus,
       headers: upstreamHeaders,
       body: cleanedBody,
-      intercepted: Boolean(rewriteActionSummary),
+      intercepted: Boolean(rewriteActionSummary) || streamCleaned,
       cleanAction: rewriteActionSummary || undefined,
     };
 
@@ -234,6 +317,15 @@ export class ProxyHandler {
         console.error(`[ProxyHandler] Response script ${script.name} error:`, err);
       }
     }
+
+    recordAudit(currentResp, matchedRule ? {
+      id: matchedRule.id,
+      name: matchedRule.name,
+      pattern: matchedRule.pattern,
+      action: matchedRule.action,
+      target: matchedRule.target,
+      extra: matchedRule.extra,
+    } : undefined);
 
     return currentResp;
   }

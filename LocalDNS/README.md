@@ -1,8 +1,8 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.4.3 (Build 20261018)`  
+> **当前版本**：`v1.4.4 (Build 20261018)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，集成规则管理 HTTP 重写可视化/文本编辑与在线推演调试能力）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，集成查询日志 HTTP 重写实时审计追踪与规则管理多维度筛选搜索栏）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地 DNS 与应用层流清洗服务系统。
 
@@ -30,7 +30,19 @@
 - **多维度分流路由器 (`DiversionEngine`)**：涵盖名单管理（白名单/黑名单/灰名单/强制 RealIP/重定向 Rewrite/MITM 劫持）与在线分流（自定义 CN/Non-CN、Geosite CN/Non-CN），支持同组来源合并去重。
 
 ### 2. 跨平台模块引擎与应用层流清洗 (Surge / Loon / Quantumult X)
-- **规则管理 HTTP 重写深度编辑与在线推演 (`renderRewrites`)**：
+- **查询日志 HTTP 重写实时审计追踪 (`renderHttpRewriteLogs`)**：
+  - 在 Web 控制台“查询日志”页面新增 **「HTTP 重写日志」** 专属选项卡，与 DNS 查询日志无缝切换；
+  - 顶部呈现重写运行体征面板（已截获/总请求数、重定向/Mock 数、Header/Body 替换数、静态阻断数、视频流清洗数、平均处理延迟）；
+  - 支持按动作类型（重定向、Mock、Header修改、Body替换、拟真阻断、流清洗）、截获状态（已截获/直接透传）、URL/域名关键词多条件过滤；
+  - 提供审计详情抽屉，透视时间、方法、主机、客户端 IP、状态码、处理耗时、执行动作、命中规则、匹配正则与完整请求 URL；
+  - 支持一键清空重写审计日志与 `/api/v1/rewrites/logs` REST API 导出。
+- **规则管理 HTTP 重写多维度筛选与搜索栏 (`renderRewrites`)**：
+  - 在“HTTP 重写”列表视图新增多维度筛选工具栏：
+    - 支持按规则名称、正则 Pattern、重写目标、备注说明进行实时模糊搜索；
+    - 支持按动作类型筛选（全部/302重定向/Mock响应/Header替换删除/Body替换/静态拟真阻断）；
+    - 支持按规则来源筛选（全部/自定义规则/模块内置规则）；
+    - 支持按启用状态筛选（全部/仅生效中/仅已停用）；
+  - 动态显示匹配条数，支持一键重置筛选条件；
   - 在 Web 控制台“规则管理”新增 **「HTTP 重写」** 专区，支持双视图一键无缝切换：
     - **可视化列表视图**：展示动作标签（重定向/Mock/Header/Body/Reject）、规则名称、匹配正则、目标参数、所属来源；支持单条规则独立启闭开关、编辑、推演与删除；
     - **纯文本编辑视图**：支持 Surge/Loon 标准语法直接批量查看、编辑、保存与下载自定义重写配置文本；

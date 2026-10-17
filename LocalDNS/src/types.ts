@@ -73,6 +73,39 @@ export interface AuditStats {
   tracked_domains: number;
 }
 
+export interface HttpRewriteAuditEntry {
+  id: string;
+  time: string;
+  timestamp: number;
+  url: string;
+  method: string;
+  host: string;
+  clientIp: string;
+  client_alias?: string;
+  ruleId?: string;
+  ruleName?: string;
+  rulePattern?: string;
+  action: string;
+  target?: string;
+  extra?: string;
+  status: number;
+  durationMs: number;
+  intercepted: boolean;
+  cleanAction?: string;
+}
+
+export interface HttpRewriteStats {
+  totalRequests: number;
+  interceptedRequests: number;
+  redirectCount: number;
+  mockCount: number;
+  headerModifyCount: number;
+  bodyReplaceCount: number;
+  rejectCount: number;
+  streamCleanCount: number;
+  averageDurationMs: number;
+}
+
 export interface CacheEntry {
   packet: DnsPacket;
   rawBytes: Uint8Array;

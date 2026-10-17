@@ -2,7 +2,7 @@ import * as os from 'node:os';
 import { Store } from './store';
 import { CacheManager } from './cache';
 import { AdGuardEngine } from './adguard';
-import type { AuditLogEntry, AuditStats, UpstreamStats } from './types';
+import type { AuditLogEntry, AuditStats, UpstreamStats, HttpRewriteAuditEntry, HttpRewriteStats } from './types';
 
 export class AuditManager {
   private static instance: AuditManager;
@@ -26,6 +26,18 @@ export class AuditManager {
 
   // Upstream node metrics
   private upstreamStatsMap = new Map<string, UpstreamStats>();
+
+  // HTTP Rewrite Audit Logs & Metrics
+  private httpRewriteLogs: HttpRewriteAuditEntry[] = [];
+  private totalHttpRequests = 0;
+  private totalInterceptedHttpRequests = 0;
+  private totalRedirects = 0;
+  private totalMocks = 0;
+  private totalHeaderModifies = 0;
+  private totalBodyReplaces = 0;
+  private totalRejects = 0;
+  private totalStreamCleans = 0;
+  private totalHttpDurationMs = 0;
 
   private constructor() {}
 
@@ -432,5 +444,155 @@ export class AuditManager {
     }
 
     return lines.join('\n') + '\n';
+  }
+
+  // ================= HTTP 重写与流清洗审计管理 =================
+
+  /**
+   * 记录一条 HTTP 重写/流清洗审计日志
+   */
+  recordHttpRewrite(entry: HttpRewriteAuditEntry): void {
+    this.totalHttpRequests++;
+    this.totalHttpDurationMs += entry.durationMs || 0;
+
+    if (entry.intercepted) {
+      this.totalInterceptedHttpRequests++;
+    }
+
+    const act = (entry.action || '').toLowerCase();
+    if (act === 'redirect') {
+      this.totalRedirects++;
+    } else if (act === 'mock') {
+      this.totalMocks++;
+    } else if (act === 'header-replace' || act === 'header-del') {
+      this.totalHeaderModifies++;
+    } else if (act === 'body-replace') {
+      this.totalBodyReplaces++;
+    } else if (act.startsWith('reject')) {
+      this.totalRejects++;
+    } else if (act === 'stream-clean') {
+      this.totalStreamCleans++;
+    }
+
+    if (!Store.get().isAuditCapturing()) return;
+
+    // Attach client alias if exists
+    const aliases = Store.get().getClientAliases();
+    if (entry.clientIp && aliases[entry.clientIp]) {
+      entry.client_alias = aliases[entry.clientIp];
+    }
+
+    this.httpRewriteLogs.unshift(entry);
+
+    const maxCap = Store.get().getAuditCapacity();
+    if (this.httpRewriteLogs.length > maxCap) {
+      this.httpRewriteLogs.length = maxCap;
+    }
+  }
+
+  /**
+   * 分页与多维度查询 HTTP 重写审计日志
+   */
+  getHttpRewriteLogs(params: {
+    page?: number;
+    limit?: number;
+    q?: string;
+    action?: string;
+    host?: string;
+    client?: string;
+    intercepted?: boolean;
+  }): {
+    list: HttpRewriteAuditEntry[];
+    total: number;
+    page: number;
+    limit: number;
+    stats: HttpRewriteStats;
+  } {
+    const page = Math.max(1, Number(params.page) || 1);
+    const limit = Math.max(1, Math.min(200, Number(params.limit) || 50));
+    const query = (params.q || '').trim().toLowerCase();
+    const actionFilter = (params.action || '').trim().toLowerCase();
+    const hostFilter = (params.host || '').trim().toLowerCase();
+    const clientFilter = (params.client || '').trim().toLowerCase();
+
+    let filtered = this.httpRewriteLogs;
+
+    if (params.intercepted !== undefined) {
+      filtered = filtered.filter((it) => it.intercepted === params.intercepted);
+    }
+
+    if (actionFilter && actionFilter !== 'all') {
+      filtered = filtered.filter((it) => {
+        const a = (it.action || '').toLowerCase();
+        if (actionFilter === 'reject') return a.startsWith('reject');
+        if (actionFilter === 'header') return a.startsWith('header');
+        if (actionFilter === 'stream') return a === 'stream-clean' || it.cleanAction?.includes('stream');
+        return a === actionFilter;
+      });
+    }
+
+    if (hostFilter) {
+      filtered = filtered.filter((it) => (it.host || '').toLowerCase().includes(hostFilter));
+    }
+
+    if (clientFilter) {
+      filtered = filtered.filter(
+        (it) =>
+          (it.clientIp || '').toLowerCase().includes(clientFilter) ||
+          (it.client_alias || '').toLowerCase().includes(clientFilter)
+      );
+    }
+
+    if (query) {
+      filtered = filtered.filter(
+        (it) =>
+          (it.url || '').toLowerCase().includes(query) ||
+          (it.host || '').toLowerCase().includes(query) ||
+          (it.ruleName || '').toLowerCase().includes(query) ||
+          (it.rulePattern || '').toLowerCase().includes(query) ||
+          (it.action || '').toLowerCase().includes(query) ||
+          (it.target || '').toLowerCase().includes(query) ||
+          (it.extra || '').toLowerCase().includes(query) ||
+          (it.cleanAction || '').toLowerCase().includes(query)
+      );
+    }
+
+    const total = filtered.length;
+    const offset = (page - 1) * limit;
+    const list = filtered.slice(offset, offset + limit);
+
+    return {
+      list,
+      total,
+      page,
+      limit,
+      stats: this.getHttpRewriteStats(),
+    };
+  }
+
+  /**
+   * 获取 HTTP 重写引擎运行统计数据
+   */
+  getHttpRewriteStats(): HttpRewriteStats {
+    const avgDuration =
+      this.totalHttpRequests > 0 ? this.totalHttpDurationMs / this.totalHttpRequests : 0;
+    return {
+      totalRequests: this.totalHttpRequests,
+      interceptedRequests: this.totalInterceptedHttpRequests,
+      redirectCount: this.totalRedirects,
+      mockCount: this.totalMocks,
+      headerModifyCount: this.totalHeaderModifies,
+      bodyReplaceCount: this.totalBodyReplaces,
+      rejectCount: this.totalRejects,
+      streamCleanCount: this.totalStreamCleans,
+      averageDurationMs: Number(avgDuration.toFixed(1)),
+    };
+  }
+
+  /**
+   * 清空 HTTP 重写审计日志
+   */
+  clearHttpRewriteLogs(): void {
+    this.httpRewriteLogs = [];
   }
 }

@@ -2,9 +2,9 @@
   "name": "LocalDNS",
   "icon": "shield.lefthalf.filled",
   "color": "#6366f1",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "author": "vcncv",
-  "description": "本地 DNS 与流清洗服务系统，支持在规则管理中进行 HTTP 重写可视化与纯文本编辑、单条开关控制、在线实时推演调试、Mock 响应、Header/Body 替换、Surge/Loon/QX 跨平台模块导入与 DNS 解析路径全分流动态交互推演。致敬上游开源仓库 yyhoworks/LocalDNS 与 R 大，由 vcncv 移植构建。",
+  "description": "本地 DNS 与流清洗服务系统，支持在查询日志中追踪 HTTP 重写与流清洗审计日志、在规则管理中进行多维度筛选搜索与 HTTP 重写可视化/纯文本深度编辑、单条开关控制、在线推演调试、Mock 响应、Header/Body 替换、Surge/Loon/QX 跨平台模块导入与 DNS 解析路径全分流动态交互推演。致敬上游开源仓库 yyhoworks/LocalDNS 与 R 大，由 vcncv 移植构建。",
   "remoteResource": {
     "url": "https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/LocalDNS.zip"
   }

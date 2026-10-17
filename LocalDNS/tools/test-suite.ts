@@ -63,13 +63,16 @@ async function runTests() {
   // 检查规则管理模块导入、HTTP重写与动态视图
   assert(appJsStr.includes('data-rule-tab="modules"'), 'app.js includes modules tab button in rules management');
   assert(appJsStr.includes('data-rule-tab="rewrites"'), 'app.js includes rewrites tab button in rules management');
+  assert(appJsStr.includes('data-log-tab="rewrite"'), 'app.js includes rewrite log tab in query logs');
   assert(appJsStr.includes('renderModules'), 'app.js implements renderModules component');
   assert(appJsStr.includes('renderRewrites'), 'app.js implements renderRewrites component');
+  assert(appJsStr.includes('renderHttpRewriteLogs'), 'app.js implements renderHttpRewriteLogs component');
   assert(appJsStr.includes('openRewriteModal'), 'app.js implements openRewriteModal component');
   assert(appJsStr.includes('openRewriteTestModal'), 'app.js implements openRewriteTestModal component');
   assert(appJsStr.includes('openModuleModal'), 'app.js implements openModuleModal import modal');
   assert(appJsStr.includes('topo-dynamic-toolbar'), 'app.js includes topo-dynamic-toolbar HTML');
   assert(appJsStr.includes('runTopoTracer'), 'app.js implements runTopoTracer dynamic path reasoning');
+  assert(appJsStr.includes('rewrite-filter-bar'), 'app.js includes rewrite-filter-bar multi-dimensional filter');
   assert(appJsStr.includes('switch_mitm') && appJsStr.includes('switch_rewrite'), 'app.js switchProfiles includes switch_mitm and switch_rewrite');
 
   // 检查 app.css 中动态视图工具栏与重写样式
@@ -77,6 +80,7 @@ async function runTests() {
   assert(cssStr.includes('.topo-pill-btn'), 'app.css includes .topo-pill-btn styles');
   assert(cssStr.includes('.rewrite-stat-grid'), 'app.css includes .rewrite-stat-grid styles');
   assert(cssStr.includes('.rewrite-rules-table'), 'app.css includes .rewrite-rules-table styles');
+  assert(cssStr.includes('.rewrite-filter-bar'), 'app.css includes .rewrite-filter-bar styles');
 
   // 检查 topology-flow.js 动态分流引擎
   const topoFlowJsStr = await FileManager.readAsString(Path.join(webDir, 'assets/js/topology-flow.js'));
@@ -237,6 +241,27 @@ async function runTests() {
     assert(resTextRw.status === 200, `POST /api/v1/rewrites/text returns 200 OK`);
     const textSaved = await resTextRw.json();
     assert(textSaved.count === 2, 'Batch text parsed 2 rewrite rules');
+
+    // 2.10 验证 HTTP 重写与流清洗实时审计日志接口
+    const resRwLogs = await fetch(`${baseUrl}/api/v1/rewrites/logs?page=1&limit=20`);
+    assert(resRwLogs.status === 200, `GET /api/v1/rewrites/logs returns 200 OK`);
+    const rwLogsData = await resRwLogs.json();
+    assert(rwLogsData.success === true, 'rewrites logs api returns success true');
+    assert(Array.isArray(rwLogsData.list), 'rewrites logs list is an array');
+    assert(typeof rwLogsData.total === 'number', 'rewrites logs total is a number');
+    assert(rwLogsData.stats && typeof rwLogsData.stats.totalRequests === 'number', 'rewrites logs stats present');
+
+    // 验证重写统计接口
+    const resRwStats = await fetch(`${baseUrl}/api/v1/rewrites/stats`);
+    assert(resRwStats.status === 200, `GET /api/v1/rewrites/stats returns 200 OK`);
+    const rwStatsData = await resRwStats.json();
+    assert(rwStatsData.success === true && typeof rwStatsData.stats.totalRequests === 'number', 'rewrites stats returns valid data');
+
+    // 验证清空重写日志接口
+    const resRwClear = await fetch(`${baseUrl}/api/v1/rewrites/logs/clear`, { method: 'POST' });
+    assert(resRwClear.status === 200, `POST /api/v1/rewrites/logs/clear returns 200 OK`);
+    const resRwLogsAfter = await (await fetch(`${baseUrl}/api/v1/rewrites/logs`)).json();
+    assert(resRwLogsAfter.total === 0, 'rewrites logs cleared to 0');
   } catch (err: any) {
     console.error('API Test Error:', err);
     failed++;

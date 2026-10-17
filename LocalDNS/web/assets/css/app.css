@@ -1593,6 +1593,38 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary-light); 
   }
 }
 
+.rewrite-filter-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-glass);
+  border-radius: calc(10px * var(--radius-scale));
+}
+.rewrite-filter-bar .rf-search {
+  flex: 1;
+  min-width: 220px;
+  position: relative;
+}
+.rewrite-filter-bar .rf-count {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+@media (max-width: 900px) {
+  .rewrite-filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .rewrite-filter-bar select,
+  .rewrite-filter-bar input {
+    width: 100%;
+  }
+}
+
 
 .status-dot {
   width: 8px;

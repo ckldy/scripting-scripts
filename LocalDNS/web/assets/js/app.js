@@ -14,6 +14,9 @@
   const state = {
     route: 'overview', charts: [], history: [], lastStats: null, lastStatsAt: null, lastCpuTotal: null, lastCpuAt: null,
     logs: { page: 1, limit: 50, q: '', exact: false, type: '', set: '', code: '', client: '' },
+    activeLogTab: 'dns',
+    rewriteLogs: { page: 1, limit: 50, q: '', action: '', host: '', client: '', intercepted: '' },
+    rewriteFilter: { q: '', action: 'all', source: 'all', status: 'all' },
     ruleTag: 'whitelist', upstreamConfig: null, aliases: {},
     refreshTimer: null, mobileMoreOpen: false, renderSeq: 0, routeController: null, routeUiCleanup: [],
     overviewSlowPage: 0, overviewDomainPage: 0
@@ -1963,25 +1966,293 @@
   function logBadge(set){const s=String(set||'未分类');let cls='primary';if(/黑|BAN|BLOCK|拒绝/i.test(s))cls='danger';else if(/白|直连|国内|REAL/i.test(s))cls='success';else if(/灰|代理|订阅/i.test(s))cls='pink';else if(/FAKE/i.test(s))cls='cyan';return `<span class="badge ${cls}">${esc(s)}</span>`;}
   function logRow(x){const ans=(x.answers||[]).map(a=>a.data||a.value).filter(Boolean).join(', ')||x.response_code||'—';return `<tr data-log='${esc(JSON.stringify(x))}'><td>${fmtDate(x.query_time)}</td><td class="td-domain" data-qtype="${esc(String(x.query_type||'').toUpperCase())}" data-qtype-short="${({AAAA:'6',A:'A',CNAME:'C',PTR:'P',HTTPS:'H',TXT:'T',MX:'M',NS:'N',SRV:'S'})[String(x.query_type||'').toUpperCase()]||(String(x.query_type||'')[0]||'?')}" data-blocked="${/黑|BAN|BLOCK|拒绝|拦截/i.test(String(x.domain_set||''))?1:0}"><strong class="copyable" role="button" tabindex="0" data-copy="${esc(x.query_name)}" title="点击复制域名">${esc(x.query_name)}</strong><div style="color:var(--muted);font-size:11px;max-width:360px;overflow:hidden;text-overflow:ellipsis">${esc(ans)}</div></td><td>${esc(x.query_type)}</td><td>${logBadge(x.domain_set)}</td><td>${ms(x.duration_ms)}</td><td><span class="copyable value-chip" role="button" tabindex="0" data-copy="${esc(x.client_ip)}" title="点击复制客户端 IP">${esc(state.aliases[x.client_ip]||x.client_ip)}</span></td><td><span class="badge ${x.response_code==='NOERROR'?'success':'danger'}">${esc(x.response_code)}</span></td><td><button class="icon-button row-action log-detail" type="button" aria-label="查看查询详情" title="查看详情"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.6"/></svg></button></td></tr>`;}
   async function renderLogs(){
+    const activeTab = state.activeLogTab || 'dns';
+    page.innerHTML = `
+    <div class="view-title-row">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <h1>查询日志</h1>
+        <span class="gc-sub">DNS 解析与 HTTP 重写实时审计</span>
+      </div>
+      <div class="seg-group" id="log-main-tabs" style="margin-left:auto;margin-right:12px">
+        <button type="button" class="seg-item ${activeTab==='dns'?'active':''}" data-log-tab="dns">DNS 查询日志</button>
+        <button type="button" class="seg-item ${activeTab==='rewrite'?'active':''}" data-log-tab="rewrite">HTTP 重写日志</button>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button type="button" class="glass-btn" id="audit-control">审计控制</button>
+        <button type="button" class="glass-btn" id="alias-control">客户端别名</button>
+      </div>
+    </div>
+    <div id="log-view-container"></div>`;
+
+    $$('[data-log-tab]').forEach(btn => {
+      btn.onclick = () => {
+        state.activeLogTab = btn.dataset.logTab;
+        renderLogs();
+      };
+    });
+
+    $('#audit-control').onclick = openAuditModal;
+    $('#alias-control').onclick = openAliasModal;
+
+    const container = $('#log-view-container');
+    if (activeTab === 'rewrite') {
+      await renderHttpRewriteLogs(container);
+    } else {
+      await renderDnsLogs(container);
+    }
+  }
+
+  async function renderDnsLogs(container){
     const p=state.logs; const data=await api.logs({page:p.page,limit:p.limit,q:p.q,exact:p.exact,query_type:p.type,domain_set:p.set,response_code:p.code,client_contains:p.client}); const rows=data.logs||[];
     const filterData=data.filters||{};
     const withSelected=(items,selected)=>{const out=[...new Set((items||[]).filter(Boolean))];if(selected&&!out.includes(selected))out.push(selected);return out.sort()};
     const types=withSelected(filterData.query_types,p.type),sets=withSelected(filterData.domain_sets,p.set),codes=withSelected(filterData.response_codes,p.code);
-    page.innerHTML=`
-    <div class="view-title-row">
-      <div style="display:flex;align-items:baseline;gap:12px"><h1>查询日志</h1><span class="gc-sub">共 ${num(data.pagination?.total_items||0)} 条 DNS 查询记录</span></div>
-      <div style="display:flex;gap:8px"><button type="button" class="glass-btn" id="audit-control">审计控制</button><button type="button" class="glass-btn" id="alias-control">客户端别名</button></div>
-    </div>
-    ${card('查询与过滤日志',`<div class="log-filter-bar"><div class="lf-search"><span class="search-icon">${icon('search')}</span><input id="log-q" value="${esc(p.q)}" placeholder="域名、IP、响应值" aria-label="全局搜索"></div><select id="log-type" aria-label="请求类型"><option value="">全部类型</option>${types.map(x=>`<option ${p.type===x?'selected':''}>${esc(x)}</option>`).join('')}</select><select id="log-set" aria-label="分流结果"><option value="">全部分流</option>${sets.map(x=>`<option ${p.set===x?'selected':''}>${esc(x)}</option>`).join('')}</select><button type="button" class="lf-more" id="lf-more" aria-expanded="false" aria-controls="log-filter-more">更多筛选</button><span class="lf-count">匹配 ${num(data.pagination?.total_items||0)} 条</span><button type="button" class="lf-reset" id="lf-reset">重置</button><button class="button primary log-filter-submit" id="log-search">${icon('search')}查询</button></div><div class="log-filter-more" id="log-filter-more"${(p.code||p.client||p.exact)?'':' hidden'}><div class="field"><label>状态</label><select id="log-code"><option value="">全部</option>${codes.map(x=>`<option ${p.code===x?'selected':''}>${esc(x)}</option>`).join('')}</select></div><div class="field"><label>客户端</label><input id="log-client" value="${esc(p.client)}" placeholder="IP 或别名"></div><div class="log-filter-exact"><label class="switch"><input id="log-exact" type="checkbox" ${p.exact?'checked':''}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">精确匹配</span></label></div></div>`, {iconName:'logs'})}
+    container.innerHTML=`
+    ${card('查询与过滤 DNS 日志',`<div class="log-filter-bar"><div class="lf-search"><span class="search-icon">${icon('search')}</span><input id="log-q" value="${esc(p.q)}" placeholder="域名、IP、响应值" aria-label="全局搜索"></div><select id="log-type" aria-label="请求类型"><option value="">全部类型</option>${types.map(x=>`<option ${p.type===x?'selected':''}>${esc(x)}</option>`).join('')}</select><select id="log-set" aria-label="分流结果"><option value="">全部分流</option>${sets.map(x=>`<option ${p.set===x?'selected':''}>${esc(x)}</option>`).join('')}</select><button type="button" class="lf-more" id="lf-more" aria-expanded="false" aria-controls="log-filter-more">更多筛选</button><span class="lf-count">匹配 ${num(data.pagination?.total_items||0)} 条</span><button type="button" class="lf-reset" id="lf-reset">重置</button><button class="button primary log-filter-submit" id="log-search">${icon('search')}查询</button></div><div class="log-filter-more" id="log-filter-more"${(p.code||p.client||p.exact)?'':' hidden'}><div class="field"><label>状态</label><select id="log-code"><option value="">全部</option>${codes.map(x=>`<option ${p.code===x?'selected':''}>${esc(x)}</option>`).join('')}</select></div><div class="field"><label>客户端</label><input id="log-client" value="${esc(p.client)}" placeholder="IP 或别名"></div><div class="log-filter-exact"><label class="switch"><input id="log-exact" type="checkbox" ${p.exact?'checked':''}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">精确匹配</span></label></div></div>`, {iconName:'logs'})}
     ${card('实时 DNS 请求记录',`<div class="table-wrap"><table><thead><tr><th>时间</th><th>域名 / 响应</th><th>类型</th><th>分流</th><th>耗时</th><th>客户端</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.length?rows.map(logRow).join(''):`<tr><td colspan="8" class="table-empty">没有符合条件的日志</td></tr>`}</tbody></table></div>${paginationHtml(data.pagination)}`,{iconName:'logs',subtitle:`第 ${num(data.pagination?.current_page||1)} / ${num(data.pagination?.total_pages||1)} 页`})}`;
-    $('#log-search').onclick=()=>{Object.assign(state.logs,{page:1,q:$('#log-q').value.trim(),exact:$('#log-exact').checked,type:$('#log-type').value,set:$('#log-set').value,code:$('#log-code').value,client:$('#log-client').value.trim()});renderRoute(true)};
+    $('#log-search').onclick=()=>{Object.assign(state.logs,{page:1,q:$('#log-q').value.trim(),exact:$('#log-exact').checked,type:$('#log-type').value,set:$('#log-set').value,code:$('#log-code').value,client:$('#log-client').value.trim()});renderLogs()};
     $('#log-q').onkeydown=e=>{if(e.key==='Enter')$('#log-search').click()};
     $('#lf-more').onclick=()=>{const box=$('#log-filter-more');const willOpen=box.hasAttribute('hidden');box.toggleAttribute('hidden',!willOpen);$('#lf-more').setAttribute('aria-expanded',String(willOpen));$('#lf-more').classList.toggle('is-open',willOpen)};
     if(!$('#log-filter-more').hasAttribute('hidden'))$('#lf-more').classList.add('is-open');
-    $('#lf-reset').onclick=()=>{Object.assign(state.logs,{page:1,q:'',exact:false,type:'',set:'',code:'',client:''});renderRoute(true)};
-    $$('.log-detail').forEach(b=>b.onclick=()=>{const x=JSON.parse(b.closest('tr').dataset.log);openDrawer('查询详情',x.query_name,logDetailHtml(x))});
-    $$('.pagination button[data-page]').forEach(b=>b.onclick=()=>{state.logs.page=+b.dataset.page;renderRoute(true)});
-    $('#audit-control').onclick=openAuditModal; $('#alias-control').onclick=openAliasModal;
+    $('#lf-reset').onclick=()=>{Object.assign(state.logs,{page:1,q:'',exact:false,type:'',set:'',code:'',client:''});renderLogs()};
+    $$('.log-detail', container).forEach(b=>b.onclick=()=>{const x=JSON.parse(b.closest('tr').dataset.log);openDrawer('查询详情',x.query_name,logDetailHtml(x))});
+    $$('.pagination button[data-page]', container).forEach(b=>b.onclick=()=>{state.logs.page=+b.dataset.page;renderLogs()});
+  }
+
+  async function renderHttpRewriteLogs(container){
+    const p = state.rewriteLogs;
+    let data = null;
+    try {
+      const qParams = new URLSearchParams();
+      if (p.page) qParams.set('page', p.page);
+      if (p.limit) qParams.set('limit', p.limit);
+      if (p.q) qParams.set('q', p.q);
+      if (p.action) qParams.set('action', p.action);
+      if (p.host) qParams.set('host', p.host);
+      if (p.client) qParams.set('client', p.client);
+      if (p.intercepted) qParams.set('intercepted', p.intercepted);
+      data = await api.request(`/api/v1/rewrites/logs?${qParams.toString()}`);
+    } catch(e) {
+      container.innerHTML = `<div class="error-panel"><strong>HTTP 重写审计日志加载失败</strong><p>${esc(e.message)}</p></div>`;
+      return;
+    }
+
+    const rows = data?.list || [];
+    const stats = data?.stats || {};
+    const totalItems = data?.total || 0;
+    const totalPages = Math.ceil(totalItems / (p.limit || 50)) || 1;
+
+    const actionBadge = (act) => {
+      const a = (act || '').toLowerCase();
+      if (a === 'redirect') return `<span class="badge primary">重定向 302</span>`;
+      if (a === 'mock') return `<span class="badge" style="background:rgba(139,92,246,0.18);color:#8B5CF6">Mock 响应</span>`;
+      if (a.startsWith('header')) return `<span class="badge success">Header 修改</span>`;
+      if (a === 'body-replace') return `<span class="badge" style="background:rgba(236,72,153,0.18);color:#EC4899">Body 替换</span>`;
+      if (a.startsWith('reject')) return `<span class="badge danger">拟真阻断</span>`;
+      if (a === 'stream-clean') return `<span class="badge" style="background:rgba(245,158,11,0.18);color:#F59E0B">流清洗</span>`;
+      return `<span class="badge">${esc(act || '透传')}</span>`;
+    };
+
+    const statusBadge = (statusCode) => {
+      const code = +statusCode || 200;
+      let cls = 'success';
+      if (code >= 300 && code < 400) cls = 'primary';
+      else if (code >= 400) cls = 'danger';
+      return `<span class="badge ${cls} mono">${code}</span>`;
+    };
+
+    const statsOverviewHtml = `
+      <div class="rewrite-stat-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px">
+        <div class="glass-card" style="padding:10px 12px">
+          <div style="font-size:11px;color:var(--text-3);margin-bottom:2px">已截获 / 总请求</div>
+          <div style="font-size:16px;font-weight:700;color:var(--text-1)"><strong class="tabular" style="color:#10B981">${num(stats.interceptedRequests||0)}</strong><span style="font-size:12px;font-weight:400;color:var(--text-3)"> / ${num(stats.totalRequests||0)}</span></div>
+        </div>
+        <div class="glass-card" style="padding:10px 12px">
+          <div style="font-size:11px;color:var(--text-3);margin-bottom:2px">重定向 / Mock</div>
+          <div style="font-size:16px;font-weight:700;color:#3B82F6"><strong class="tabular">${num(stats.redirectCount||0)}</strong><span style="font-size:12px;font-weight:400;color:var(--text-3)"> / ${num(stats.mockCount||0)}</span></div>
+        </div>
+        <div class="glass-card" style="padding:10px 12px">
+          <div style="font-size:11px;color:var(--text-3);margin-bottom:2px">Header / Body 替换</div>
+          <div style="font-size:16px;font-weight:700;color:#EC4899"><strong class="tabular">${num(stats.headerModifyCount||0)}</strong><span style="font-size:12px;font-weight:400;color:var(--text-3)"> / ${num(stats.bodyReplaceCount||0)}</span></div>
+        </div>
+        <div class="glass-card" style="padding:10px 12px">
+          <div style="font-size:11px;color:var(--text-3);margin-bottom:2px">静态拟真阻断</div>
+          <div style="font-size:16px;font-weight:700;color:#EF4444"><strong class="tabular">${num(stats.rejectCount||0)}</strong><span style="font-size:12px;font-weight:400;color:var(--text-3)"> 次</span></div>
+        </div>
+        <div class="glass-card" style="padding:10px 12px">
+          <div style="font-size:11px;color:var(--text-3);margin-bottom:2px">视频流清洗</div>
+          <div style="font-size:16px;font-weight:700;color:#F59E0B"><strong class="tabular">${num(stats.streamCleanCount||0)}</strong><span style="font-size:12px;font-weight:400;color:var(--text-3)"> 次</span></div>
+        </div>
+        <div class="glass-card" style="padding:10px 12px">
+          <div style="font-size:11px;color:var(--text-3);margin-bottom:2px">平均处理延迟</div>
+          <div style="font-size:16px;font-weight:700;color:var(--text-2)"><strong class="tabular">${ms(stats.averageDurationMs||0)}</strong></div>
+        </div>
+      </div>
+    `;
+
+    const filterCardHtml = `
+      <div class="log-filter-bar">
+        <div class="lf-search">
+          <span class="search-icon">${icon('search')}</span>
+          <input id="rwlog-q" value="${esc(p.q)}" placeholder="URL、域名、规则名称或动作" aria-label="重写搜索">
+        </div>
+        <select id="rwlog-action" aria-label="动作筛选">
+          <option value="">全部重写动作</option>
+          <option value="redirect" ${p.action==='redirect'?'selected':''}>302/307 重定向</option>
+          <option value="mock" ${p.action==='mock'?'selected':''}>Mock 虚拟响应</option>
+          <option value="header" ${p.action==='header'?'selected':''}>Header 替换/删除</option>
+          <option value="body-replace" ${p.action==='body-replace'?'selected':''}>Body 替换</option>
+          <option value="reject" ${p.action==='reject'?'selected':''}>静态拟真阻断</option>
+          <option value="stream" ${p.action==='stream'?'selected':''}>视频流清洗</option>
+        </select>
+        <select id="rwlog-intercepted" aria-label="截获状态">
+          <option value="" ${p.intercepted===''?'selected':''}>全部请求</option>
+          <option value="true" ${p.intercepted==='true'?'selected':''}>仅看已截获</option>
+          <option value="false" ${p.intercepted==='false'?'selected':''}>仅看透传</option>
+        </select>
+        <span class="lf-count">匹配 ${num(totalItems)} 条</span>
+        <button type="button" class="lf-reset" id="rwlog-reset">重置</button>
+        <button class="button primary log-filter-submit" id="rwlog-search">${icon('search')}查询</button>
+        <button class="button small danger" id="rwlog-clear" style="margin-left:auto">${icon('trash')}清空日志</button>
+      </div>
+    `;
+
+    const tableRowsHtml = rows.length ? rows.map(it => `
+      <tr data-rwlog='${esc(JSON.stringify(it))}'>
+        <td>${fmtDate(it.timestamp * 1000)}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span class="tn-pill mono" style="font-size:10.5px;color:var(--primary);background:rgba(59,130,246,0.1)">${esc(it.method||'GET')}</span>
+            <strong class="copyable" role="button" tabindex="0" data-copy="${esc(it.host)}" title="点击复制域名">${esc(it.host)}</strong>
+          </div>
+        </td>
+        <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(it.url)}">
+          <span class="mono" style="font-size:12px;color:var(--text-1)">${esc(it.url)}</span>
+        </td>
+        <td>
+          <div style="display:flex;align-items:center;gap:6px">
+            ${actionBadge(it.action)}
+            ${it.ruleName ? `<span style="font-size:11px;color:var(--text-3);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(it.ruleName)}">${esc(it.ruleName)}</span>` : ''}
+          </div>
+        </td>
+        <td>${statusBadge(it.status)}</td>
+        <td><span class="mono">${ms(it.durationMs)}</span></td>
+        <td>
+          <span class="copyable value-chip" role="button" tabindex="0" data-copy="${esc(it.clientIp)}" title="点击复制客户端 IP">
+            ${esc(it.client_alias ? `${it.clientIp} (${it.client_alias})` : it.clientIp)}
+          </span>
+        </td>
+        <td>
+          <button class="icon-button row-action rwlog-detail" type="button" aria-label="查看重写审计详情" title="查看详情">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.6"/></svg>
+          </button>
+        </td>
+      </tr>
+    `).join('') : `<tr><td colspan="8" class="table-empty">暂无 HTTP 重写审计记录</td></tr>`;
+
+    const paginationMarkup = totalPages > 1 ? `
+      <div class="pagination">
+        <button data-rwpage="${p.page-1}" ${p.page<=1?'disabled':''}>‹</button>
+        ${Array.from({length: Math.min(5, totalPages)}, (_, i) => {
+          let pg = p.page - 2 + i;
+          if (pg < 1) pg = 1 + i;
+          if (pg > totalPages) return '';
+          return `<button data-rwpage="${pg}" class="${pg===p.page?'active':''}">${pg}</button>`;
+        }).join('')}
+        <button data-rwpage="${p.page+1}" ${p.page>=totalPages?'disabled':''}>›</button>
+      </div>` : '';
+
+    container.innerHTML = `
+      ${statsOverviewHtml}
+      ${card('HTTP 重写与流清洗实时日志', `
+        ${filterCardHtml}
+        <div class="table-wrap">
+          <table class="mobile-card-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>方法 & 主机</th>
+                <th>请求 URL</th>
+                <th>规则与动作</th>
+                <th>状态码</th>
+                <th>耗时</th>
+                <th>客户端</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRowsHtml}
+            </tbody>
+          </table>
+        </div>
+        ${paginationMarkup}
+      `, {
+        iconName: 'logs',
+        subtitle: `第 ${num(p.page)} / ${num(totalPages)} 页 · 实时审计记录`
+      })}
+    `;
+
+    // 绑定 HTTP 重写日志事件
+    $('#rwlog-search').onclick = () => {
+      Object.assign(state.rewriteLogs, {
+        page: 1,
+        q: $('#rwlog-q').value.trim(),
+        action: $('#rwlog-action').value,
+        intercepted: $('#rwlog-intercepted').value
+      });
+      renderLogs();
+    };
+
+    $('#rwlog-q').onkeydown = e => {
+      if (e.key === 'Enter') $('#rwlog-search').click();
+    };
+
+    $('#rwlog-reset').onclick = () => {
+      Object.assign(state.rewriteLogs, { page: 1, q: '', action: '', host: '', client: '', intercepted: '' });
+      renderLogs();
+    };
+
+    $('#rwlog-clear').onclick = async () => {
+      if (!confirm('确定清空所有 HTTP 重写审计日志？')) return;
+      try {
+        await api.request('/api/v1/rewrites/logs/clear', { method: 'POST' });
+        toast('HTTP 重写审计日志已清空');
+        renderLogs();
+      } catch(e) {
+        toast('清空失败', 'error', e.message);
+      }
+    };
+
+    $$('.rwlog-detail', container).forEach(b => {
+      b.onclick = () => {
+        const x = JSON.parse(b.closest('tr').dataset.rwlog);
+        openDrawer('HTTP 重写审计详情', x.url, `
+          <div class="kv-list">
+            <div class="kv-row"><span class="kv-key">请求时间</span><span class="kv-value">${esc(x.time)} (${fmtDate(x.timestamp*1000)})</span></div>
+            <div class="kv-row"><span class="kv-key">请求方法</span><span class="kv-value"><span class="badge primary mono">${esc(x.method)}</span></span></div>
+            <div class="kv-row"><span class="kv-key">请求主机</span><span class="kv-value mono">${esc(x.host)}</span></div>
+            <div class="kv-row"><span class="kv-key">客户端 IP</span><span class="kv-value">${esc(x.client_alias ? `${x.clientIp} (${x.client_alias})` : x.clientIp)}</span></div>
+            <div class="kv-row"><span class="kv-key">截获状态</span><span class="kv-value"><span class="badge ${x.intercepted?'success':'danger'}">${x.intercepted?'已截获处理':'直接透传'}</span></span></div>
+            <div class="kv-row"><span class="kv-key">响应状态码</span><span class="kv-value"><strong class="mono" style="color:${x.status===200||x.status===204?'#10B981':'#3B82F6'}">${x.status}</strong></span></div>
+            <div class="kv-row"><span class="kv-key">处理耗时</span><span class="kv-value mono">${ms(x.durationMs)}</span></div>
+            <div class="kv-row"><span class="kv-key">执行动作</span><span class="kv-value mono">${esc(x.cleanAction || x.action || '—')}</span></div>
+            ${x.ruleName ? `<div class="kv-row"><span class="kv-key">命中规则</span><span class="kv-value"><strong>${esc(x.ruleName)}</strong></span></div>` : ''}
+            ${x.rulePattern ? `<div class="kv-row"><span class="kv-key">匹配正则</span><span class="kv-value mono" style="font-size:11.5px;color:var(--primary)">${esc(x.rulePattern)}</span></div>` : ''}
+            ${x.target ? `<div class="kv-row"><span class="kv-key">重写目标</span><span class="kv-value mono" style="font-size:11.5px">${esc(x.target)}</span></div>` : ''}
+            ${x.extra ? `<div class="kv-row"><span class="kv-key">附加参数</span><span class="kv-value mono" style="font-size:11.5px">${esc(x.extra)}</span></div>` : ''}
+          </div>
+          <h3>完整请求 URL</h3>
+          <pre class="mono" style="word-break:break-all;white-space:pre-wrap;padding:8px;background:rgba(0,0,0,0.3);border-radius:6px;font-size:11.5px">${esc(x.url)}</pre>
+        `);
+      };
+    });
+
+    $$('.pagination button[data-rwpage]', container).forEach(b => {
+      b.onclick = () => {
+        state.rewriteLogs.page = +b.dataset.rwpage;
+        renderLogs();
+      };
+    });
   }
   function paginationHtml(p){if(!p||p.total_pages<=1)return'';const cur=p.current_page,total=p.total_pages;let arr=[];for(let i=Math.max(1,cur-2);i<=Math.min(total,cur+2);i++)arr.push(i);return `<div class="pagination"><button data-page="${cur-1}" ${cur<=1?'disabled':''}>‹</button>${arr.map(i=>`<button data-page="${i}" class="${i===cur?'active':''}">${i}</button>`).join('')}<button data-page="${cur+1}" ${cur>=total?'disabled':''}>›</button></div>`;}
   function logDetailHtml(x){const answers=(x.answers||[]).length?`<pre>${esc(JSON.stringify(x.answers,null,2))}</pre>`:'暂无响应记录';return `<div class="kv-list"><div class="kv-row"><span class="kv-key">查询时间</span><span class="kv-value">${fmtDate(x.query_time)}</span></div><div class="kv-row"><span class="kv-key">客户端</span><span class="kv-value">${esc(state.aliases[x.client_ip]||x.client_ip)}</span></div><div class="kv-row"><span class="kv-key">类型 / 类别</span><span class="kv-value">${esc(x.query_type)} / ${esc(x.query_class)}</span></div><div class="kv-row"><span class="kv-key">分流结果</span><span class="kv-value">${logBadge(x.domain_set)}</span></div><div class="kv-row"><span class="kv-key">响应码</span><span class="kv-value">${esc(x.response_code)}</span></div><div class="kv-row"><span class="kv-key">耗时</span><span class="kv-value">${ms(x.duration_ms)}</span></div><div class="kv-row"><span class="kv-key">Trace ID</span><span class="kv-value">${esc(x.trace_id||'—')}</span></div></div><h3>响应内容</h3>${answers}`;}
@@ -2707,7 +2978,59 @@
     `;
 
     // 1. GUI 列表视图
+    const rf = state.rewriteFilter || (state.rewriteFilter = { q: '', action: 'all', source: 'all', status: 'all' });
+    const filteredRewrites = rewrites.filter(r => {
+      if (rf.status === 'enabled' && (r.enabled === false || r.moduleEnabled === false)) return false;
+      if (rf.status === 'disabled' && (r.enabled !== false && r.moduleEnabled !== false)) return false;
+      if (rf.source === 'custom' && !r.isCustom) return false;
+      if (rf.source === 'module' && r.isCustom) return false;
+      if (rf.action && rf.action !== 'all') {
+        const a = (r.action || '').toLowerCase();
+        if (rf.action === 'reject' && !a.startsWith('reject')) return false;
+        if (rf.action === 'header' && !a.startsWith('header')) return false;
+        if (rf.action !== 'reject' && rf.action !== 'header' && a !== rf.action) return false;
+      }
+      if (rf.q) {
+        const query = rf.q.toLowerCase();
+        const matchName = (r.name || '').toLowerCase().includes(query);
+        const matchPat = (r.pattern || '').toLowerCase().includes(query);
+        const matchTarget = (r.target || '').toLowerCase().includes(query);
+        const matchExtra = (r.extra || '').toLowerCase().includes(query);
+        const matchNote = (r.note || '').toLowerCase().includes(query);
+        const matchMod = (r.moduleName || '').toLowerCase().includes(query);
+        if (!matchName && !matchPat && !matchTarget && !matchExtra && !matchNote && !matchMod) return false;
+      }
+      return true;
+    });
+
     const guiTableMarkup = `
+      <div class="rewrite-filter-bar" style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+        <div class="rf-search" style="flex:1;min-width:220px;position:relative">
+          <span class="search-icon" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-3)">${icon('search')}</span>
+          <input id="rf-q" value="${esc(rf.q)}" placeholder="按名称、正则 Pattern、重写目标、备注筛选..." style="width:100%;padding-left:32px">
+        </div>
+        <select id="rf-action" style="min-width:130px">
+          <option value="all" ${rf.action==='all'?'selected':''}>全部动作类型</option>
+          <option value="redirect" ${rf.action==='redirect'?'selected':''}>302/307 重定向</option>
+          <option value="mock" ${rf.action==='mock'?'selected':''}>Mock 虚拟响应</option>
+          <option value="header" ${rf.action==='header'?'selected':''}>Header 替换/删除</option>
+          <option value="body-replace" ${rf.action==='body-replace'?'selected':''}>Body 替换</option>
+          <option value="reject" ${rf.action==='reject'?'selected':''}>静态拟真阻断</option>
+        </select>
+        <select id="rf-source" style="min-width:110px">
+          <option value="all" ${rf.source==='all'?'selected':''}>全部来源</option>
+          <option value="custom" ${rf.source==='custom'?'selected':''}>自定义规则</option>
+          <option value="module" ${rf.source==='module'?'selected':''}>模块内置规则</option>
+        </select>
+        <select id="rf-status" style="min-width:100px">
+          <option value="all" ${rf.status==='all'?'selected':''}>全部状态</option>
+          <option value="enabled" ${rf.status==='enabled'?'selected':''}>仅生效中</option>
+          <option value="disabled" ${rf.status==='disabled'?'selected':''}>仅已停用</option>
+        </select>
+        <span class="rf-count" style="font-size:12px;color:var(--text-3);white-space:nowrap">显示 ${filteredRewrites.length} / ${totalCount} 条规则</span>
+        <button type="button" class="button small" id="rf-reset">重置</button>
+      </div>
+
       <div class="table-wrap rewrite-table-wrap mobile-card-table">
         <table class="rewrite-rules-table adguard-card-table">
           <colgroup>
@@ -2731,7 +3054,7 @@
             </tr>
           </thead>
           <tbody>
-            ${rewrites.length ? rewrites.map(r => {
+            ${filteredRewrites.length ? filteredRewrites.map(r => {
               const targetDesc = r.action === 'redirect' ? (r.target || '—') :
                 (r.action === 'mock' ? `状态: ${r.target || '200'} (${r.extra ? r.extra.substring(0, 30) + '...' : '空内容'})` :
                 (r.action === 'header-replace' ? `${r.target}: ${r.extra || ''}` :
@@ -2847,6 +3170,29 @@
     }
 
     // GUI 列表事件
+    if ($('#rf-q')) {
+      $('#rf-q').oninput = () => {
+        state.rewriteFilter.q = $('#rf-q').value.trim();
+        renderRewrites(body);
+      };
+      $('#rf-action').onchange = () => {
+        state.rewriteFilter.action = $('#rf-action').value;
+        renderRewrites(body);
+      };
+      $('#rf-source').onchange = () => {
+        state.rewriteFilter.source = $('#rf-source').value;
+        renderRewrites(body);
+      };
+      $('#rf-status').onchange = () => {
+        state.rewriteFilter.status = $('#rf-status').value;
+        renderRewrites(body);
+      };
+      $('#rf-reset').onclick = () => {
+        state.rewriteFilter = { q: '', action: 'all', source: 'all', status: 'all' };
+        renderRewrites(body);
+      };
+    }
+
     const findRule = tr => rewrites.find(r => r.id === tr.dataset.id);
 
     $$('.rw-enable').forEach(x => x.onchange = async () => {
