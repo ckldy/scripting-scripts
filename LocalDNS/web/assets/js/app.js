@@ -797,18 +797,22 @@
       const x2 = r2.left - wrapRect.left, y2 = r2.top + r2.height / 2 - wrapRect.top;
       const dx = (x2 - x1) * 0.54;
       const d = `M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${(x1 + dx).toFixed(1)} ${y1.toFixed(1)}, ${(x2 - dx).toFixed(1)} ${y2.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+      const cat = edge.category || 'all';
       if (!edge.muted) {
-        pathsHtml += `<path class="topo-halo" data-edge-idx="${i}" d="${d}" stroke="${edge.color}" /><path class="topo-glow" data-edge-idx="${i}" d="${d}" stroke="${edge.color}" />`;
-        pathsHtml += `<path class="topo-particle" data-part-idx="${i}" d="${d}" stroke="${edge.color}" />`;
+        pathsHtml += `<path class="topo-halo" data-edge-idx="${i}" data-edge-cat="${cat}" d="${d}" stroke="${edge.color}" /><path class="topo-glow" data-edge-idx="${i}" data-edge-cat="${cat}" d="${d}" stroke="${edge.color}" />`;
+        pathsHtml += `<path class="topo-particle" data-part-idx="${i}" data-part-cat="${cat}" d="${d}" stroke="${edge.color}" />`;
       }
-      pathsHtml += `<path class="topo-edge ${edge.muted ? 'is-muted' : ''}" data-edge-idx="${i}" d="${d}" stroke="${edge.color}" />`;
+      pathsHtml += `<path class="topo-edge ${edge.muted ? 'is-muted' : ''}" data-edge-idx="${i}" data-edge-cat="${cat}" d="${d}" stroke="${edge.color}" />`;
       addDot(x1, y1, edge.color);
       addDot(x2, y2, edge.color);
     });
     svg.innerHTML = pathsHtml + dotsHtml;
 
     const nodes = wrap.querySelectorAll('.t-node');
+
+    // 1. 基础悬停高亮
     const applyTraceState = (startId = null) => {
+      if (wrap.classList.contains('has-cat-filter') || wrap.dataset.hasCustomTrace === '1') return;
       const activeNodes = new Set(startId ? [startId] : []);
       const activeEdges = new Set();
       // Walk each direction independently so a selected branch doesn't light up its siblings.
@@ -825,10 +829,107 @@
         }
       }
       wrap.classList.toggle('has-hover', Boolean(startId));
-      nodes.forEach(n => n.classList.toggle('is-active', activeNodes.has(n.dataset.nodeId)));
-      svg.querySelectorAll('[data-edge-idx]').forEach(el => el.classList.toggle('is-active', activeEdges.has(+el.dataset.edgeIdx)));
-      svg.querySelectorAll('[data-part-idx]').forEach(el => el.classList.toggle('is-active', activeEdges.has(+el.dataset.partIdx)));
+      nodes.forEach(n => {
+        const act = activeNodes.has(n.dataset.nodeId);
+        n.classList.toggle('is-active', act);
+        n.classList.toggle('is-dimmed', Boolean(startId) && !act);
+      });
+      svg.querySelectorAll('[data-edge-idx]').forEach(el => {
+        const act = activeEdges.has(+el.dataset.edgeIdx);
+        el.classList.toggle('is-active', act);
+        el.classList.toggle('is-dimmed', Boolean(startId) && !act);
+      });
+      svg.querySelectorAll('[data-part-idx]').forEach(el => {
+        const act = activeEdges.has(+el.dataset.partIdx);
+        el.classList.toggle('is-active', act);
+        el.classList.toggle('is-dimmed', Boolean(startId) && !act);
+      });
     };
+
+    // 2. 按分流逻辑类别动态过滤高亮 (全部 / 国内 / 国外 / 模块流清洗 / 广告拦截)
+    const applyCategoryFilter = (cat = 'all') => {
+      wrap.dataset.hasCustomTrace = '0';
+      if (cat === 'all') {
+        wrap.classList.remove('has-hover', 'has-cat-filter');
+        nodes.forEach(n => n.classList.remove('is-active', 'is-dimmed'));
+        svg.querySelectorAll('[data-edge-idx], [data-part-idx], .topo-halo, .topo-glow').forEach(el => el.classList.remove('is-active', 'is-dimmed'));
+        window.LocalDNSTopologyFlow?.setCategory('all');
+        return;
+      }
+
+      wrap.classList.add('has-cat-filter');
+      wrap.classList.remove('has-hover');
+
+      const matchedEdges = new Set();
+      const matchedNodes = new Set(['e_core']);
+      edges.forEach((e, idx) => {
+        if (e.category === cat) {
+          matchedEdges.add(idx);
+          matchedNodes.add(e.from);
+          matchedNodes.add(e.to);
+        }
+      });
+      // 客户端默认常亮
+      wrap.querySelectorAll('[data-node-id^="c"]').forEach(c => matchedNodes.add(c.dataset.nodeId));
+
+      nodes.forEach(n => {
+        const active = matchedNodes.has(n.dataset.nodeId);
+        n.classList.toggle('is-active', active);
+        n.classList.toggle('is-dimmed', !active);
+      });
+      svg.querySelectorAll('[data-edge-idx]').forEach(el => {
+        const active = matchedEdges.has(+el.dataset.edgeIdx);
+        el.classList.toggle('is-active', active);
+        el.classList.toggle('is-dimmed', !active);
+      });
+      svg.querySelectorAll('[data-part-idx]').forEach(el => {
+        const active = matchedEdges.has(+el.dataset.partIdx);
+        el.classList.toggle('is-active', active);
+        el.classList.toggle('is-dimmed', !active);
+      });
+      window.LocalDNSTopologyFlow?.setCategory(cat);
+    };
+
+    // 3. 动态推演特定域名的全链路路径
+    const applyPathTrace = (nodeIds) => {
+      if (!nodeIds || !nodeIds.length) {
+        applyCategoryFilter('all');
+        return;
+      }
+      wrap.dataset.hasCustomTrace = '1';
+      wrap.classList.add('has-hover');
+      wrap.classList.remove('has-cat-filter');
+
+      const pathNodes = new Set(nodeIds);
+      const pathEdges = new Set();
+      for (let i = 0; i < nodeIds.length - 1; i++) {
+        const from = nodeIds[i], to = nodeIds[i + 1];
+        edges.forEach((e, idx) => {
+          if (e.from === from && e.to === to) pathEdges.add(idx);
+        });
+      }
+
+      nodes.forEach(n => {
+        const active = pathNodes.has(n.dataset.nodeId);
+        n.classList.toggle('is-active', active);
+        n.classList.toggle('is-dimmed', !active);
+      });
+      svg.querySelectorAll('[data-edge-idx]').forEach(el => {
+        const active = pathEdges.has(+el.dataset.edgeIdx);
+        el.classList.toggle('is-active', active);
+        el.classList.toggle('is-dimmed', !active);
+      });
+      svg.querySelectorAll('[data-part-idx]').forEach(el => {
+        const active = pathEdges.has(+el.dataset.partIdx);
+        el.classList.toggle('is-active', active);
+        el.classList.toggle('is-dimmed', !active);
+      });
+      window.LocalDNSTopologyFlow?.setCustomPath(nodeIds);
+    };
+
+    wrap._applyCategoryFilter = applyCategoryFilter;
+    wrap._applyPathTrace = applyPathTrace;
+
     const focusedId = () => wrap.contains(document.activeElement) ? document.activeElement.closest('.t-node')?.dataset.nodeId : null;
     nodes.forEach(node => {
       node.onmouseenter = () => applyTraceState(node.dataset.nodeId);
@@ -946,17 +1047,19 @@
       icon: 'dots'
     });
 
-    // 03 分流规则集（6 节点：对应真实 /api/v1/status rules 与 stats）
+    // 03 分流规则集（7 节点：覆盖国内直连、海外分流、Surge/Loon 模块与流清洗、广告拦截与黑名单）
     const isClaude = document.documentElement.dataset.skin === 'claude';
     const rRules = engineStatus?.rules || {};
     const eStats = engineStatus?.stats || {};
+    const modStats = engineStatus?.modules || {};
     const topoRules = [
-      { id: 'r1', tab: 'diversion', name: 'geosite_cn', sub: `国内大陆域名直连 · ${num(rRules.geosite_cn || 0)} 条规则`, val: compactNum(eStats.domestic || 0), iconColor: isClaude ? '#2D6A4F' : '#10B981', icon: 'globe' },
-      { id: 'r2', tab: 'lists', name: 'whitelist / custom_cn', sub: `白名单与自定义国内 · ${num(rRules.force_domestic || 0)} 条规则`, val: `${num(rRules.force_domestic || 0)} 条`, iconColor: isClaude ? '#C96442' : '#60A5FA', icon: 'check' },
-      { id: 'r3', tab: 'diversion', name: 'geosite_non_cn', sub: `海外无污染分流 · ${num(rRules.geosite_non_cn || 0)} 条规则`, val: compactNum((+eStats.foreign || 0) + (+eStats.foreign_ecs || 0)), iconColor: isClaude ? '#3D6B66' : '#14B8A6', icon: 'split' },
-      { id: 'r4', tab: 'lists', name: 'force_fakeip / 灰名单', sub: `FakeIP 分流映射 · ${num(rRules.force_foreign_fakeip || 0)} 条规则`, val: compactNum(eStats.fakeip || 0), iconColor: isClaude ? '#B45309' : '#F59E0B', icon: 'spark' },
-      { id: 'r5', tab: 'adguard', name: 'adguard_block', sub: `广告与追踪器拦截 · ${num(engineStatus?.adguard_rules || 0)} 条规则`, val: compactNum(adguardBlocked), iconColor: isClaude ? '#B91C1C' : '#EF4444', icon: 'shield' },
-      { id: 'r6', tab: 'lists', name: 'block / 特殊类型清洗', sub: `黑名单与类型抑制 · ${num(rRules.block || 0)} 条规则`, val: compactNum(eStats.blocked || 0), iconColor: isClaude ? '#857F74' : '#94A3B8', icon: 'sliders' }
+      { id: 'r1', tab: 'diversion', name: 'geosite_cn', sub: `国内大陆域名直连 · ${num(rRules.geosite_cn || 0)} 条规则`, val: compactNum(eStats.domestic || 0), iconColor: isClaude ? '#2D6A4F' : '#10B981', icon: 'globe', cat: 'domestic' },
+      { id: 'r2', tab: 'lists', name: 'whitelist / custom_cn', sub: `白名单与自定义国内 · ${num(rRules.force_domestic || 0)} 条规则`, val: `${num(rRules.force_domestic || 0)} 条`, iconColor: isClaude ? '#C96442' : '#60A5FA', icon: 'check', cat: 'domestic' },
+      { id: 'r3', tab: 'diversion', name: 'geosite_non_cn', sub: `海外无污染分流 · ${num(rRules.geosite_non_cn || 0)} 条规则`, val: compactNum((+eStats.foreign || 0) + (+eStats.foreign_ecs || 0)), iconColor: isClaude ? '#3D6B66' : '#14B8A6', icon: 'split', cat: 'foreign' },
+      { id: 'r4', tab: 'lists', name: 'force_fakeip / 灰名单', sub: `FakeIP 分流映射 · ${num(rRules.force_foreign_fakeip || 0)} 条规则`, val: compactNum(eStats.fakeip || 0), iconColor: isClaude ? '#B45309' : '#F59E0B', icon: 'spark', cat: 'foreign' },
+      { id: 'r_mod', tab: 'modules', name: 'Surge / Loon 模块 (MITM)', sub: `视频流清洗与 FakeIP · ${num(modStats.totalRewrites || 0)} 条重写`, val: `${compactNum(modStats.cleanedStreams || 0)} 清洗`, iconColor: '#8B5CF6', icon: 'spark', cat: 'mitm' },
+      { id: 'r5', tab: 'adguard', name: 'adguard_block', sub: `广告与追踪器拦截 · ${num(engineStatus?.adguard_rules || 0)} 条规则`, val: compactNum(adguardBlocked), iconColor: isClaude ? '#B91C1C' : '#EF4444', icon: 'shield', cat: 'block' },
+      { id: 'r6', tab: 'lists', name: 'block / 特殊类型清洗', sub: `黑名单与类型抑制 · ${num(rRules.block || 0)} 条规则`, val: compactNum(eStats.blocked || 0), iconColor: isClaude ? '#857F74' : '#94A3B8', icon: 'sliders', cat: 'block' }
     ];
 
     // 提取真实配置的上游列表及性能指标
@@ -974,14 +1077,14 @@
 
     // 04 上游策略组（5 节点：对应真实 domestic / foreign / foreign_ecs / proxy / 拦截）
     const topoGroups = [
-      { id: 'g1', code: 'CN', codeColor: isClaude ? '#2D6A4F' : '#34D399', codeBg: isClaude ? 'rgba(45,106,79,0.12)' : 'rgba(16,185,129,0.14)', name: '国内组 (domestic)', sub: `并发竞速 · ${groupAvgMs('domestic')} · ${num(eStats.domestic || 0)} 次` },
-      { id: 'g2', code: 'GL', codeColor: isClaude ? '#3D6B66' : '#2DD4BF', codeBg: isClaude ? 'rgba(61,107,102,0.12)' : 'rgba(20,184,166,0.14)', name: '国外组 (foreign)', sub: `无污染解析 · ${groupAvgMs('foreign')} · ${num(eStats.foreign || 0)} 次` },
-      { id: 'g3', code: 'ECS', codeColor: isClaude ? '#C96442' : '#93C5FD', codeBg: isClaude ? 'rgba(201,100,66,0.12)' : 'rgba(59,130,246,0.16)', name: '国外 ECS (foreign_ecs)', sub: `EDNS 子网 · ${groupAvgMs('foreign_ecs')} · ${num(eStats.foreign_ecs || 0)} 次` },
-      { id: 'g4', code: 'PX', codeColor: isClaude ? '#B45309' : '#FBBF24', codeBg: isClaude ? 'rgba(180,83,9,0.12)' : 'rgba(245,158,11,0.15)', name: '代理组 (proxy)', sub: `远端解析 · ${groupAvgMs('proxy')} · ${num(eStats.fakeip || 0)} 次` },
-      { id: 'g5', code: 'BLK', codeColor: isClaude ? '#B91C1C' : '#F87171', codeBg: isClaude ? 'rgba(185,28,28,0.12)' : 'rgba(239,68,68,0.15)', name: '本地拦截黑洞', sub: `0.0.0.0 / NXDOMAIN · ${num(eStats.blocked || 0)} 拦截` }
+      { id: 'g1', code: 'CN', codeColor: isClaude ? '#2D6A4F' : '#34D399', codeBg: isClaude ? 'rgba(45,106,79,0.12)' : 'rgba(16,185,129,0.14)', name: '国内组 (domestic)', sub: `并发竞速 · ${groupAvgMs('domestic')} · ${num(eStats.domestic || 0)} 次`, cat: 'domestic' },
+      { id: 'g2', code: 'GL', codeColor: isClaude ? '#3D6B66' : '#2DD4BF', codeBg: isClaude ? 'rgba(61,107,102,0.12)' : 'rgba(20,184,166,0.14)', name: '国外组 (foreign)', sub: `无污染解析 · ${groupAvgMs('foreign')} · ${num(eStats.foreign || 0)} 次`, cat: 'foreign' },
+      { id: 'g3', code: 'ECS', codeColor: isClaude ? '#C96442' : '#93C5FD', codeBg: isClaude ? 'rgba(201,100,66,0.12)' : 'rgba(59,130,246,0.16)', name: '国外 ECS (foreign_ecs)', sub: `EDNS 子网 · ${groupAvgMs('foreign_ecs')} · ${num(eStats.foreign_ecs || 0)} 次`, cat: 'foreign' },
+      { id: 'g4', code: 'PX', codeColor: '#8B5CF6', codeBg: 'rgba(139,92,246,0.14)', name: '代理与 FakeIP 流清洗', sub: `198.18.0.0/15 · ${compactNum(modStats.cleanedStreams || 0)} 次清洗`, cat: 'mitm' },
+      { id: 'g5', code: 'BLK', codeColor: isClaude ? '#B91C1C' : '#F87171', codeBg: isClaude ? 'rgba(185,28,28,0.12)' : 'rgba(239,68,68,0.15)', name: '本地拦截黑洞', sub: `0.0.0.0 / NXDOMAIN · ${num(eStats.blocked || 0)} 拦截`, cat: 'block' }
     ];
 
-    // 05 上游 DNS 节点（6 节点：5 个真实上游 DNS + 第 6 个拦截直接响应节点）
+    // 05 上游 DNS 节点（6 节点：4 个真实上游 DNS + FakeIP 流清洗管道 + 拦截响应节点）
     const allRealUps = [
       ...(groupUpstreams.domestic || []),
       ...(groupUpstreams.foreign || []),
@@ -989,17 +1092,16 @@
       ...(groupUpstreams.proxy || [])
     ].sort((a, b) => Number(b.u.enabled !== false) - Number(a.u.enabled !== false) || (b.m.win - a.m.win));
 
-    // 优先保证国内、国外、ECS、代理各选代表节点展示在拓扑第 05 列
+    // 优先保证国内、国外、ECS 各选代表节点展示在拓扑第 05 列
     const pickedUps = [];
     const pickFrom = (g, count) => {
       const candidates = (groupUpstreams[g] || []).slice().sort((a,b)=>Number(b.u.enabled!==false)-Number(a.u.enabled!==false)||(b.m.win-a.m.win));
-      candidates.slice(0, count).forEach(x => { if (pickedUps.length < 5) pickedUps.push(x); });
+      candidates.slice(0, count).forEach(x => { if (pickedUps.length < 4) pickedUps.push(x); });
     };
     pickFrom('domestic', 2);
     pickFrom('foreign', 1);
     pickFrom('foreign_ecs', 1);
-    pickFrom('proxy', 1);
-    allRealUps.forEach(x => { if (pickedUps.length < 5 && !pickedUps.includes(x)) pickedUps.push(x); });
+    allRealUps.forEach(x => { if (pickedUps.length < 4 && !pickedUps.includes(x)) pickedUps.push(x); });
 
     const groupToNodeId = { domestic: 'g1', foreign: 'g2', foreign_ecs: 'g3', proxy: 'g4' };
     const topoServers = pickedUps.map((item, idx) => {
@@ -1027,9 +1129,25 @@
         badgeColor,
         badgeBg,
         icon: 'server',
-        muted: u.enabled === false
+        muted: u.enabled === false,
+        cat: g === 'domestic' ? 'domestic' : 'foreign'
       };
     });
+
+    // s5: FakeIP 虚拟池与应用层流清洗处理管道
+    topoServers.push({
+      id: 's5',
+      groupNode: 'g4',
+      name: 'FakeIP / L7 流清洗',
+      sub: '198.18.0.0/15 · 视频切片剔除',
+      badge: `${compactNum(modStats.cleanedStreams || 0)} 清洗`,
+      badgeColor: '#8B5CF6',
+      badgeBg: 'rgba(139,92,246,0.16)',
+      icon: 'spark',
+      cat: 'mitm'
+    });
+
+    // s6: 拦截直接响应
     topoServers.push({
       id: 's6',
       groupNode: 'g5',
@@ -1038,7 +1156,8 @@
       badge: `${compactNum(eStats.blocked || 0)} 阻断`,
       badgeColor: isClaude ? '#B91C1C' : '#F87171',
       badgeBg: isClaude ? 'rgba(185,28,28,0.12)' : 'rgba(239,68,68,0.16)',
-      icon: 'shieldRed'
+      icon: 'shieldRed',
+      cat: 'block'
     });
 
     const cPrimary = isClaude ? '#C96442' : '#3B82F6';
@@ -1046,30 +1165,37 @@
     const cAmber = isClaude ? '#B45309' : '#F59E0B';
     const cGreen = isClaude ? '#2D6A4F' : '#10B981';
     const topoEdges = [
-      ['c1', 'e_core', cPrimary],
-      ['c2', 'e_core', cPrimary],
-      ['c3', 'e_core', cPrimary],
-      ['c4', 'e_core', cPrimary],
-      ['c5', 'e_core', cPrimary],
+      ['c1', 'e_core', cPrimary, 'all'],
+      ['c2', 'e_core', cPrimary, 'all'],
+      ['c3', 'e_core', cPrimary, 'all'],
+      ['c4', 'e_core', cPrimary, 'all'],
+      ['c5', 'e_core', cPrimary, 'all'],
 
-      ['e_core', 'r1', cTeal],
-      ['e_core', 'r2', cPrimary],
-      ['e_core', 'r3', cTeal],
-      ['e_core', 'r4', cAmber],
-      ['e_core', 'r5', cTeal],
-      ['e_core', 'r6', cTeal],
+      ['e_core', 'r1', cTeal, 'domestic'],
+      ['e_core', 'r2', cPrimary, 'domestic'],
+      ['e_core', 'r3', cTeal, 'foreign'],
+      ['e_core', 'r4', cAmber, 'foreign'],
+      ['e_core', 'r_mod', '#8B5CF6', 'mitm'],
+      ['e_core', 'r5', '#EF4444', 'block'],
+      ['e_core', 'r6', '#94A3B8', 'block'],
 
-      ['r1', 'g1', cTeal],
-      ['r2', 'g1', cTeal],
-      ['r3', 'g2', cTeal],
-      ['r3', 'g3', cPrimary],
-      ['r4', 'g4', cAmber],
-      ['r5', 'g5', cTeal],
-      ['r6', 'g5', cTeal],
+      ['r1', 'g1', cTeal, 'domestic'],
+      ['r2', 'g1', cTeal, 'domestic'],
+      ['r3', 'g2', cTeal, 'foreign'],
+      ['r3', 'g3', cPrimary, 'foreign'],
+      ['r4', 'g4', cAmber, 'foreign'],
+      ['r_mod', 'g4', '#8B5CF6', 'mitm'],
+      ['r5', 'g5', '#EF4444', 'block'],
+      ['r6', 'g5', '#94A3B8', 'block'],
 
-      ...topoServers.map(s => [s.groupNode, s.id, cGreen])
-    ].map(([from, to, color]) => ({
-      from, to, color,
+      ['g1', 's1', cGreen, 'domestic'],
+      ['g1', 's2', cGreen, 'domestic'],
+      ['g2', 's3', cTeal, 'foreign'],
+      ['g3', 's4', cPrimary, 'foreign'],
+      ['g4', 's5', '#8B5CF6', 'mitm'],
+      ['g5', 's6', '#EF4444', 'block'],
+    ].map(([from, to, color, category]) => ({
+      from, to, color, category: category || 'all',
       muted: Boolean(topoClients.find(c => c.id === from)?.muted || topoServers.find(s => s.id === to)?.muted)
     }));
 
@@ -1231,9 +1357,43 @@
         </div>
       </div>
 
-      <!-- 第三层：UI 2026.10.16.1 的五阶段 DNS 解析路径布局 -->
+      <!-- 第三层：UI 2026.10.16.1 的五阶段 DNS 解析路径布局 (含动态分流交互视图) -->
       <div class="col-12">
         <section class="glass-card topology-glass-card" aria-label="实时 DNS 解析与分流全链路拓扑" title="流光仅示意拓扑路径，不代表单条 DNS 查询记录">
+          <div class="topo-dynamic-toolbar">
+            <div class="topo-toolbar-left">
+              <div class="topo-heading-title console-topology-heading">
+                <h2>DNS 解析路径</h2>
+                <span class="topo-heading-sub">实时分流拓扑 · 动态交互推演</span>
+              </div>
+              <div class="seg-group topo-filter-tabs" id="topo-cat-tabs" role="group" aria-label="分流逻辑动态视图模式">
+                <button type="button" class="seg-item active" data-topo-cat="all">全部全景</button>
+                <button type="button" class="seg-item" data-topo-cat="domestic">国内直连</button>
+                <button type="button" class="seg-item" data-topo-cat="foreign">国外无污染</button>
+                <button type="button" class="seg-item" data-topo-cat="mitm">视频流清洗/FakeIP</button>
+                <button type="button" class="seg-item" data-topo-cat="block">广告与安全拦截</button>
+              </div>
+            </div>
+            <div class="topo-toolbar-right">
+              <div class="topo-tracer-box">
+                <div class="topo-input-wrap">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="topo-search-icon"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                  <input type="text" id="topo-trace-input" placeholder="输入域名动态推演分流逻辑 (如 bilibili.com, youtube.com)..." autocomplete="off" spellcheck="false">
+                  <button type="button" class="button small primary" id="btn-topo-trace">推演路径</button>
+                </div>
+                <div class="topo-quick-pills">
+                  <span class="topo-pill-label">快捷推演：</span>
+                  <button type="button" class="topo-pill-btn" data-trace-domain="rr1---sn-4g5edn6e.googlevideo.com">📺 YouTube 视频切片</button>
+                  <button type="button" class="topo-pill-btn" data-trace-domain="www.bilibili.com">⚡️ 哔哩哔哩直连</button>
+                  <button type="button" class="topo-pill-btn" data-trace-domain="mobads.baidu.com">🛡️ 移动广告拦截</button>
+                  <button type="button" class="topo-pill-btn" data-trace-domain="github.com">🌍 GitHub 国际服务</button>
+                  <button type="button" class="topo-pill-btn" data-trace-domain="dev.local">🔒 本地重定向</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="topo-decision-card" class="topo-decision-card" style="display:none"></div>
+
           <div class="topo-stage-wrap ${state.particles === false ? 'no-particles' : ''}" id="topo-stage-wrap">
             <svg class="topo-svg-overlay" id="topo-svg" aria-hidden="true"></svg>
 
@@ -1540,6 +1700,126 @@
       };
     });
 
+    // 绑定 DNS 解析路径动态分流交互视图事件
+    $$('[data-topo-cat]', page).forEach(btn => {
+      btn.onclick = () => {
+        $$('[data-topo-cat]', page).forEach(b => b.classList.toggle('active', b === btn));
+        const cat = btn.dataset.topoCat;
+        topologyWrap?._applyCategoryFilter?.(cat);
+        const card = $('#topo-decision-card');
+        if (card) card.style.display = 'none';
+      };
+    });
+
+    const runTopoTracer = async (rawDomain) => {
+      const domain = (rawDomain || '').trim().toLowerCase().replace(/^[a-zA-Z]+:\/\//, '').split('/')[0].split('?')[0].replace(/:\d+$/, '').replace(/\.$/, '');
+      if (!domain) return;
+      const card = $('#topo-decision-card');
+      if (!card) return;
+      card.style.display = 'flex';
+      card.innerHTML = `<div class="tdc-content"><span class="tdc-domain">${esc(domain)}</span><span style="color:var(--text-3)">正在通过 LocalDNS 核心分流引擎解析推演...</span></div>`;
+
+      let res = null;
+      try {
+        res = await api.request(`/api/resolve?name=${encodeURIComponent(domain)}`);
+      } catch (e) {}
+
+      const ds = res?.domain_set || '';
+      const isBlocked = res?.blocked || false;
+      const addrs = res?.addresses || [];
+
+      let path = [];
+      let layer = '';
+      let action = '';
+      let nodeDesc = '';
+      let badgeCol = '#10B981';
+
+      if (ds === 'mitm_fakeip' || (domain.includes('googlevideo') || domain.includes('ttvnw.net') || domain.includes('twitch.tv'))) {
+        path = ['c1', 'e_core', 'r_mod', 'g4', 's5'];
+        layer = '第 3 级 · 跨平台去广告模块 (Surge/Loon MITM 劫持)';
+        action = 'FakeIP 虚拟分配 (198.18.0.x) ➔ 本地 L7 视频流清洗管道';
+        nodeDesc = '命中已启用模块通配规则，视频切片 (HLS/DASH) 与播放器广告将在本地自动剥离！';
+        badgeCol = '#8B5CF6';
+      } else if (isBlocked || ds === 'adguard' || ds === 'blocklist') {
+        path = ['c1', 'e_core', 'r5', 'g5', 's6'];
+        layer = ds === 'blocklist' ? '第 2 级 · 本地黑名单拦截' : '第 4 级 · AdGuard 广告拦截引擎';
+        action = '本地黑洞拦截 (返回 0.0.0.0 / :: 立即阻断)';
+        nodeDesc = '命中广告过滤或追踪黑名单，播放器无广告等待立即播放正片。';
+        badgeCol = '#EF4444';
+      } else if (ds === 'rewrite') {
+        path = ['c1', 'e_core', 'r2', 'g1', 's1'];
+        layer = '第 1 级 · 本地自定义重定向 (Rewrite)';
+        action = '返回指定重定向 IP ➔ 本地服务响应';
+        nodeDesc = '命中本地最高优先级重定向配置表。';
+        badgeCol = '#3B82F6';
+      } else if (ds === 'whitelist' || ds === 'custom_cn' || ds === 'force_realip') {
+        path = ['c1', 'e_core', 'r2', 'g1', 's1'];
+        layer = '第 2/5 级 · 白名单 / 自定义国内直连';
+        action = '国内策略组 (domestic) ➔ 阿里/腾讯 DNS 并发竞速';
+        nodeDesc = '受信任国内直连，保障国内 CDN 节点最优低延迟。';
+        badgeCol = '#10B981';
+      } else if (ds === 'geosite_cn' || ds === 'default_cn') {
+        path = ['c1', 'e_core', 'r1', 'g1', 's1'];
+        layer = '第 5 级 · Geosite CN / 大陆大厂启发式分流';
+        action = '国内策略组 (domestic) ➔ 阿里/腾讯 DNS 并发竞速';
+        nodeDesc = '匹配中国大陆域名规则集，秒级返回国内服务 IP。';
+        badgeCol = '#10B981';
+      } else if (ds === 'geosite_non_cn' || ds === 'custom_non_cn') {
+        path = ['c1', 'e_core', 'r3', 'g2', 's3'];
+        layer = '第 5 级 · Geosite Non-CN / 海外无污染规则';
+        action = '国外策略组 (foreign) ➔ Cloudflare / Google DoH';
+        nodeDesc = '经由安全加密上游解析，防止 DNS 劫持与污染。';
+        badgeCol = '#14B8A6';
+      } else if (ds === 'greylist' || ds === 'force_foreign_fakeip') {
+        path = ['c1', 'e_core', 'r4', 'g4', 's4'];
+        layer = '第 5 级 · 灰名单 / 代理分流映射';
+        action = '国外 ECS / 代理组 (proxy)';
+        nodeDesc = '按指定策略引导至海外代理或携带 EDNS 客户端子网。';
+        badgeCol = '#F59E0B';
+      } else {
+        path = ['c1', 'e_core', 'r3', 'g2', 's3'];
+        layer = '第 6 级 · 默认兜底解析 (海外无污染)';
+        action = '国外策略组 (foreign) 并发自愈竞速';
+        nodeDesc = '默认无污染国外上游，若超时自动触发双发自愈。';
+        badgeCol = '#3B82F6';
+      }
+
+      topologyWrap?._applyPathTrace?.(path);
+
+      card.innerHTML = `
+        <div class="tdc-content">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="tdc-domain">${esc(domain)}</span>
+            <span class="tn-pill mono" style="color:${badgeCol};background:${badgeCol}22;font-weight:700">${esc(layer)}</span>
+          </div>
+          <div class="tdc-flow-chain">
+            <span>客户端</span><i class="tdc-flow-arrow">➔</i>
+            <span>核心缓存</span><i class="tdc-flow-arrow">➔</i>
+            <span style="color:${badgeCol}">${esc(action.split('➔')[0].trim())}</span><i class="tdc-flow-arrow">➔</i>
+            <strong style="color:var(--text-1)">${esc(addrs[0] || (isBlocked ? '0.0.0.0' : (action.includes('FakeIP') ? '198.18.0.x' : '最优 IP')))}</strong>
+          </div>
+          <div style="font-size:11px;color:var(--text-3)">${esc(nodeDesc)}</div>
+        </div>
+        <button type="button" class="button small" id="btn-close-topo-trace">恢复全景</button>
+      `;
+
+      $('#btn-close-topo-trace').onclick = () => {
+        card.style.display = 'none';
+        topologyWrap?._applyCategoryFilter?.('all');
+        $$('[data-topo-cat]', page).forEach(b => b.classList.toggle('active', b.dataset.topoCat === 'all'));
+      };
+    };
+
+    if ($('#btn-topo-trace')) $('#btn-topo-trace').onclick = () => runTopoTracer($('#topo-trace-input')?.value);
+    if ($('#topo-trace-input')) $('#topo-trace-input').onkeydown = e => { if (e.key === 'Enter') runTopoTracer($('#topo-trace-input').value); };
+    $$('[data-trace-domain]', page).forEach(btn => {
+      btn.onclick = () => {
+        const dom = btn.dataset.traceDomain;
+        if ($('#topo-trace-input')) $('#topo-trace-input').value = dom;
+        runTopoTracer(dom);
+      };
+    });
+
     // 绑定第一层真实控制条事件
     if ($('#btn-overview-custom-bg')) {
       $('#btn-overview-custom-bg').onclick = e => {
@@ -1786,13 +2066,21 @@
         <button type="button" class="seg-item active" data-rule-tab="lists">名单管理</button>
         <button type="button" class="seg-item" data-rule-tab="adguard">广告拦截 (AdGuard)</button>
         <button type="button" class="seg-item" data-rule-tab="diversion">在线分流 (SRS)</button>
+        <button type="button" class="seg-item" data-rule-tab="modules">模块管理 (Surge / Loon / QX)</button>
       </div>
     </div>
     <div id="rule-tab-body" class="col-12"></div>`;
     $$('[data-rule-tab]').forEach(x=>x.onclick=()=>{$$('[data-rule-tab]').forEach(y=>y.classList.toggle('active',y===x));renderRuleTab(x.dataset.ruleTab)});
     await renderRuleTab('lists');
   }
-  async function renderRuleTab(tab){const body=$('#rule-tab-body');body.innerHTML=loadingPage();if(tab==='lists')return renderListRules(body);if(tab==='adguard')return renderAdguard(body);return renderDiversion(body);}
+  async function renderRuleTab(tab){
+    const body=$('#rule-tab-body');
+    body.innerHTML=loadingPage();
+    if(tab==='lists')return renderListRules(body);
+    if(tab==='adguard')return renderAdguard(body);
+    if(tab==='modules')return renderModules(body);
+    return renderDiversion(body);
+  }
   async function renderListRules(body){
     if(!ruleProfiles.some(x=>x[0]===state.ruleTag))state.ruleTag=ruleProfiles[0][0];
     const tag=state.ruleTag,profile=ruleProfiles.find(x=>x[0]===tag)||ruleProfiles[0];
@@ -1979,6 +2267,366 @@
     rule.dataset=String(rule.dataset||'');
     modalOpen(original?'编辑在线分流规则':'添加在线分流规则','远程规则由后端按内容自动识别，并统一转换为 SRS；无需手工选择源格式或匹配方式。',`<div class="stack"><div class="grid grid-2"><div class="field"><label>名称</label><input id="div-name" value="${esc(rule.name)}" placeholder="例如：direct_tld_cn"></div><div class="field"><label>规则类型</label><select id="div-type">${diversionDefs.map(d=>`<option value="${d.type}" ${d.type===rule.type?'selected':''}>${esc(d.label)}</option>`).join('')}</select></div></div><div class="field"><label>订阅地址</label><input id="div-url" value="${esc(rule.url||'')}" placeholder="https://example.com/rules"></div><div class="field"><label>源缓存文件（可选）</label><input id="div-files" value="${esc(rule.files||'')}" placeholder="留空时自动生成"><p class="form-note">每个订阅源下载后统一转换为 SRS，存放在 rules/online/规则组/；同组来源合并去重后生成 rules/compiled/规则组.srs，运行时只加载这个文件。</p></div><div class="grid grid-2"><label class="switch"><input id="div-enabled" type="checkbox" ${rule.enabled!==false?'checked':''}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">启用</span></label><label class="switch"><input id="div-auto" type="checkbox" ${rule.auto_update?'checked':''}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">自动更新</span></label></div><div class="field"><label>更新间隔（小时）</label><input id="div-hours" type="number" min="1" value="${rule.update_interval_hours||24}"></div><p class="form-note">支持的来源按内容自动识别；只有多数据集 DAT 才会在更新时要求选择一次数据集。所有成功识别的来源最终统一转换为 SRS 后加载。</p></div>`,async()=>{const payload={name:$('#div-name').value.trim(),type:$('#div-type').value,url:$('#div-url').value.trim(),files:$('#div-files').value.trim(),dataset:rule.dataset,enabled:$('#div-enabled').checked,auto_update:$('#div-auto').checked,update_interval_hours:+$('#div-hours').value||24};const saved=await saveDiversionRule(payload,original);toast(`在线分流规则已${original?'更新':'添加'}，源缓存路径：${saved?.files||payload.files||'自动生成'}`);await renderDiversion(body);});
   }
+
+  /* ================= 跨平台去广告模块 (Surge / Loon / Quantumult X) ================= */
+  async function renderModules(body){
+    let data=null;
+    try{data=await api.request('/api/v1/modules')}catch(e){body.innerHTML=`<div class="error-panel"><strong>模块数据读取失败</strong><p>${esc(e.message)}</p></div>`;return}
+    const modules=(data?.modules||[]).slice();
+    const stats=data?.stats||{totalModules:0,activeModules:0,totalMitmHosts:0,totalRewrites:0,totalScripts:0,cleanedStreams:0};
+    const fakeip=data?.fakeip||{allocated:0,poolRange:'198.18.0.0/15'};
+
+    const platformBadge=(p)=>{
+      const map={
+        surge:['Surge','#3B82F6','rgba(59,130,246,0.12)'],
+        loon:['Loon','#F59E0B','rgba(245,158,11,0.12)'],
+        quantumultx:['Quantumult X','#8B5CF6','rgba(139,92,246,0.12)'],
+        universal:['通用','#10B981','rgba(16,185,129,0.12)']
+      };
+      const [lbl,col,bg]=map[p]||[p||'Surge','#3B82F6','rgba(59,130,246,0.12)'];
+      return `<span class="tn-pill mono" style="color:${col};background:${bg};font-weight:600">${lbl}</span>`;
+    };
+
+    const headerMarkup=`
+      <div class="module-stat-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px">
+        <div class="glass-card" style="padding:12px 14px">
+          <div style="font-size:12px;color:var(--text-3);margin-bottom:4px">激活模块</div>
+          <div style="font-size:18px;font-weight:700;color:var(--text-1)"><strong class="tabular">${stats.activeModules}</strong><span style="font-size:13px;font-weight:400;color:var(--text-3)"> / ${stats.totalModules}</span></div>
+        </div>
+        <div class="glass-card" style="padding:12px 14px">
+          <div style="font-size:12px;color:var(--text-3);margin-bottom:4px">MITM 通配域名</div>
+          <div style="font-size:18px;font-weight:700;color:#3B82F6"><strong class="tabular">${stats.totalMitmHosts}</strong><span style="font-size:13px;font-weight:400;color:var(--text-3)"> 个</span></div>
+        </div>
+        <div class="glass-card" style="padding:12px 14px">
+          <div style="font-size:12px;color:var(--text-3);margin-bottom:4px">重写规则 / 脚本</div>
+          <div style="font-size:18px;font-weight:700;color:#10B981"><strong class="tabular">${stats.totalRewrites}</strong><span style="font-size:13px;font-weight:400;color:var(--text-3)"> 条 / ${stats.totalScripts} 个</span></div>
+        </div>
+        <div class="glass-card" style="padding:12px 14px">
+          <div style="font-size:12px;color:var(--text-3);margin-bottom:4px">视频流清洗次数</div>
+          <div style="font-size:18px;font-weight:700;color:#F59E0B"><strong class="tabular">${stats.cleanedStreams}</strong><span style="font-size:13px;font-weight:400;color:var(--text-3)"> 次</span></div>
+        </div>
+        <div class="glass-card" style="padding:12px 14px">
+          <div style="font-size:12px;color:var(--text-3);margin-bottom:4px">FakeIP 虚拟池</div>
+          <div style="font-size:18px;font-weight:700;color:#8B5CF6"><strong class="tabular">${fakeip.allocated}</strong><span style="font-size:12px;font-weight:400;color:var(--text-3)"> 分配</span></div>
+        </div>
+      </div>
+    `;
+
+    const tableMarkup=`
+      <div class="table-wrap module-table-wrap mobile-card-table">
+        <table class="module-rules-table adguard-card-table">
+          <colgroup>
+            <col class="col-enabled" style="width:60px">
+            <col style="width:120px">
+            <col style="width:200px">
+            <col>
+            <col style="width:160px">
+            <col style="width:140px">
+            <col class="col-actions" style="width:180px">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>启用</th>
+              <th>平台</th>
+              <th>模块名称</th>
+              <th>规则详情</th>
+              <th>来源</th>
+              <th>上次更新</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${modules.length ? modules.map(m=>`
+              <tr data-id="${esc(m.id)}">
+                <td class="mobile-toggle-cell">
+                  <label class="switch">
+                    <input class="mod-enable" type="checkbox" ${m.enabled?'checked':''}>
+                    <span class="switch-track"><span class="switch-thumb"></span></span>
+                  </label>
+                </td>
+                <td data-label="平台">${platformBadge(m.platform)}</td>
+                <td data-label="模块名称">
+                  <div style="display:flex;flex-direction:column;gap:2px">
+                    <strong style="font-size:14px;color:var(--text-1)">${esc(m.name)}</strong>
+                    <span style="font-size:12px;color:var(--text-3);line-height:1.3">${esc(m.description||'—')}</span>
+                  </div>
+                </td>
+                <td data-label="规则详情">
+                  <div style="display:flex;gap:6px;flex-wrap:wrap">
+                    <span class="tn-pill" style="font-size:11px;color:#3B82F6;background:rgba(59,130,246,0.1)">MITM: ${(m.mitmHosts||[]).length} 个</span>
+                    <span class="tn-pill" style="font-size:11px;color:#10B981;background:rgba(16,185,129,0.1)">重写: ${(m.rewrites||[]).length} 条</span>
+                    <span class="tn-pill" style="font-size:11px;color:#F59E0B;background:rgba(245,158,11,0.1)">脚本: ${(m.scripts||[]).length} 个</span>
+                  </div>
+                </td>
+                <td data-label="来源" title="${esc(m.url||'本地预设')}">
+                  <span class="table-ellipsis mobile-ellipsis mono" style="font-size:12px">${esc(m.url||'本地内置预设')}</span>
+                </td>
+                <td data-label="上次更新" style="font-size:12px;color:var(--text-3)">${fmtDate(m.lastUpdated)}</td>
+                <td class="mobile-actions-cell">
+                  <div class="table-row-actions card-actions">
+                    <button class="button small mod-view">${icon('search')}查看</button>
+                    ${m.url ? `<button class="button small mod-update">更新</button>` : ''}
+                    <button class="button small danger mod-delete">删除</button>
+                  </div>
+                </td>
+              </tr>
+            `).join('') : `<tr><td colspan="7" class="table-empty">暂无跨平台模块，点击上方“导入模块”添加</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    body.innerHTML=card('跨平台模块与流清洗 (Surge / Loon / QX)', headerMarkup + tableMarkup, {
+      iconName:'rules',
+      actions:`
+        <button class="button" id="btn-stream-test">${icon('spark')}流清洗测试</button>
+        <button class="button" id="mod-update-all">${icon('refresh')}更新全部</button>
+        <button class="button primary" id="mod-add">${icon('plus')}导入模块</button>
+      `
+    });
+
+    const findMod=tr=>modules.find(m=>String(m.id)===tr.dataset.id);
+
+    $$('.mod-enable').forEach(x=>x.onchange=async()=>{
+      const mod=findMod(x.closest('tr'));
+      if(!mod)return;
+      x.disabled=true;
+      try{
+        await api.json(`/api/v1/modules/${encodeURIComponent(mod.id)}`,'PUT',{enabled:x.checked});
+        toast(`模块“${mod.name}”已${x.checked?'启用':'停用'}`);
+        await renderModules(body);
+      }catch(e){
+        x.checked=!x.checked;
+        toast('状态切换失败','error',e.message);
+      }finally{x.disabled=false}
+    });
+
+    $$('.mod-view').forEach(x=>x.onclick=()=>{
+      const mod=findMod(x.closest('tr'));
+      if(mod)openModuleDetailsModal(mod);
+    });
+
+    $$('.mod-update').forEach(x=>x.onclick=async()=>{
+      const mod=findMod(x.closest('tr'));
+      if(!mod)return;
+      x.disabled=true;
+      try{
+        await api.json(`/api/v1/modules/${encodeURIComponent(mod.id)}/update`,'POST');
+        toast(`模块“${mod.name}”已成功更新！`);
+        await renderModules(body);
+      }catch(e){
+        toast('更新失败','error',e.message);
+      }finally{x.disabled=false}
+    });
+
+    $$('.mod-delete').forEach(x=>x.onclick=async()=>{
+      const mod=findMod(x.closest('tr'));
+      if(!mod||!confirm(`确定删除模块“${mod.name}”？`))return;
+      x.disabled=true;
+      try{
+        await api.request(`/api/v1/modules/${encodeURIComponent(mod.id)}`,{method:'DELETE'});
+        toast(`模块“${mod.name}”已删除`);
+        await renderModules(body);
+      }catch(e){
+        toast('删除失败','error',e.message);
+      }finally{x.disabled=false}
+    });
+
+    $('#mod-add').onclick=()=>openModuleModal(body);
+    $('#btn-stream-test').onclick=()=>openStreamCleanTestModal();
+    $('#mod-update-all').onclick=async()=>{
+      const btn=$('#mod-update-all');
+      btn.disabled=true;
+      try{
+        const urlMods=modules.filter(m=>m.url);
+        if(!urlMods.length){toast('无在线订阅模块需要更新','info');return;}
+        let success=0;
+        for(const m of urlMods){
+          try{await api.json(`/api/v1/modules/${encodeURIComponent(m.id)}/update`,'POST');success++;}catch{}
+        }
+        toast(`已更新 ${success} 个模块及其 JS 脚本！`);
+        await renderModules(body);
+      }finally{btn.disabled=false}
+    };
+  }
+
+  function openModuleModal(body){
+    const presets=[
+      {
+        name:'YouTube 纯净去广告与流净化 (Surge)',
+        url:'https://raw.githubusercontent.com/Maasea/sgmodule/master/Script/Youtube/youtube.sgmodule',
+        content:`#!name=YouTube 纯净去广告与流净化\n#!desc=屏蔽 YouTube 贴片广告、中插广告、信息流推广与后台跟踪\n[MITM]\nhostname = *.googlevideo.com, www.youtube.com, youtubei.googleapis.com\n\n[URL Rewrite]\n^https?:\\/\\/[\\w-]+\\.googlevideo\\.com\\/videoplayback\\?.+(&adformat=|\\/ad\\/) reject-200\n^https?:\\/\\/www\\.youtube\\.com\\/youtubei\\/v1\\/player\\/ad_break reject-dict\n^https?:\\/\\/youtubei\\.googleapis\\.com\\/youtubei\\/v1\\/log_event reject-200\n^https?:\\/\\/www\\.youtube\\.com\\/api\\/stats\\/ads reject-200\n\n[Script]\nyoutube-player = type=http-response,pattern=^https?:\\/\\/www\\.youtube\\.com\\/youtubei\\/v1\\/player,script-path=https://raw.githubusercontent.com/Maasea/sgmodule/master/Script/Youtube/youtube.js,requires-body=true`
+      },
+      {
+        name:'Bilibili 全面去广告 (Loon Plugin)',
+        url:'https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/script/bilibili/bilibili.plugin',
+        content:`#!name=Bilibili 全面去广告\n#!desc=去除开屏广告、番剧贴片、评论区推广与动态推广\n[Plugin]\n\n[Mitm]\nhostname = api.bilibili.com, app.bilibili.com\n\n[Rewrite]\n^https?:\\/\\/api\\.bilibili\\.com\\/x\\/v2\\/splash reject\n^https?:\\/\\/app\\.bilibili\\.com\\/x\\/v2\\/feed\\/index reject-dict\n\n[Script]\nhttp-response ^https?:\\/\\/api\\.bilibili\\.com\\/x\\/v2\\/reply\\/reply script-path=https://raw.githubusercontent.com/NobyDa/Script/master/Bilibili/Bilibili.js, tag=bili-reply, requires-body=true`
+      },
+      {
+        name:'Twitch 直播切片广告清洗 (SSAI M3U8)',
+        url:'',
+        content:`#!name=Twitch 直播切片广告清洗\n#!desc=流式剔除 Twitch 直播流中的服务端广告切片 (SSAI) 与预取分片\n[MITM]\nhostname = *.ttvnw.net, *.twitch.tv\n\n[URL Rewrite]\n^https?:\\/\\/usher\\.ttvnw\\.net\\/api\\/channel\\/hls\\/ reject-dict\n^https?:\\/\\/spade\\.twitch\\.tv\\/track reject-200`
+      },
+      {
+        name:'爱奇艺视频播放去广告 (Quantumult X)',
+        url:'',
+        content:`# Title: 爱奇艺视频去广告\n[mitm]\nhostname = *.iqiyi.com, *.qiyi.com\n\n[rewrite_local]\n^https?:\\/\\/[\\w-]+\\.iqiyi\\.com\\/v5\\/ad\\/ url reject-200\n^https?:\\/\\/api\\.iqiyi\\.com\\/player\\/info url reject-dict`
+      }
+    ];
+
+    const html=`
+      <div class="stack">
+        <div class="field">
+          <label>快速填入社区去广告预设</label>
+          <select id="mod-preset-select">
+            <option value="">-- 选择常用预设模版快速载入 --</option>
+            ${presets.map((p,i)=>`<option value="${i}">${esc(p.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>远程订阅地址 (URL，可选)</label>
+          <input id="mod-input-url" placeholder="https://example.com/module.sgmodule 或 .plugin">
+          <p class="form-note">填入链接后将自动从远端拉取最新配置；留空时直接使用下方代码文本。</p>
+        </div>
+        <div class="field">
+          <label>模块规则配置内容 (Surge .sgmodule / Loon .plugin / QX .conf)</label>
+          <textarea id="mod-input-content" class="rule-textarea" style="height:180px;font-family:var(--font-mono);font-size:12px" placeholder="在此粘贴 [MITM] / [URL Rewrite] / [Script] 配置文本..."></textarea>
+          <p class="form-note">内置引擎自动解析并映射 MITM 通配主机名、Reject 动作（204/200/图片/JSON）、流清洗与 JS 脚本。</p>
+        </div>
+      </div>
+    `;
+
+    modalOpen('导入跨平台模块','支持 Surge (.sgmodule)、Loon (.plugin) 与 Quantumult X 规范', html, async()=>{
+      const url=$('#mod-input-url').value.trim();
+      const content=$('#mod-input-content').value.trim();
+      if(!url && !content){
+        throw new Error('订阅地址与模块配置内容至少需要填写一项');
+      }
+      toast('正在导入并解析模块规则...');
+      await api.json('/api/v1/modules','POST',{url:url||undefined,content:content||undefined});
+      toast('模块已成功导入并激活！');
+      await renderModules(body);
+    });
+
+    $('#mod-preset-select').onchange=()=>{
+      const idx=$('#mod-preset-select').value;
+      if(idx!=='' && presets[+idx]){
+        const p=presets[+idx];
+        $('#mod-input-url').value=p.url;
+        $('#mod-input-content').value=p.content;
+      }
+    };
+  }
+
+  function openModuleDetailsModal(mod){
+    const mitmHtml=(mod.mitmHosts||[]).length
+      ? (mod.mitmHosts||[]).map(h=>`<span class="tn-pill mono" style="font-size:12px;color:#3B82F6;background:rgba(59,130,246,0.12)">${esc(h)}</span>`).join(' ')
+      : '<span style="color:var(--text-3);font-size:12px">无 MITM 主机配置</span>';
+
+    const rewritesHtml=(mod.rewrites||[]).length
+      ? `<div style="display:flex;flex-direction:column;gap:6px">${(mod.rewrites||[]).map(r=>`
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:rgba(255,255,255,0.04);border-radius:6px;font-size:12px">
+            <span class="mono" style="color:var(--text-1);word-break:break-all">${esc(r.pattern)}</span>
+            <span class="tn-pill mono" style="color:#10B981;background:rgba(16,185,129,0.14);margin-left:8px;flex-shrink:0">${esc(r.action)}</span>
+          </div>`).join('')}</div>`
+      : '<span style="color:var(--text-3);font-size:12px">无 URL 重写规则</span>';
+
+    const scriptsHtml=(mod.scripts||[]).length
+      ? `<div style="display:flex;flex-direction:column;gap:6px">${(mod.scripts||[]).map(s=>`
+          <div style="padding:8px 10px;background:rgba(255,255,255,0.04);border-radius:6px;font-size:12px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <strong style="color:var(--text-1)">${esc(s.name)}</strong>
+              <span class="tn-pill mono" style="color:#F59E0B;background:rgba(245,158,11,0.14)">${esc(s.type)}</span>
+            </div>
+            <div class="mono" style="color:var(--text-2);font-size:11px;margin-bottom:2px">匹配: ${esc(s.pattern)}</div>
+            <div class="mono" style="color:var(--text-3);font-size:11px;word-break:break-all">脚本: ${esc(s.scriptPath)}</div>
+          </div>`).join('')}</div>`
+      : '<span style="color:var(--text-3);font-size:12px">无 JS 脚本定义</span>';
+
+    const html=`
+      <div class="stack" style="max-height:60vh;overflow-y:auto;padding-right:4px">
+        <div style="padding:10px 12px;background:rgba(255,255,255,0.03);border-radius:8px">
+          <div style="font-size:14px;font-weight:700;color:var(--text-1);margin-bottom:4px">${esc(mod.name)}</div>
+          <div style="font-size:12px;color:var(--text-3)">${esc(mod.description||'无描述')}</div>
+        </div>
+
+        <div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:6px;color:var(--text-2)">MITM 通配解密域名 (${(mod.mitmHosts||[]).length}个)</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">${mitmHtml}</div>
+        </div>
+
+        <div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:6px;color:var(--text-2)">URL 重写与阻断规则 (${(mod.rewrites||[]).length}条)</div>
+          ${rewritesHtml}
+        </div>
+
+        <div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:6px;color:var(--text-2)">JavaScript 异步沙箱脚本 (${(mod.scripts||[]).length}个)</div>
+          ${scriptsHtml}
+        </div>
+      </div>
+    `;
+
+    modalOpen(`模块规则详情: ${mod.name}`, '解析后的统一内部规则表示', html, null, false);
+  }
+
+  function openStreamCleanTestModal(){
+    const sampleM3U8 = `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:6\n#EXT-X-DATERANGE:ID="stitched-ad-1234",START-DATE="2026-10-18T00:00:00Z",PLANNED-DURATION=15.0\n#EXTINF:6.000,\nhttps://video.example.com/segment1.ts\n#EXT-X-TWITCH-PREFETCH:https://video.example.com/prefetch.ts\n#EXT-X-DISCONTINUITY\n#EXT-X-DISCONTINUITY\n#EXTINF:6.000,\nhttps://video.example.com/ad_segment_01.ts\n#EXTINF:6.000,\nhttps://video.example.com/segment2.ts\n#EXT-X-ENDLIST`;
+
+    const sampleJSON = JSON.stringify({
+      playabilityStatus: { status: 'OK' },
+      adPlacements: [{ adId: 'ad_999' }],
+      playerAds: [{ format: 'preroll' }],
+      adSlots: ['slot_1'],
+      playbackTracking: { videostatsPlaybackUrl: 'https://youtube.com/api/stats/atr', genuineStats: 'https://youtube.com/api/stats/qoe' },
+      videoDetails: { title: '测试视频', author: 'Uploader' }
+    }, null, 2);
+
+    const html=`
+      <div class="stack">
+        <div style="display:flex;gap:8px">
+          <button class="button small" id="btn-fill-m3u8">填入 M3U8 广告切片测试样本</button>
+          <button class="button small" id="btn-fill-json">填入 YouTube 广告 JSON 测试样本</button>
+        </div>
+        <div class="field">
+          <label>待清洗文本 (HLS M3U8 清单 或 播放器 JSON 响应)</label>
+          <textarea id="clean-input" class="rule-textarea" style="height:140px;font-family:var(--font-mono);font-size:12px"></textarea>
+        </div>
+        <button class="button primary" id="btn-do-clean" style="align-self:flex-start">${icon('spark')}执行流清洗</button>
+        <div class="field">
+          <label>清洗输出结果 (<span id="clean-status" style="color:var(--text-3)">等待测试</span>)</label>
+          <textarea id="clean-output" class="rule-textarea" style="height:140px;font-family:var(--font-mono);font-size:12px" readonly></textarea>
+        </div>
+      </div>
+    `;
+
+    modalOpen('视频流清洗实时测试器','验证 M3U8 切片剥离与播放器广告 JSON 递归剪枝效果', html, null, false);
+
+    $('#btn-fill-m3u8').onclick=()=>{
+      $('#clean-input').value=sampleM3U8;
+      $('#clean-status').textContent='已填入 M3U8 样本';
+    };
+    $('#btn-fill-json').onclick=()=>{
+      $('#clean-input').value=sampleJSON;
+      $('#clean-status').textContent='已填入 JSON 样本';
+    };
+    $('#btn-do-clean').onclick=async()=>{
+      const text=$('#clean-input').value;
+      if(!text){toast('请输入待测试的文本内容','warning');return;}
+      $('#clean-status').textContent='正在清洗...';
+      try{
+        const res=await api.json('/api/v1/modules/clean-stream','POST',{content:text,url:'https://test.local/stream.m3u8'});
+        $('#clean-output').value=res.cleaned||'';
+        $('#clean-status').innerHTML=res.modified
+          ? `<strong style="color:#10B981">✨ 成功剥离广告数据！(内容已优化)</strong>`
+          : `<span style="color:#F59E0B">未检测到匹配的广告切片或特征</span>`;
+        toast('流清洗完成');
+      }catch(e){
+        $('#clean-status').textContent='清洗失败: ' + e.message;
+      }
+    };
+  }
+
 
   const cacheName=t=>({cache_main:'全部缓存',cache_domestic:'国内缓存',cache_foreign:'国外缓存',cache_foreign_ecs:'国外 ECS 缓存'})[t]||t;
   function requeryHtml(s,c){

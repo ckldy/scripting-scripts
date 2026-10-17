@@ -6,7 +6,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 
 | 脚本 | 版本 | 说明 | 安装链接 |
 |---|---|---|---|
-| LocalDNS（本地 DNS 服务） | 1.4.0 | 本地 DNS 与应用层流清洗系统，支持 Surge/Loon/QX 跨平台模块、FakeIP 劫持、HLS M3U8 流清洗与 JS 沙箱去广告，集成人文羊皮纸与流光毛玻璃双皮肤 Web 控制台及 DoH 服务（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
+| LocalDNS（本地 DNS 服务） | 1.4.1 | 本地 DNS 与应用层流清洗系统，支持在“规则管理”导入与管理 Surge/Loon/QX 跨平台模块、在“DNS 解析路径”支持全分流逻辑动态交互推演、FakeIP 劫持、HLS M3U8 流清洗与 JS 沙箱去广告，集成人文羊皮纸与流光毛玻璃双皮肤 Web 控制台及 DoH 服务（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
 | 台风路径 | 2.3.1 | 实时台风路径、多机构预报与气象图层；主程序刷新后会同步重载用户小组件，大号组件地图缓存批处理仅重载一次 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F台风路径.zip%22%5D) |
 | 黃豆短劇 | 1.2.0 | 浏览、搜索与收藏黃豆短劇内容，支持播放历史、剧集播放、上下滑切集与进度条 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D) |
 | NetRadio（网络收音机） | 1.0.1 | 全球 1000+ 公开网络电台（按 36 个国家/地区归类），黑胶唱机舞台、电平示波器、主题调色板与 iOS 原生后台/锁屏播控（基于 net-redio 移植，作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D) |
@@ -21,8 +21,10 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 ## 🌟 脚本功能详解与直链
 
 ### 🛡️ LocalDNS (本地 DNS 服务与流清洗管理系统)
-- **版本**：`1.4.0` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
+- **版本**：`1.4.1` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
 - **特性**：
+  - **规则管理跨平台模块导入入口**：在 Web 控制台“规则管理”新增「模块管理 (Surge / Loon / QX)」专区，支持一键填入常用社区预设（YouTube 纯净流净化、B站去广告、Twitch SSAI 清洗、爱奇艺去广告等）、输入远程订阅 URL 或直接粘贴规则配置，支持查看规则条目详情与在线流清洗测试器；
+  - **DNS 解析路径全分流动态交互视图**：在“DNS 解析路径”拓扑增加动态交互工具栏，支持「全部全景/国内直连/国外无污染/视频流清洗与FakeIP/广告与安全拦截」5 种分流模式高亮切换；支持输入域名或点击快捷药丸（YouTube 视频切片/哔哩哔哩直连/百度移动广告/GitHub 国际服务/本地重定向）动态推演全链路解析路径与决策卡片，粒子引擎自动沿决策路径流动巡礼；
   - **跨平台模块引擎 (Surge / Loon / Quantumult X)**：原生统一解析器 (`ModuleParser`)，直接加载 `.sgmodule`、`.plugin` 与 QX 重写规则，支持通配主机名、静态 Reject (204/200/img/dict)、302 重定向与脚本绑定；
   - **FakeIP 虚拟地址池 (RFC 2544 198.18.0.0/15)**：命中的 MITM 视频域名自动由 DNS 路由器分配 FakeIP，并将流量引导至本地处理管线，支持高频双向毫秒级反查；
   - **HLS M3U8 清单清洗与 JSON 广告递归剪枝**：流式剥离 Twitch/Kick/SSAI 中的 `#EXT-X-DATERANGE` 广告段、预取切片与 ad_segment 分片；递归剪除 YouTube 播放器 `adPlacements`、`playerAds`、`adSlots` 与追踪 URL；

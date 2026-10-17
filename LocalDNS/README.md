@@ -1,8 +1,8 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.4.0 (Build 20261018)`  
+> **当前版本**：`v1.4.1 (Build 20261018)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，集成跨平台模块引擎与流清洗架构）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，集成规则管理模块导入入口与 DNS 解析路径全分流动态交互视图）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地 DNS 与应用层流清洗服务系统。
 
@@ -30,6 +30,19 @@
 - **多维度分流路由器 (`DiversionEngine`)**：涵盖名单管理（白名单/黑名单/灰名单/强制 RealIP/重定向 Rewrite/MITM 劫持）与在线分流（自定义 CN/Non-CN、Geosite CN/Non-CN），支持同组来源合并去重。
 
 ### 2. 跨平台模块引擎与应用层流清洗 (Surge / Loon / Quantumult X)
+- **规则管理模块导入入口 (`renderModules`)**：
+  - 在 Web 控制台“规则管理”新增 **「模块管理 (Surge / Loon / QX)」** 选项卡；
+  - 提供模块总览指标（激活模块、MITM 通配主机数、重写规则/脚本数、流清洗次数、FakeIP 占用）；
+  - 支持一键快捷载入社区成熟去广告预设（YouTube 纯净流净化、Bilibili 全面去广告、Twitch SSAI 清洗、爱奇艺去广告等）；
+  - 支持在线订阅 URL 输入与任意配置内容即时粘贴导入；
+  - 提供模块规则详情深度查看弹窗（逐条查看已解析的 MITM 主机、URL 重写映射与 JS 沙箱脚本定义）；
+  - 内置 **「视频流清洗实时测试器」**（一键填入 M3U8/JSON 测试样本，在线推演广告切片剥离效果）。
+- **DNS 解析路径全分流动态交互视图 (`topology-dynamic-flow`)**：
+  - 在 Web 控制台“运行概览”与“DNS 解析路径”拓扑增加全新动态工具栏；
+  - **分流逻辑模式切换**：支持「全部全景」、「国内直连」、「国外无污染」、「视频流清洗/FakeIP」、「广告与安全拦截」5 大模式即时高亮与暗化过滤；
+  - **域名动态推演器 (`runTopoTracer`)**：输入任意域名（或点击快捷药丸，如 YouTube 切片、哔哩哔哩、百度广告、GitHub 等），实时模拟并高亮全链路解析路径（客户端 ➔ 核心缓存 ➔ 匹配分流规则 ➔ 上游策略组 ➔ 最终节点/响应）；
+  - **解析决策卡片**：展示域名命中的具体分流级别、执行动作（FakeIP 分配/本地黑洞阻断/国内竞速/海外无污染）以及返回的最优 IP 或虚拟地址；
+  - **路径高亮流光联动**：拓扑粒子引擎自动沿着匹配的分流路径连续流动巡礼，清晰呈现分流决策全貌。
 - **统一模块规范解析器 (`ModuleParser`)**：
   - 自动识别并解析 **Surge 模块 (`.sgmodule`)**、**Loon 插件 (`.plugin`)** 与 **Quantumult X 重写 (`.conf`)**；
   - 提取 `[MITM] hostname`（支持通配符与负向排除名单，如 `-excluded.domain.com`）；

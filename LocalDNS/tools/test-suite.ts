@@ -60,6 +60,22 @@ async function runTests() {
   assert(appJsStr.includes('safe(()=>api.stats()'), 'app.js includes safe() wrapper for api.stats');
   assert(appJsStr.includes('国外默认') && appJsStr.includes('国内直连'), 'app.js includes Chinese legend labels');
 
+  // 检查规则管理模块导入与动态视图
+  assert(appJsStr.includes('data-rule-tab="modules"'), 'app.js includes modules tab button in rules management');
+  assert(appJsStr.includes('renderModules'), 'app.js implements renderModules component');
+  assert(appJsStr.includes('openModuleModal'), 'app.js implements openModuleModal import modal');
+  assert(appJsStr.includes('topo-dynamic-toolbar'), 'app.js includes topo-dynamic-toolbar HTML');
+  assert(appJsStr.includes('runTopoTracer'), 'app.js implements runTopoTracer dynamic path reasoning');
+
+  // 检查 app.css 中动态视图工具栏样式
+  assert(cssStr.includes('.topo-dynamic-toolbar'), 'app.css includes .topo-dynamic-toolbar styles');
+  assert(cssStr.includes('.topo-pill-btn'), 'app.css includes .topo-pill-btn styles');
+
+  // 检查 topology-flow.js 动态分流引擎
+  const topoFlowJsStr = await FileManager.readAsString(Path.join(webDir, 'assets/js/topology-flow.js'));
+  assert(topoFlowJsStr.includes('setCustomPath'), 'topology-flow.js supports setCustomPath method');
+  assert(topoFlowJsStr.includes('setCategory'), 'topology-flow.js supports setCategory method');
+
   // 2. 服务端与 API 契约测试
   console.log('\n--- Test 2: Server Startup & API Contract Verification ---');
   const server = LocalDnsServer.get();
@@ -107,6 +123,13 @@ async function runTests() {
     // 2.6 验证根路径重定向到 /ui/
     const resRoot = await fetch(`${baseUrl}/`);
     assert(resRoot.status === 200 && (resRoot.url.includes('/ui') || resRoot.redirected), `Root / properly resolves/redirects to /ui/ (status: ${resRoot.status}, url: ${resRoot.url})`);
+    // 2.7 验证 /api/v1/modules 模块 API
+    const resModules = await fetch(`${baseUrl}/api/v1/modules`);
+    assert(resModules.status === 200, `/api/v1/modules returns 200 OK`);
+    const modData = await resModules.json();
+    assert(modData.success === true, 'modules api returns success true');
+    assert(Array.isArray(modData.modules), 'modules list is an array');
+    assert(modData.stats && typeof modData.stats.totalModules === 'number', 'modules stats present');
   } catch (err: any) {
     console.error('API Test Error:', err);
     failed++;
