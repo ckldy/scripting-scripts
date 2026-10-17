@@ -441,7 +441,7 @@ export class LocalDnsServer {
 
       return jsonResponse({
         status: 'online',
-        version: 'FJG20',
+        version: 'FJG4Z',
         upstream_stats: upstreamStats,
         rules: {
           geosite_cn: fileCounts.geosite_cn || 0,

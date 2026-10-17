@@ -1,10 +1,10 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.2.0 (Build 20261016)`  
+> **当前版本**：`v1.3.0 (Build 20261018)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`）
 
-将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（原 Rust DNS 核心 + 玻璃质感 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地 DNS 服务与管理系统。
+将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地 DNS 服务与管理系统。
 
 ---
 
@@ -13,8 +13,9 @@
 | 开发者 | 负责内容 |
 |---|---|
 | **R 大（折腾日记交流群）** | **原版 DNS 核心架构，主要使用 Rust 编写** |
-| **[yyhoworks](https://github.com/yyhoworks)** | **原版毛玻璃 UI 设计与前端交互系统** |
-| **vcncv** | **面向 iOS Scripting 环境的纯 TypeScript 核心重构、双通道 DoH 服务端、原生仪表盘开发与网络死锁防范** |
+| **[yyhoworks](https://github.com/yyhoworks)** | **Web UI 设计、双皮肤体系（人文羊皮纸与流光毛玻璃）与前端交互系统** |
+| **[@clone-fan](https://github.com/clone-fan)** | **通过 PR #1 贡献玻璃细节、交互动效、字体上传与数字动画修复** |
+| **vcncv** | **面向 iOS Scripting 环境的纯 TypeScript 核心重构、双通道 DoH 服务端、原生仪表盘开发、实时脉冲监控与网络防死锁** |
 
 ---
 
@@ -43,10 +44,14 @@
   - 核心指标实时卡片（累计查询、拦截请求、缓存命中率、平均延迟、活跃设备、追踪域名）
   - 5 大核心策略快捷开关（广告拦截、核心缓存、过期缓存、IPv6 屏蔽、请求屏蔽）
   - 本地 DNS 实时解析测试工具（实时查看解析耗时、命中策略、所属上游组与返回 IP）
-- **内嵌全功能玻璃质感 Web 控制台**：
-  - 一键在原生 `WebViewController` 中弹出完整的玻璃质感控制台
-  - 包含 5 组预设光影（深空暖金、极光深海、暗夜翡翠、日落琥珀、纯净暗黑）与自定义壁纸/玻璃模糊度调整
-  - 包含本地字体（Noto Serif SC 宋体风格标题与 Instrument Serif 衬线数字）与 Chart.js 实时 QPS 趋势图表
+- **内嵌全功能双皮肤 Web 控制台 (UI 2026.10.17.2)**：
+  - 一键在原生 `WebViewController` 中弹出完整的 Web 控制台，支持**双皮肤无刷新即时切换**：
+    - **「人文羊皮纸 · Claude」**：温润象牙色底纸、深炭墨色、赤陶红与鼠尾草绿，自带宣纸纤维肌理层，提供 5 款预设色调与纸张肌理/温润层次调节；
+    - **「流光毛玻璃 · 原版」**：深空暖金、极光深海等 5 组光影预设、本地壁纸 IndexedDB 存储与模糊度/遮盖度/暗化遮罩调节；
+  - 顶栏快捷「流光」开关直接控制拓扑粒子动画，支持偏好记忆；
+  - 包含本地字体（Noto Serif SC、Instrument Serif、IBM Plex Mono/Sans）与浏览器本地字体上传；
+  - 强化两级实时脉冲监控（秒级运行时长精确跳动，2秒轻量更新 CPU 与真实 RSS 内存）；
+  - 图例排版防溢出加固与 6:6 宽幅黄金比例布局。
 
 ---
 

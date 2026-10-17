@@ -2,9 +2,9 @@
   "name": "LocalDNS",
   "icon": "shield.lefthalf.filled",
   "color": "#6366f1",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "author": "vcncv",
-  "description": "本地 DNS 服务管理系统，带全功能玻璃质感 Web 控制台与 DoH 服务。致敬上游开源仓库 yyhoworks/LocalDNS 与 R 大，由 vcncv 移植为 Scripting 原生双通道架构。",
+  "description": "本地 DNS 服务管理系统，集成人文羊皮纸与流光毛玻璃双皮肤 Web 控制台及 DoH 服务。致敬上游开源仓库 yyhoworks/LocalDNS 与 R 大，由 vcncv 移植为 Scripting 原生双通道架构，对齐 FJG4Z 内核与 UI 2026.10.17.2。",
   "remoteResource": {
     "url": "https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/LocalDNS.zip"
   }

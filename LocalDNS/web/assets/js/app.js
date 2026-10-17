@@ -5,6 +5,7 @@
     apiBase: '', title: 'LocalDNS 控制台', refreshInterval: 30,
     requestTimeout: 10000, demoOnApiFailure: false
   }, window.LOCALDNS_UI_CONFIG || {});
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
   const API_BASE = String(CONFIG.apiBase || '').replace(/\/$/, '');
   const $ = (s, root = document) => root.querySelector(s);
   const $$ = (s, root = document) => [...root.querySelectorAll(s)];
@@ -81,7 +82,7 @@
   const startTimeMarkup = seconds => { const n=+seconds; if(!Number.isFinite(n)||n<=0)return '<span class="overview-start-datetime">—</span>'; const d=new Date(n*1000); if(Number.isNaN(d.getTime()))return '<span class="overview-start-datetime">—</span>'; const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0'),hh=String(d.getHours()).padStart(2,'0'),mm=String(d.getMinutes()).padStart(2,'0'); return `<span class="overview-start-datetime">${y}-${m}-${day} ${hh}:${mm}</span>`; };
   const fmtDate = v => { if(!v)return '—'; const d=new Date(v); if(Number.isNaN(d.getTime()))return String(v); if(d.getUTCFullYear()<=1)return '—'; return d.toLocaleString('zh-CN',{hour12:false}); };
   const duration = seconds => { let s=Math.max(0,Math.floor(+seconds||0)); const d=Math.floor(s/86400);s%=86400;const h=Math.floor(s/3600);s%=3600;const m=Math.floor(s/60);return `${d?d+'天 ':''}${h? h+'小时 ':''}${m}分钟`; };
-  const overviewUptimeMarkup = seconds => {
+    const overviewUptimeMarkup = seconds => {
     const s = Math.max(0, Math.floor(+seconds || 0));
     const d = Math.floor(s / 86400);
     const h = Math.floor((s % 86400) / 3600);
@@ -139,13 +140,70 @@
 
 
   function toast(message, type='success', detail='') {
-    const el=document.createElement('div'); el.className=`toast ${type}`;
+    const el=document.createElement('div'); el.className=`toast ${type} toast-enter`;
     el.innerHTML=`<span>${icon(type==='error'?'warning':type==='success'?'check':'info')}</span><div><strong>${esc(message)}</strong>${detail?`<div class="toast-info">${esc(detail)}</div>`:''}</div>`;
-    $('#toast-stack').appendChild(el); setTimeout(()=>el.remove(),4200);
+    $('#toast-stack').appendChild(el);
+    void el.offsetWidth; el.classList.remove('toast-enter');
+    setTimeout(()=>{el.classList.add('toast-leave');setTimeout(()=>el.remove(),280)},3920);
+  }
+  // ── 动效工具：视图错峰入场 / 数字滚动 / 分段滑块 / 复制反馈 ──
+  function playViewEnter(){
+    if(reduceMotion.matches)return;
+    page.classList.remove('view-enter');
+    void page.offsetWidth;
+    page.classList.add('view-enter');
+    setTimeout(()=>page.classList.remove('view-enter'),1050);
+  }
+  function animateCountUps(root){
+    // 先让 displayNumerals 完成「数字 / 单位」分层，再只滚动数字本体：
+    // 保持结构不被覆写，避免动画后数字与单位字号失衡。
+    window.LocalDNSInterface?.displayNumerals?.();
+    if(reduceMotion.matches)return;
+    root.querySelectorAll('.sk-val').forEach(el=>{
+      const numEl=el.querySelector('.display-number');
+      if(!numEl)return;
+      const numText=numEl.textContent.trim();
+      const target=parseFloat(numText.replace(/,/g,''));
+      if(!isFinite(target)||target<=0)return;
+      const decimals=(numText.split('.')[1]||'').length, grouped=numText.includes(',');
+      const fmtNum=v=>{
+        const num=decimals?Number(v.toFixed(decimals)):Math.round(v);
+        return grouped?num.toLocaleString('en-US',{minimumFractionDigits:decimals,maximumFractionDigits:decimals}):num.toFixed(decimals);
+      };
+      const t0=performance.now(),dur=560;
+      const step=now=>{
+        if(!numEl.isConnected)return;
+        if(reduceMotion.matches){numEl.textContent=numText;return;}
+        const k=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-k,3);
+        numEl.textContent=fmtNum(target*e);
+        if(k<1)requestAnimationFrame(step);
+        else{numEl.textContent=numText;el.classList.add('is-bumping');setTimeout(()=>el.classList.remove('is-bumping'),520)}
+      };
+      numEl.textContent=fmtNum(0);
+      requestAnimationFrame(step);
+    });
+  }
+  function syncSegThumb(group){
+    const active=group.querySelector('.seg-item.active');
+    let thumb=group.querySelector(':scope > .seg-thumb');
+    if(!active){if(thumb)thumb.remove();return}
+    if(!thumb){thumb=document.createElement('span');thumb.className='seg-thumb';thumb.setAttribute('aria-hidden','true');group.prepend(thumb)}
+    thumb.style.width=active.offsetWidth+'px';
+    thumb.style.height=active.offsetHeight+'px';
+    thumb.style.transform=`translate(${active.offsetLeft}px, ${active.offsetTop}px)`;
+  }
+  function syncAllSegThumbs(){document.querySelectorAll('.seg-group').forEach(syncSegThumb)}
+  async function copyToClipboard(text){
+    try{ if(navigator.clipboard?.writeText){ await navigator.clipboard.writeText(text); return true; } }catch{}
+    // 无剪贴板权限（或非安全上下文）时退回 execCommand
+    try{
+      const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+      document.body.appendChild(ta);ta.select();const ok=document.execCommand('copy');ta.remove();return ok;
+    }catch{return false}
   }
   function setApiStatus(ok, text) {
     const box=$('#sidebar-status'), dot=$('.status-dot',box), strong=$('strong',box);
-    dot.className=`status-dot ${ok?'online':'offline'}`; strong.textContent=ok?'LocalDNS 运行正常':'LocalDNS 连接异常';
+      dot.className=`status-dot ${ok?'online':'offline'}`; strong.textContent=ok?'LocalDNS 运行正常':'LocalDNS 连接异常';
     $('#api-endpoint-label').textContent=text || (API_BASE || location.host);
     window.LocalDNSInterface?.connection(ok, text);
   }
@@ -303,6 +361,7 @@
 
     // 主题对应的 LocalDNS 品牌图形。
     window.LocalDNSInterface?.updateBrand();
+    window.LocalDNSTypography?.setup();
 
     // 2. 背景与毛玻璃调校器
     const wpLayer = $('#wallpaper-layer');
@@ -351,17 +410,22 @@
       }
     }
 
-    // 3. 粒子开关与全局搜索
-    state.particles = storage.get('localdns_particles') !== 'false';
+    // 3. 保留既有粒子偏好；系统减少动画设置始终优先
+    state.particles = (storage.get('localdns_particles') ?? storage.get('localdns_particles_v2')) !== 'false';
     const partBtn = $('#btn-toggle-particles');
     if (partBtn) {
       partBtn.classList.toggle('active', state.particles);
+      partBtn.setAttribute('aria-pressed', String(state.particles));
       partBtn.onclick = () => {
         state.particles = !state.particles;
         storage.set('localdns_particles', String(state.particles));
         partBtn.classList.toggle('active', state.particles);
+        partBtn.setAttribute('aria-pressed', String(state.particles));
         const wrap = $('#topo-stage-wrap');
-        if (wrap) wrap.classList.toggle('no-particles', !state.particles);
+        if (wrap) {
+          wrap.classList.toggle('no-particles', !state.particles);
+          window.LocalDNSTopologyFlow?.sync();
+        }
       };
     }
 
@@ -384,16 +448,66 @@
     document.addEventListener('click',e=>{const b=e.target.closest('[data-route]');if(!b)return;navigate(b.dataset.route)});
     $('#refresh-button').onclick=()=>renderRoute(true);
     $('#restart-button').onclick=restartService;
-    $('#theme-toggle').onclick=()=>{
-      const cur=document.documentElement.dataset.theme;
-      const next=cur==='light-glass'?'cosmos-glass':'light-glass';
-      document.documentElement.dataset.theme=next;
-      storage.set('localdnsTheme',next);
-      renderRoute(true,true);
-    };
-    const savedTheme=storage.get('localdnsTheme');
-    document.documentElement.dataset.theme=(savedTheme==='light-glass')?'light-glass':'cosmos-glass';
-    $('#drawer-close').onclick=closeDrawer; $('#drawer-backdrop').onclick=closeDrawer; $('#modal-close').onclick=modalClose; $('#modal').addEventListener('close',()=>{closeSlowTypePopover();$('#modal').classList.remove('overview-detail-modal')});
+    if (!window.LocalDNSSkin?.toggleTheme) {
+      $('#theme-toggle').onclick=()=>{
+        const cur=document.documentElement.dataset.theme;
+        const next=cur==='light-glass'?'cosmos-glass':'light-glass';
+        document.documentElement.dataset.theme=next;
+        storage.set('localdnsTheme',next);
+        window.LocalDNSInterface?.updateBrand?.();
+      };
+    }
+    window.addEventListener('localdns:skinchange',()=>renderRoute(true,true));
+    $('#drawer-close').onclick=closeDrawer; $('#drawer-backdrop').onclick=closeDrawer; $('#modal-close').onclick=modalClose;
+    $('#modal').addEventListener('close',()=>{closeSlowTypePopover();$('#modal').classList.remove('overview-detail-modal')});
+    // 现代弹窗交互：点击遮罩空白关闭（必须在遮罩上按下再抬起，避免框内拖选误触）
+    {
+      const modal=$('#modal');let backdropPress=false;
+      modal.addEventListener('pointerdown',e=>{backdropPress=e.target===modal});
+      modal.addEventListener('click',e=>{if(backdropPress&&e.target===modal)modalClose();backdropPress=false});
+      // ESC：统一走 modalClose（含详情样式的清理）；浮层打开时先让浮层自己处理
+      modal.addEventListener('cancel',e=>{e.preventDefault();if(!$('#slow-type-popover')&&!$('#upstream-error-popover'))modalClose()});
+    }
+    // ESC 关侧板；Ctrl/⌘+K 或 / 聚焦全局搜索
+    // 滚动条宽度补偿：弹窗/侧板打开时 html 会 overflow:hidden，用 --sbw 顶住内容避免横跳
+    {
+      const updateSbw=()=>{
+        if(document.querySelector('dialog[open]')||document.querySelector('#drawer.open'))return;
+        document.documentElement.style.setProperty('--sbw',Math.max(0,window.innerWidth-document.documentElement.clientWidth)+'px');
+      };
+      updateSbw();window.addEventListener('resize',updateSbw);
+    }
+    document.addEventListener('keydown',e=>{
+      if(e.key==='Escape'&&$('#drawer')&&$('#drawer').classList.contains('open')){closeDrawer();return}
+      const ae=document.activeElement;
+      const typing=!!ae&&(/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)||ae.isContentEditable);
+      if((!typing&&e.key==='/')||((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k')){
+        const s=$('#global-search-input');
+        if(s){e.preventDefault();s.focus();s.select()}
+      }
+    });
+    {
+      const s=$('#global-search-input');
+      if(s)s.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();if(s.value)s.value='';else s.blur()}});
+    }
+    document.addEventListener('keydown',e=>{
+      if((e.key==='Enter'||e.key===' ')&&e.target.matches('[data-copy]')){e.preventDefault();e.target.click();}
+    });
+    // 动效与微交互：点击后同步分段控件滑块；点击带 data-copy 的内容复制并给行内反馈
+    document.addEventListener('click',e=>{
+      requestAnimationFrame(syncAllSegThumbs);
+      const node=e.target.closest('[data-copy]');
+      if(!node)return;
+      const text=node.dataset.copy||node.textContent.trim();
+      copyToClipboard(text).then(ok=>{
+        if(!ok){toast('复制失败','error');return}
+        node.classList.add('is-copied');
+        setTimeout(()=>node.classList.remove('is-copied'),900);
+        toast('已复制','success',text);
+      });
+    });
+    syncAllSegThumbs();
+    window.addEventListener('resize',()=>requestAnimationFrame(syncAllSegThumbs));
     window.addEventListener('hashchange',()=>navigate((location.hash.replace(/^#\/?/,'')||'overview'),false));
     window.addEventListener('resize',()=>{if(state.route==='rules')requestAnimationFrame(fitRuleLayoutHeight)});
     window.addEventListener('unhandledrejection',e=>{const msg=e?.reason?.message||String(e?.reason||'未知错误');toast('操作失败','error',msg);e.preventDefault()});
@@ -448,6 +562,7 @@
   async function renderRoute(force=false,silent=false){
     window.LocalDNSInterface?.rememberDraft();
     cleanupRouteUi();
+    window.LocalDNSTopologyFlow?.stop();
     closeUpstreamErrorPopover();
     const seq=(state.renderSeq||0)+1;state.renderSeq=seq;
     if(state.routeController)state.routeController.abort();
@@ -464,6 +579,8 @@
       await fn(force);
       if(seq!==state.renderSeq)return;
       window.LocalDNSInterface?.apply();
+      if(!silent){playViewEnter();animateCountUps(page)}
+      syncAllSegThumbs();
       state.silent=false;
       viewRestore(snap);
       setApiStatus(true);
@@ -655,91 +772,72 @@
     const wrap = document.getElementById('topo-stage-wrap');
     const svg = document.getElementById('topo-svg');
     if (!wrap || !svg) return;
+    window.LocalDNSTopologyFlow?.stop();
 
     const wrapRect = wrap.getBoundingClientRect();
     if (!wrapRect.width || !wrapRect.height) return;
     svg.setAttribute('viewBox', `0 0 ${wrapRect.width} ${wrapRect.height}`);
 
-    let pathsHtml = '';
-    let dotsHtml = '';
+    let pathsHtml = '', dotsHtml = '';
     const dotSet = new Set();
-
     const addDot = (x, y, color) => {
       const key = `${Math.round(x)},${Math.round(y)}`;
       if (dotSet.has(key)) return;
       dotSet.add(key);
-      dotsHtml += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.8" fill="${color}" />`;
+      dotsHtml += `<circle class="topo-dot-halo" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${color}" /><circle class="topo-dot" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.8" fill="${color}" />`;
     };
 
-    edges.forEach(([fromId, toId, color], i) => {
-      const fromEl = wrap.querySelector(`[data-node-id="${fromId}"]`);
-      const toEl = wrap.querySelector(`[data-node-id="${toId}"]`);
+    // Keep the release's center-to-center geometry; the glow is a separate visual layer.
+    edges.forEach((edge, i) => {
+      const fromEl = wrap.querySelector(`[data-node-id="${edge.from}"]`);
+      const toEl = wrap.querySelector(`[data-node-id="${edge.to}"]`);
       if (!fromEl || !toEl) return;
-
-      const r1 = fromEl.getBoundingClientRect();
-      const r2 = toEl.getBoundingClientRect();
-
-      const x1 = r1.right - wrapRect.left;
-      const y1 = r1.top + r1.height / 2 - wrapRect.top;
-      const x2 = r2.left - wrapRect.left;
-      const y2 = r2.top + r2.height / 2 - wrapRect.top;
-
+      const r1 = fromEl.getBoundingClientRect(), r2 = toEl.getBoundingClientRect();
+      const x1 = r1.right - wrapRect.left, y1 = r1.top + r1.height / 2 - wrapRect.top;
+      const x2 = r2.left - wrapRect.left, y2 = r2.top + r2.height / 2 - wrapRect.top;
       const dx = (x2 - x1) * 0.54;
       const d = `M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${(x1 + dx).toFixed(1)} ${y1.toFixed(1)}, ${(x2 - dx).toFixed(1)} ${y2.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}`;
-
-      pathsHtml += `<path class="topo-edge" data-edge-idx="${i}" d="${d}" stroke="${color}" />`;
-      pathsHtml += `<path class="topo-particle" data-part-idx="${i}" d="${d}" stroke="${color}" />`;
-
-      addDot(x1, y1, color);
-      addDot(x2, y2, color);
+      if (!edge.muted) {
+        pathsHtml += `<path class="topo-halo" data-edge-idx="${i}" d="${d}" stroke="${edge.color}" /><path class="topo-glow" data-edge-idx="${i}" d="${d}" stroke="${edge.color}" />`;
+        pathsHtml += `<path class="topo-particle" data-part-idx="${i}" d="${d}" stroke="${edge.color}" />`;
+      }
+      pathsHtml += `<path class="topo-edge ${edge.muted ? 'is-muted' : ''}" data-edge-idx="${i}" d="${d}" stroke="${edge.color}" />`;
+      addDot(x1, y1, edge.color);
+      addDot(x2, y2, edge.color);
     });
-
     svg.innerHTML = pathsHtml + dotsHtml;
 
     const nodes = wrap.querySelectorAll('.t-node');
+    const applyTraceState = (startId = null) => {
+      const activeNodes = new Set(startId ? [startId] : []);
+      const activeEdges = new Set();
+      // Walk each direction independently so a selected branch doesn't light up its siblings.
+      for (const upstream of [true, false]) {
+        const queue = startId ? [startId] : [];
+        while (queue.length) {
+          const cur = queue.shift();
+          edges.forEach((edge, idx) => {
+            if ((upstream ? edge.to : edge.from) !== cur) return;
+            const next = upstream ? edge.from : edge.to;
+            activeEdges.add(idx);
+            if (!activeNodes.has(next)) { activeNodes.add(next); queue.push(next); }
+          });
+        }
+      }
+      wrap.classList.toggle('has-hover', Boolean(startId));
+      nodes.forEach(n => n.classList.toggle('is-active', activeNodes.has(n.dataset.nodeId)));
+      svg.querySelectorAll('[data-edge-idx]').forEach(el => el.classList.toggle('is-active', activeEdges.has(+el.dataset.edgeIdx)));
+      svg.querySelectorAll('[data-part-idx]').forEach(el => el.classList.toggle('is-active', activeEdges.has(+el.dataset.partIdx)));
+    };
+    const focusedId = () => wrap.contains(document.activeElement) ? document.activeElement.closest('.t-node')?.dataset.nodeId : null;
     nodes.forEach(node => {
-      node.onmouseenter = () => {
-        const startId = node.dataset.nodeId;
-        const activeNodes = new Set([startId]);
-        const activeEdges = new Set();
-
-        const qUp = [startId];
-        while (qUp.length) {
-          const cur = qUp.shift();
-          edges.forEach(([u, v], idx) => {
-            if (v === cur) {
-              activeEdges.add(idx);
-              if (!activeNodes.has(u)) { activeNodes.add(u); qUp.push(u); }
-            }
-          });
-        }
-        const qDown = [startId];
-        while (qDown.length) {
-          const cur = qDown.shift();
-          edges.forEach(([u, v], idx) => {
-            if (u === cur) {
-              activeEdges.add(idx);
-              if (!activeNodes.has(v)) { activeNodes.add(v); qDown.push(v); }
-            }
-          });
-        }
-
-        wrap.classList.add('has-hover');
-        nodes.forEach(n => n.classList.toggle('is-active', activeNodes.has(n.dataset.nodeId)));
-        svg.querySelectorAll('.topo-edge').forEach(el => {
-          el.classList.toggle('is-active', activeEdges.has(+el.dataset.edgeIdx));
-        });
-        svg.querySelectorAll('.topo-particle').forEach(el => {
-          el.classList.toggle('is-active', activeEdges.has(+el.dataset.partIdx));
-        });
-      };
-
-      node.onmouseleave = () => {
-        wrap.classList.remove('has-hover');
-        nodes.forEach(n => n.classList.remove('is-active'));
-        svg.querySelectorAll('.is-active').forEach(el => el.classList.remove('is-active'));
-      };
+      node.onmouseenter = () => applyTraceState(node.dataset.nodeId);
+      node.onmouseleave = () => applyTraceState(focusedId());
+      node.onfocus = () => applyTraceState(node.dataset.nodeId);
+      node.onblur = event => applyTraceState(event.relatedTarget?.closest('.t-node')?.dataset.nodeId || wrap.querySelector('.t-node:hover')?.dataset.nodeId);
     });
+    applyTraceState(focusedId() || wrap.querySelector('.t-node:hover')?.dataset.nodeId);
+    window.LocalDNSTopologyFlow?.start(wrap, svg, edges);
   }
 
   async function renderOverview(){
@@ -760,7 +858,9 @@
     const enabledCount = Object.values(sw).filter(v => v === 'A').length;
 
     const metrics = parseProm(metricsRaw), sys = parseSystem(metrics), caches = parseCaches(metrics);
-    if (sys.version && $('#brand-version-tag')) $('#brand-version-tag').textContent = sys.version;
+    // 品牌区版本标签按外观设置显示（hidden/custom 时不覆盖用户选择）
+    if (sys.version && $('#brand-version-tag')) $('#brand-version-tag').dataset.backendVersion = sys.version;
+    if (sys.version && $('#brand-version-tag') && (document.documentElement.dataset.brandVerMode || 'version') === 'version') $('#brand-version-tag').textContent = sys.version;
 
     // 更新右下角实时状态胶囊
     if ($('#float-stat-top')) $('#float-stat-top').textContent = `↑ 累计 ${compactNum(stats.total_queries)} 次`;
@@ -798,9 +898,12 @@
 
     // === 构造五阶段全链路拓扑真实数据 ===
     const totalQ = Math.max(1, +stats.total_queries || 0);
-    // 01 客户端来源（5 节点：真实客户端排名前 4 + 其余客户端汇总/补位）
+    // 01 客户端来源（5 节点：真实客户端排名前 4 + 其余客户端汇总/去重补位）
     const top4Clients = (clients || []).slice(0, 4);
     const restClients = (clients || []).slice(4);
+    const usedClientIps = new Set(top4Clients.map(c => c.key));
+    const unusedAliases = Object.entries(state.aliases || {}).filter(([ip]) => !usedClientIps.has(ip));
+    let unusedAliasIdx = 0;
     const topoClients = [];
     for (let i = 0; i < 4; i++) {
       const c = top4Clients[i];
@@ -809,6 +912,7 @@
         topoClients.push({
           id: `c${i+1}`,
           ip: c.key,
+          muted: !(+c.count > 0),
           name: state.aliases[c.key] || c.key,
           sub: `${c.key} · ${compactNum(c.count)} 次`,
           val: `${sharePct}%`,
@@ -816,11 +920,12 @@
           icon: i === 3 ? 'server' : 'monitor'
         });
       } else {
-        const aliasEntries = Object.entries(state.aliases || {});
-        const fallback = aliasEntries[i] || [`终端槽位 #${i+1}`, '等待 DNS 请求接入'];
+        const unusedAlias = unusedAliases[unusedAliasIdx++];
+        const fallback = unusedAlias || [`终端槽位 #${i+1}`, '等待 DNS 请求接入'];
         topoClients.push({
           id: `c${i+1}`,
-          ip: '',
+          ip: unusedAlias?.[0] || '',
+          muted: true,
           name: fallback[1] || fallback[0],
           sub: `${fallback[0]} · 0 次`,
           val: '0%',
@@ -832,6 +937,7 @@
     const restSum = restClients.reduce((s, x) => s + (+x.count || 0), 0);
     topoClients.push({
       id: 'c5',
+      muted: restSum === 0,
       ip: '',
       name: restClients.length ? `其余 ${restClients.length} 台设备` : '局域网其余终端',
       sub: restClients.length ? `LAN 活跃终端 · ${compactNum(restSum)} 次` : 'LAN 子网监听中 (:53)',
@@ -841,15 +947,16 @@
     });
 
     // 03 分流规则集（6 节点：对应真实 /api/v1/status rules 与 stats）
+    const isClaude = document.documentElement.dataset.skin === 'claude';
     const rRules = engineStatus?.rules || {};
     const eStats = engineStatus?.stats || {};
     const topoRules = [
-      { id: 'r1', tab: 'diversion', name: 'geosite_cn', sub: `国内大陆域名直连 · ${num(rRules.geosite_cn || 0)} 条规则`, val: compactNum(eStats.domestic || 0), iconColor: '#10B981', icon: 'globe' },
-      { id: 'r2', tab: 'lists', name: 'whitelist / custom_cn', sub: `白名单与自定义国内 · ${num(rRules.force_domestic || 0)} 条规则`, val: `${num(rRules.force_domestic || 0)} 条`, iconColor: '#60A5FA', icon: 'check' },
-      { id: 'r3', tab: 'diversion', name: 'geosite_non_cn', sub: `海外无污染分流 · ${num(rRules.geosite_non_cn || 0)} 条规则`, val: compactNum((+eStats.foreign || 0) + (+eStats.foreign_ecs || 0)), iconColor: '#14B8A6', icon: 'split' },
-      { id: 'r4', tab: 'lists', name: 'force_fakeip / 灰名单', sub: `FakeIP 分流映射 · ${num(rRules.force_foreign_fakeip || 0)} 条规则`, val: compactNum(eStats.fakeip || 0), iconColor: '#F59E0B', icon: 'spark' },
-      { id: 'r5', tab: 'adguard', name: 'adguard_block', sub: `广告与追踪器拦截 · ${num(engineStatus?.adguard_rules || 0)} 条规则`, val: compactNum(adguardBlocked), iconColor: '#EF4444', icon: 'shield' },
-      { id: 'r6', tab: 'lists', name: 'block / 特殊类型清洗', sub: `黑名单与类型抑制 · ${num(rRules.block || 0)} 条规则`, val: compactNum(eStats.blocked || 0), iconColor: '#94A3B8', icon: 'sliders' }
+      { id: 'r1', tab: 'diversion', name: 'geosite_cn', sub: `国内大陆域名直连 · ${num(rRules.geosite_cn || 0)} 条规则`, val: compactNum(eStats.domestic || 0), iconColor: isClaude ? '#2D6A4F' : '#10B981', icon: 'globe' },
+      { id: 'r2', tab: 'lists', name: 'whitelist / custom_cn', sub: `白名单与自定义国内 · ${num(rRules.force_domestic || 0)} 条规则`, val: `${num(rRules.force_domestic || 0)} 条`, iconColor: isClaude ? '#C96442' : '#60A5FA', icon: 'check' },
+      { id: 'r3', tab: 'diversion', name: 'geosite_non_cn', sub: `海外无污染分流 · ${num(rRules.geosite_non_cn || 0)} 条规则`, val: compactNum((+eStats.foreign || 0) + (+eStats.foreign_ecs || 0)), iconColor: isClaude ? '#3D6B66' : '#14B8A6', icon: 'split' },
+      { id: 'r4', tab: 'lists', name: 'force_fakeip / 灰名单', sub: `FakeIP 分流映射 · ${num(rRules.force_foreign_fakeip || 0)} 条规则`, val: compactNum(eStats.fakeip || 0), iconColor: isClaude ? '#B45309' : '#F59E0B', icon: 'spark' },
+      { id: 'r5', tab: 'adguard', name: 'adguard_block', sub: `广告与追踪器拦截 · ${num(engineStatus?.adguard_rules || 0)} 条规则`, val: compactNum(adguardBlocked), iconColor: isClaude ? '#B91C1C' : '#EF4444', icon: 'shield' },
+      { id: 'r6', tab: 'lists', name: 'block / 特殊类型清洗', sub: `黑名单与类型抑制 · ${num(rRules.block || 0)} 条规则`, val: compactNum(eStats.blocked || 0), iconColor: isClaude ? '#857F74' : '#94A3B8', icon: 'sliders' }
     ];
 
     // 提取真实配置的上游列表及性能指标
@@ -867,11 +974,11 @@
 
     // 04 上游策略组（5 节点：对应真实 domestic / foreign / foreign_ecs / proxy / 拦截）
     const topoGroups = [
-      { id: 'g1', code: 'CN', codeColor: '#34D399', codeBg: 'rgba(16,185,129,0.14)', name: '国内组 (domestic)', sub: `并发竞速 · ${groupAvgMs('domestic')} · ${num(eStats.domestic || 0)} 次` },
-      { id: 'g2', code: 'GL', codeColor: '#2DD4BF', codeBg: 'rgba(20,184,166,0.14)', name: '国外组 (foreign)', sub: `无污染解析 · ${groupAvgMs('foreign')} · ${num(eStats.foreign || 0)} 次` },
-      { id: 'g3', code: 'ECS', codeColor: '#93C5FD', codeBg: 'rgba(59,130,246,0.16)', name: '国外 ECS (foreign_ecs)', sub: `EDNS 子网 · ${groupAvgMs('foreign_ecs')} · ${num(eStats.foreign_ecs || 0)} 次` },
-      { id: 'g4', code: 'PX', codeColor: '#FBBF24', codeBg: 'rgba(245,158,11,0.15)', name: '代理组 (proxy)', sub: `远端解析 · ${groupAvgMs('proxy')} · ${num(eStats.fakeip || 0)} 次` },
-      { id: 'g5', code: 'BLK', codeColor: '#F87171', codeBg: 'rgba(239,68,68,0.15)', name: '本地拦截黑洞', sub: `0.0.0.0 / NXDOMAIN · ${num(eStats.blocked || 0)} 拦截` }
+      { id: 'g1', code: 'CN', codeColor: isClaude ? '#2D6A4F' : '#34D399', codeBg: isClaude ? 'rgba(45,106,79,0.12)' : 'rgba(16,185,129,0.14)', name: '国内组 (domestic)', sub: `并发竞速 · ${groupAvgMs('domestic')} · ${num(eStats.domestic || 0)} 次` },
+      { id: 'g2', code: 'GL', codeColor: isClaude ? '#3D6B66' : '#2DD4BF', codeBg: isClaude ? 'rgba(61,107,102,0.12)' : 'rgba(20,184,166,0.14)', name: '国外组 (foreign)', sub: `无污染解析 · ${groupAvgMs('foreign')} · ${num(eStats.foreign || 0)} 次` },
+      { id: 'g3', code: 'ECS', codeColor: isClaude ? '#C96442' : '#93C5FD', codeBg: isClaude ? 'rgba(201,100,66,0.12)' : 'rgba(59,130,246,0.16)', name: '国外 ECS (foreign_ecs)', sub: `EDNS 子网 · ${groupAvgMs('foreign_ecs')} · ${num(eStats.foreign_ecs || 0)} 次` },
+      { id: 'g4', code: 'PX', codeColor: isClaude ? '#B45309' : '#FBBF24', codeBg: isClaude ? 'rgba(180,83,9,0.12)' : 'rgba(245,158,11,0.15)', name: '代理组 (proxy)', sub: `远端解析 · ${groupAvgMs('proxy')} · ${num(eStats.fakeip || 0)} 次` },
+      { id: 'g5', code: 'BLK', codeColor: isClaude ? '#B91C1C' : '#F87171', codeBg: isClaude ? 'rgba(185,28,28,0.12)' : 'rgba(239,68,68,0.15)', name: '本地拦截黑洞', sub: `0.0.0.0 / NXDOMAIN · ${num(eStats.blocked || 0)} 拦截` }
     ];
 
     // 05 上游 DNS 节点（6 节点：5 个真实上游 DNS + 第 6 个拦截直接响应节点）
@@ -899,7 +1006,12 @@
       const { g, u, m } = item;
       const latTxt = m.latency > 0 ? `${m.latency.toFixed(1)} ms` : (u.enabled !== false ? '在线' : '未启用');
       const badgeTxt = m.q > 0 ? `${Math.round(m.adoption)}% 采纳` : (u.protocol || 'UDP').toUpperCase();
-      const colorMap = {
+      const colorMap = isClaude ? {
+        domestic: ['#2D6A4F', 'rgba(45,106,79,0.12)'],
+        foreign: ['#3D6B66', 'rgba(61,107,102,0.12)'],
+        foreign_ecs: ['#C96442', 'rgba(201,100,66,0.12)'],
+        proxy: ['#B45309', 'rgba(180,83,9,0.12)']
+      } : {
         domestic: ['#34D399', 'rgba(16,185,129,0.15)'],
         foreign: ['#2DD4BF', 'rgba(20,184,166,0.15)'],
         foreign_ecs: ['#93C5FD', 'rgba(59,130,246,0.16)'],
@@ -914,7 +1026,8 @@
         badge: badgeTxt,
         badgeColor,
         badgeBg,
-        icon: 'server'
+        icon: 'server',
+        muted: u.enabled === false
       };
     });
     topoServers.push({
@@ -923,39 +1036,48 @@
       name: '拦截直接响应',
       sub: '零上游消耗 · 立即阻断',
       badge: `${compactNum(eStats.blocked || 0)} 阻断`,
-      badgeColor: '#F87171',
-      badgeBg: 'rgba(239,68,68,0.16)',
+      badgeColor: isClaude ? '#B91C1C' : '#F87171',
+      badgeBg: isClaude ? 'rgba(185,28,28,0.12)' : 'rgba(239,68,68,0.16)',
       icon: 'shieldRed'
     });
 
+    const cPrimary = isClaude ? '#C96442' : '#3B82F6';
+    const cTeal = isClaude ? '#2D6A4F' : '#14B8A6';
+    const cAmber = isClaude ? '#B45309' : '#F59E0B';
+    const cGreen = isClaude ? '#2D6A4F' : '#10B981';
     const topoEdges = [
-      ['c1', 'e_core', '#3B82F6'],
-      ['c2', 'e_core', '#3B82F6'],
-      ['c3', 'e_core', '#3B82F6'],
-      ['c4', 'e_core', '#3B82F6'],
-      ['c5', 'e_core', '#3B82F6'],
+      ['c1', 'e_core', cPrimary],
+      ['c2', 'e_core', cPrimary],
+      ['c3', 'e_core', cPrimary],
+      ['c4', 'e_core', cPrimary],
+      ['c5', 'e_core', cPrimary],
 
-      ['e_core', 'r1', '#14B8A6'],
-      ['e_core', 'r2', '#3B82F6'],
-      ['e_core', 'r3', '#14B8A6'],
-      ['e_core', 'r4', '#F59E0B'],
-      ['e_core', 'r5', '#14B8A6'],
-      ['e_core', 'r6', '#14B8A6'],
+      ['e_core', 'r1', cTeal],
+      ['e_core', 'r2', cPrimary],
+      ['e_core', 'r3', cTeal],
+      ['e_core', 'r4', cAmber],
+      ['e_core', 'r5', cTeal],
+      ['e_core', 'r6', cTeal],
 
-      ['r1', 'g1', '#14B8A6'],
-      ['r2', 'g1', '#14B8A6'],
-      ['r3', 'g2', '#14B8A6'],
-      ['r3', 'g3', '#3B82F6'],
-      ['r4', 'g4', '#F59E0B'],
-      ['r5', 'g5', '#14B8A6'],
-      ['r6', 'g5', '#14B8A6'],
+      ['r1', 'g1', cTeal],
+      ['r2', 'g1', cTeal],
+      ['r3', 'g2', cTeal],
+      ['r3', 'g3', cPrimary],
+      ['r4', 'g4', cAmber],
+      ['r5', 'g5', cTeal],
+      ['r6', 'g5', cTeal],
 
-      ...topoServers.map(s => [s.groupNode, s.id, '#10B981'])
-    ];
+      ...topoServers.map(s => [s.groupNode, s.id, cGreen])
+    ].map(([from, to, color]) => ({
+      from, to, color,
+      muted: Boolean(topoClients.find(c => c.id === from)?.muted || topoServers.find(s => s.id === to)?.muted)
+    }));
 
     // 分流结果占比环形图数据（基于真实 domain_set 排行 ds）
     const dsTotal = Math.max(1, ds.reduce((n, x) => n + (+x.count || 0), 0));
-    const ringColors = ['#2563EB', '#10B981', '#F59E0B', '#14B8A6', '#EF4444'];
+    const ringColors = isClaude
+      ? ['#C96442', '#2D6A4F', '#B45309', '#3D6B66', '#B91C1C']
+      : ['#2563EB', '#10B981', '#F59E0B', '#14B8A6', '#EF4444'];
     let dashOffset = 25;
     const ringCircles = ds.slice(0, 4).map((x, i) => {
       const pctVal = Math.max(0, Math.min(100, (+x.count || 0) / dsTotal * 100));
@@ -1045,67 +1167,73 @@
       <!-- 第二层：6 张等宽微趋势指标卡 (2 × 6 = 12列)，100% 对应 LocalDNS 6 大真实指标 -->
       <div class="col-2">
         <div class="glass-card spark-kpi-card" data-route="logs">
-          <div class="sk-top"><span class="sk-title"><svg viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" aria-hidden="true"><path d="M12 3v14m0 0-4-4m4 4 4-4M4 21h16"/></svg>累计请求</span></div>
+          <div class="sk-top"><span class="sk-title">累计请求</span><svg viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" aria-hidden="true"><path d="M12 3v14m0 0-4-4m4 4 4-4M4 21h16"/></svg></div>
           <div class="sk-bottom">
             <div class="sk-val tabular">${num(stats.total_queries)}</div>
             <svg class="sk-chart" viewBox="0 0 100 34" fill="none" aria-hidden="true"></svg>
           </div>
+          <div class="sk-note">${cacheDisabled ? '缓存已关闭' : '缓存命中占 ' + pct(overallHitRate)}</div>
         </div>
       </div>
 
       <div class="col-2">
         <div class="glass-card spark-kpi-card" data-route="management">
-          <div class="sk-top"><span class="sk-title"><svg viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2" aria-hidden="true"><path d="M12 21V7m0 0-4 4m4-4 4 4M4 3h16"/></svg>缓存命中</span></div>
+          <div class="sk-top"><span class="sk-title">缓存命中</span><svg viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2" aria-hidden="true"><path d="M12 21V7m0 0-4 4m4-4 4 4M4 3h16"/></svg></div>
           <div class="sk-bottom">
             <div class="sk-val tabular">${cacheValue}</div>
             <svg class="sk-chart" viewBox="0 0 100 34" fill="none" aria-hidden="true"></svg>
           </div>
+          <div class="sk-note">${caches.filter(c => (+c.q || 0) > 0).length} 个活跃缓存池</div>
         </div>
       </div>
 
       <div class="col-2">
         <div class="glass-card spark-kpi-card" id="kpi-card-clients">
-          <div class="sk-top"><span class="sk-title"><svg viewBox="0 0 24 24" fill="none" stroke="#14B8A6" stroke-width="2" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>客户端数</span></div>
+          <div class="sk-top"><span class="sk-title">客户端数</span><svg viewBox="0 0 24 24" fill="none" stroke="#14B8A6" stroke-width="2" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></div>
           <div class="sk-bottom">
             <div class="sk-val tabular">${clientCount}</div>
             <svg class="sk-chart" viewBox="0 0 100 34" fill="none" aria-hidden="true"></svg>
           </div>
+          <div class="sk-note">活跃来源 IP</div>
         </div>
       </div>
 
       <div class="col-2">
         <div class="glass-card spark-kpi-card" data-route="rules">
-          <div class="sk-top"><span class="sk-title"><svg viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" aria-hidden="true"><path d="M12 3 4 7v5c0 5 3.4 9.3 8 10 4.6-.7 8-5 8-10V7l-8-4Z"/></svg>拦截请求</span></div>
+          <div class="sk-top"><span class="sk-title">拦截请求</span><svg viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" aria-hidden="true"><path d="M12 3 4 7v5c0 5 3.4 9.3 8 10 4.6-.7 8-5 8-10V7l-8-4Z"/></svg></div>
           <div class="sk-bottom">
             <div class="sk-val tabular">${fullNum(adguardBlocked)}</div>
             <svg class="sk-chart" viewBox="0 0 100 34" fill="none" aria-hidden="true"></svg>
           </div>
+          <div class="sk-note">${pct(totalQ > 0 ? (adguardBlocked / totalQ) * 100 : 0)} 的请求被拦截</div>
         </div>
       </div>
 
       <div class="col-2">
         <div class="glass-card spark-kpi-card" data-route="upstreams">
-          <div class="sk-top"><span class="sk-title"><svg viewBox="0 0 24 24" fill="none" stroke="#60A5FA" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>平均响应</span></div>
+          <div class="sk-top"><span class="sk-title">平均响应</span><svg viewBox="0 0 24 24" fill="none" stroke="#60A5FA" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div>
           <div class="sk-bottom">
             <div class="sk-val tabular" style="color:#F59E0B">${ms(stats.average_duration_ms)}</div>
             <svg class="sk-chart" viewBox="0 0 100 34" fill="none" aria-hidden="true"></svg>
           </div>
+          <div class="sk-note">当前浏览器会话采样</div>
         </div>
       </div>
 
       <div class="col-2">
         <div class="glass-card spark-kpi-card" id="kpi-card-domains">
-          <div class="sk-top"><span class="sk-title"><svg viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg>域名统计</span></div>
+          <div class="sk-top"><span class="sk-title">域名统计</span><svg viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg></div>
           <div class="sk-bottom">
             <div class="sk-val tabular">${domainCount}</div>
             <svg class="sk-chart" viewBox="0 0 100 34" fill="none" aria-hidden="true"></svg>
           </div>
+          <div class="sk-note">去重域名数</div>
         </div>
       </div>
 
-      <!-- 第三层：图1同款「实时 DNS 解析与分流全链路拓扑」 -->
+      <!-- 第三层：UI 2026.10.16.1 的五阶段 DNS 解析路径布局 -->
       <div class="col-12">
-        <section class="glass-card topology-glass-card" aria-label="实时 DNS 解析与分流全链路拓扑">
+        <section class="glass-card topology-glass-card" aria-label="实时 DNS 解析与分流全链路拓扑" title="流光仅示意拓扑路径，不代表单条 DNS 查询记录">
           <div class="topo-stage-wrap ${state.particles === false ? 'no-particles' : ''}" id="topo-stage-wrap">
             <svg class="topo-svg-overlay" id="topo-svg" aria-hidden="true"></svg>
 
@@ -1134,7 +1262,7 @@
                   <div class="t-node t-engine-card" data-node-id="e_core" data-route="management">
                     <div>
                       <div class="tec-top">
-                        <span class="tec-big tabular">${overallHitRate.toFixed(1)}%</span>
+                        <span class="tec-big tabular">${cacheDisabled ? '—' : overallHitRate.toFixed(1) + '%'}</span>
                         <span class="tec-badge">${compactNum(stats.total_queries)} 请求</span>
                       </div>
                       <div class="tec-desc">多级内存缓存命中 · ${cacheDisabled ? '核心缓存已关闭' : '4 个活跃缓存池'}</div>
@@ -1279,24 +1407,20 @@
                   default_cn: '国内直连',
                   custom_cn: '国内规则',
                   custom_non_cn: '国外规则',
-                  geosite_cn: 'Geosite CN',
-                  geosite_non_cn: 'Geosite 海外',
+                  geosite_cn: '大陆域名',
                   whitelist: '白名单',
-                  blocklist: '黑名单',
                   adguard: '广告拦截',
-                  rewrite: '重定向',
-                  force_realip: '强制 RealIP',
-                  greylist: '灰名单'
+                  hosts: 'Hosts'
                 };
-                const labelName = labelMap[rawKey] || rawKey;
+                const label = labelMap[rawKey] || rawKey;
                 return `<div class="rl-item">
-                  <div class="rl-left">
+                  <div class="rl-left" title="${esc(rawKey)}">
                     <i class="rl-dot" style="background:${ringColors[i%ringColors.length]}"></i>
-                    <span class="rl-name-text" title="${esc(rawKey)}">${esc(labelName)}</span>
+                    <span class="rl-name-text">${esc(label)}</span>
                   </div>
-                  <div class="rl-right mono">
-                    <span class="rl-count">${compactNum(x.count)}</span>
-                    <span class="rl-pct">${p}%</span>
+                  <div class="rl-right">
+                    <span class="mono rl-count">${compactNum(x.count)}</span>
+                    <span class="mono rl-pct">${p}%</span>
                   </div>
                 </div>`;
               }).join('') || `<div style="color:var(--text-3);font-size:12px">暂无分流分类统计</div>`}
@@ -1309,7 +1433,10 @@
       <div class="col-4">
         <div class="glass-card">
           <div class="gc-head">
-            <div class="gc-title">请求排行</div>
+            <div>
+              <div class="gc-title">请求排行</div>
+              <p class="gc-sub">共 ${num((rankTab === 'client' ? clients : domains).length)} 条 · 展示前 ${rankItems.length} · 占总请求 ${totalQ > 0 ? (rankItems.reduce((s, x) => s + (+x.count || 0), 0) / totalQ * 100).toFixed(1) : '0.0'}%</p>
+            </div>
             <div style="display:flex;gap:6px;align-items:center">
               <div class="seg-group" role="group" aria-label="请求排行维度">
                 <button type="button" class="seg-item ${rankTab==='client'?'active':''}" data-rank-tab="client">客户端</button>
@@ -1318,6 +1445,7 @@
               <button type="button" class="glass-btn" id="domain-detail-button">详情</button>
             </div>
           </div>
+          <div class="rank-col-hint"><span>${rankTab === 'client' ? '客户端' : '域名'}</span><span>请求数 · 占总请求</span></div>
           <div class="uniform-4rows">
             ${rankItems.length ? rankItems.map(x => {
               const label = rankTab === 'client' ? (state.aliases[x.key] ? `${x.key} (${state.aliases[x.key]})` : x.key) : x.key;
@@ -1341,6 +1469,7 @@
             <div class="gc-title">多级缓存池状态</div>
             <span class="gc-sub" style="cursor:pointer" data-route="management">缓存管理 ›</span>
           </div>
+          <div class="rank-col-hint"><span>缓存池</span><span>命中率 · 条目数</span></div>
           <div class="uniform-4rows">
             ${[
               ['全部缓存 (cache_main)', cMain],
@@ -1384,9 +1513,11 @@
       </div>
     `;
 
-    // 绘制五阶段拓扑连线与圆点
-    requestAnimationFrame(() => requestAnimationFrame(() => drawTopoCurves(topoEdges)));
-    const onResize = () => requestAnimationFrame(() => drawTopoCurves(topoEdges));
+    // 绘制发布版五阶段拓扑连线，并叠加可停止的流光示意。
+    const topologyWrap = $('#topo-stage-wrap');
+    const redraw = () => { if (topologyWrap?.isConnected && $('#topo-stage-wrap') === topologyWrap) drawTopoCurves(topoEdges); };
+    requestAnimationFrame(() => requestAnimationFrame(redraw));
+    const onResize = () => requestAnimationFrame(redraw);
     window.addEventListener('resize', onResize, { passive: true });
     trackRouteCleanup(() => window.removeEventListener('resize', onResize));
 
@@ -1546,12 +1677,11 @@
         }
       }
     }, 1000);
-
     trackRouteCleanup(() => clearInterval(pulseTimer));
   }
 
   function logBadge(set){const s=String(set||'未分类');let cls='primary';if(/黑|BAN|BLOCK|拒绝/i.test(s))cls='danger';else if(/白|直连|国内|REAL/i.test(s))cls='success';else if(/灰|代理|订阅/i.test(s))cls='pink';else if(/FAKE/i.test(s))cls='cyan';return `<span class="badge ${cls}">${esc(s)}</span>`;}
-  function logRow(x){const ans=(x.answers||[]).map(a=>a.data||a.value).filter(Boolean).join(', ')||x.response_code||'—';return `<tr data-log='${esc(JSON.stringify(x))}'><td>${fmtDate(x.query_time)}</td><td><strong>${esc(x.query_name)}</strong><div style="color:var(--muted);font-size:11px;max-width:360px;overflow:hidden;text-overflow:ellipsis">${esc(ans)}</div></td><td>${esc(x.query_type)}</td><td>${logBadge(x.domain_set)}</td><td>${ms(x.duration_ms)}</td><td>${esc(state.aliases[x.client_ip]||x.client_ip)}</td><td><span class="badge ${x.response_code==='NOERROR'?'success':'danger'}">${esc(x.response_code)}</span></td><td><button class="button small log-detail">详情</button></td></tr>`;}
+  function logRow(x){const ans=(x.answers||[]).map(a=>a.data||a.value).filter(Boolean).join(', ')||x.response_code||'—';return `<tr data-log='${esc(JSON.stringify(x))}'><td>${fmtDate(x.query_time)}</td><td class="td-domain" data-qtype="${esc(String(x.query_type||'').toUpperCase())}" data-qtype-short="${({AAAA:'6',A:'A',CNAME:'C',PTR:'P',HTTPS:'H',TXT:'T',MX:'M',NS:'N',SRV:'S'})[String(x.query_type||'').toUpperCase()]||(String(x.query_type||'')[0]||'?')}" data-blocked="${/黑|BAN|BLOCK|拒绝|拦截/i.test(String(x.domain_set||''))?1:0}"><strong class="copyable" role="button" tabindex="0" data-copy="${esc(x.query_name)}" title="点击复制域名">${esc(x.query_name)}</strong><div style="color:var(--muted);font-size:11px;max-width:360px;overflow:hidden;text-overflow:ellipsis">${esc(ans)}</div></td><td>${esc(x.query_type)}</td><td>${logBadge(x.domain_set)}</td><td>${ms(x.duration_ms)}</td><td><span class="copyable value-chip" role="button" tabindex="0" data-copy="${esc(x.client_ip)}" title="点击复制客户端 IP">${esc(state.aliases[x.client_ip]||x.client_ip)}</span></td><td><span class="badge ${x.response_code==='NOERROR'?'success':'danger'}">${esc(x.response_code)}</span></td><td><button class="icon-button row-action log-detail" type="button" aria-label="查看查询详情" title="查看详情"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.6"/></svg></button></td></tr>`;}
   async function renderLogs(){
     const p=state.logs; const data=await api.logs({page:p.page,limit:p.limit,q:p.q,exact:p.exact,query_type:p.type,domain_set:p.set,response_code:p.code,client_contains:p.client}); const rows=data.logs||[];
     const filterData=data.filters||{};
@@ -1562,10 +1692,13 @@
       <div style="display:flex;align-items:baseline;gap:12px"><h1>查询日志</h1><span class="gc-sub">共 ${num(data.pagination?.total_items||0)} 条 DNS 查询记录</span></div>
       <div style="display:flex;gap:8px"><button type="button" class="glass-btn" id="audit-control">审计控制</button><button type="button" class="glass-btn" id="alias-control">客户端别名</button></div>
     </div>
-    ${card('查询与过滤日志',`<div class="log-filter-grid"><div class="field log-filter-search"><label>全局搜索</label><div class="search-input"><span class="search-icon">${icon('search')}</span><input id="log-q" value="${esc(p.q)}" placeholder='域名、IP；使用精确匹配可查完整值'></div></div><div class="field log-filter-type"><label>请求类型</label><select id="log-type"><option value="">全部</option>${types.map(x=>`<option ${p.type===x?'selected':''}>${esc(x)}</option>`).join('')}</select></div><div class="field log-filter-set"><label>分流结果</label><select id="log-set"><option value="">全部</option>${sets.map(x=>`<option ${p.set===x?'selected':''}>${esc(x)}</option>`).join('')}</select></div><div class="field log-filter-code"><label>状态</label><select id="log-code"><option value="">全部</option>${codes.map(x=>`<option ${p.code===x?'selected':''}>${esc(x)}</option>`).join('')}</select></div><div class="field log-filter-client"><label>客户端</label><input id="log-client" value="${esc(p.client)}" placeholder="IP"></div><div class="log-filter-exact"><label class="switch"><input id="log-exact" type="checkbox" ${p.exact?'checked':''}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">精确匹配</span></label></div><button class="button primary log-filter-submit" id="log-search">${icon('search')}查询</button></div>`,{iconName:'logs'})}
+    ${card('查询与过滤日志',`<div class="log-filter-bar"><div class="lf-search"><span class="search-icon">${icon('search')}</span><input id="log-q" value="${esc(p.q)}" placeholder="域名、IP、响应值" aria-label="全局搜索"></div><select id="log-type" aria-label="请求类型"><option value="">全部类型</option>${types.map(x=>`<option ${p.type===x?'selected':''}>${esc(x)}</option>`).join('')}</select><select id="log-set" aria-label="分流结果"><option value="">全部分流</option>${sets.map(x=>`<option ${p.set===x?'selected':''}>${esc(x)}</option>`).join('')}</select><button type="button" class="lf-more" id="lf-more" aria-expanded="false" aria-controls="log-filter-more">更多筛选</button><span class="lf-count">匹配 ${num(data.pagination?.total_items||0)} 条</span><button type="button" class="lf-reset" id="lf-reset">重置</button><button class="button primary log-filter-submit" id="log-search">${icon('search')}查询</button></div><div class="log-filter-more" id="log-filter-more"${(p.code||p.client||p.exact)?'':' hidden'}><div class="field"><label>状态</label><select id="log-code"><option value="">全部</option>${codes.map(x=>`<option ${p.code===x?'selected':''}>${esc(x)}</option>`).join('')}</select></div><div class="field"><label>客户端</label><input id="log-client" value="${esc(p.client)}" placeholder="IP 或别名"></div><div class="log-filter-exact"><label class="switch"><input id="log-exact" type="checkbox" ${p.exact?'checked':''}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">精确匹配</span></label></div></div>`, {iconName:'logs'})}
     ${card('实时 DNS 请求记录',`<div class="table-wrap"><table><thead><tr><th>时间</th><th>域名 / 响应</th><th>类型</th><th>分流</th><th>耗时</th><th>客户端</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.length?rows.map(logRow).join(''):`<tr><td colspan="8" class="table-empty">没有符合条件的日志</td></tr>`}</tbody></table></div>${paginationHtml(data.pagination)}`,{iconName:'logs',subtitle:`第 ${num(data.pagination?.current_page||1)} / ${num(data.pagination?.total_pages||1)} 页`})}`;
     $('#log-search').onclick=()=>{Object.assign(state.logs,{page:1,q:$('#log-q').value.trim(),exact:$('#log-exact').checked,type:$('#log-type').value,set:$('#log-set').value,code:$('#log-code').value,client:$('#log-client').value.trim()});renderRoute(true)};
     $('#log-q').onkeydown=e=>{if(e.key==='Enter')$('#log-search').click()};
+    $('#lf-more').onclick=()=>{const box=$('#log-filter-more');const willOpen=box.hasAttribute('hidden');box.toggleAttribute('hidden',!willOpen);$('#lf-more').setAttribute('aria-expanded',String(willOpen));$('#lf-more').classList.toggle('is-open',willOpen)};
+    if(!$('#log-filter-more').hasAttribute('hidden'))$('#lf-more').classList.add('is-open');
+    $('#lf-reset').onclick=()=>{Object.assign(state.logs,{page:1,q:'',exact:false,type:'',set:'',code:'',client:''});renderRoute(true)};
     $$('.log-detail').forEach(b=>b.onclick=()=>{const x=JSON.parse(b.closest('tr').dataset.log);openDrawer('查询详情',x.query_name,logDetailHtml(x))});
     $$('.pagination button[data-page]').forEach(b=>b.onclick=()=>{state.logs.page=+b.dataset.page;renderRoute(true)});
     $('#audit-control').onclick=openAuditModal; $('#alias-control').onclick=openAliasModal;
@@ -1671,7 +1804,7 @@
       $$('[data-rule-tag]').forEach(x=>x.onclick=()=>{state.ruleTag=x.dataset.ruleTag;renderListRules(body)});$('#rule-retry').onclick=()=>renderListRules(body);requestAnimationFrame(fitRuleLayoutHeight);return;
     }
     const trimmed=String(text).trim();
-    body.innerHTML=`<section class="card"><div class="rule-layout">${menu}<div class="rule-editor"><div class="section-header"><div><h2>${profile[1]}</h2><p>一行一条；完整读取后才允许保存</p></div><button class="button primary" id="rule-save">${icon('save')}保存</button></div><textarea id="rule-text" class="rule-textarea" spellcheck="false">${esc(trimmed)}</textarea><div class="rule-editor-footer"><span id="rule-lines">共 ${trimmed?trimmed.split('\n').length:0} 行</span><button class="button small" id="rule-download">${icon('download')}下载列表</button></div></div></div></section>`;
+    body.innerHTML=`<section class="card"><div class="rule-layout">${menu}<div class="rule-editor"><div class="section-header"><div><h2>${profile[1]}</h2><p>一行一条；完整读取后才允许保存</p></div><div class="section-header-actions"><button class="button small" id="rule-download">${icon('download')}下载列表</button><button class="button primary" id="rule-save">${icon('save')}保存</button></div></div><textarea id="rule-text" class="rule-textarea" spellcheck="false">${esc(trimmed)}</textarea><div class="rule-editor-footer"><span id="rule-lines">共 ${trimmed?trimmed.split('\n').length:0} 行</span></div></div></div></section>`;
     $$('[data-rule-tag]').forEach(x=>x.onclick=()=>{state.ruleTag=x.dataset.ruleTag;renderListRules(body)});
     $('#rule-text').oninput=()=>$('#rule-lines').textContent=`共 ${$('#rule-text').value.split('\n').filter(Boolean).length} 行`;
     $('#rule-save').onclick=async()=>{const button=$('#rule-save'),value=$('#rule-text').value;const values=value.split('\n').map(x=>x.trim()).filter(Boolean);button.disabled=true;try{await api.json(`/plugins/${tag}/post`,'POST',{values});window.LocalDNSInterface?.ruleSaved(tag,value);toast(`${profile[1]}已保存`)}catch(e){toast('保存失败','error',e.message)}finally{if(button.isConnected)button.disabled=false}};
@@ -1859,8 +1992,9 @@
     const lastRun=s.last_run_end_time||s.last_run_start_time||s.last_run?.finished_at||s.last_run?.started_at;
     const lastCount=s.last_run_domain_count;
     const tile=(k,v)=>`<div class="mg-tile"><span>${k}</span><strong>${v}</strong></div>`;
-    const actions=`<span class="mg-chip"><span class="mg-lab">当前状态</span><span class="badge ${stateClass}">${stateText}</span></span><span class="mg-chip"><span class="mg-lab">定时任务</span><span class="badge ${c?.scheduler?.enabled?'success':''}">${c?.scheduler?.enabled?'已启用':'未启用'}</span></span><button class="button small" id="requery-scheduler" title="定时任务设置">定时任务</button>${running?'<button class="button small danger" id="requery-cancel">取消任务</button>':'<button class="button small primary" id="requery-trigger" title="开始全新任务">全新任务</button>'}`;
-    const body=`<div class="mg-tiles">${tile('进度',hasProgress?`${num(pr.processed??0)} / ${num(pr.total??0)}`:'—')}${tile('上次处理域名',lastCount===undefined||lastCount===null?'—':num(lastCount)+' 条')}${tile('上次运行',fmtDate(lastRun))}${tile('下次执行',fmtDate(s.next_run_time))}${tile('间隔',c?.scheduler?.interval_minutes?num(c.scheduler.interval_minutes)+' 分钟':'—')}</div>`;
+    const statusRow=`<div class="rq-status"><span class="mg-chip"><span class="mg-lab">当前状态</span><span class="badge ${stateClass}">${stateText}</span></span><span class="mg-chip"><span class="mg-lab">定时任务</span><span class="badge ${c?.scheduler?.enabled?'success':''}">${c?.scheduler?.enabled?'已启用':'未启用'}</span></span></div>`;
+    const actions=`<button class="button small" id="requery-scheduler" title="定时任务设置"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h9M18 8h2M4 16h4M13 16h7"/><circle cx="15.5" cy="8" r="2"/><circle cx="10.5" cy="16" r="2"/></svg>定时设置</button>${running?'<button class="button small danger" id="requery-cancel">取消任务</button>':'<button class="button small primary" id="requery-trigger" title="开始全新任务"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 4.5 19 12 7 19.5Z"/></svg>全新任务</button>'}`;
+    const body=statusRow+`<div class="mg-tiles">${tile('进度',hasProgress?`${num(pr.processed??0)} / ${num(pr.total??0)}`:'—')}${tile('上次处理域名',lastCount===undefined||lastCount===null?'—':num(lastCount)+' 条')}${tile('上次运行',fmtDate(lastRun))}${tile('下次执行',fmtDate(s.next_run_time))}${tile('间隔',c?.scheduler?.interval_minutes?num(c.scheduler.interval_minutes)+' 分钟':'—')}</div>`;
     return {actions,body};
   }
   function openRequeryScheduler(c){
