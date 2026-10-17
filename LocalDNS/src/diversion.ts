@@ -154,8 +154,8 @@ export class DiversionEngine {
       return { group: 'blocked', domainSet: 'blocklist' };
     }
 
-    // 3. Module MITM Host check (L7 Stream Cleaning via FakeIP)
-    if (ModuleManager.get().isMitmHost(d)) {
+    // 3. Module MITM Host check (L7 Stream Cleaning via FakeIP, governed by switch_mitm)
+    if (switches.switch_mitm === 'A' && ModuleManager.get().isMitmHost(d)) {
       const fakeIp = FakeIpPool.get().allocate(d);
       return { group: 'rewrite', domainSet: 'mitm_fakeip', rewriteIp: fakeIp };
     }

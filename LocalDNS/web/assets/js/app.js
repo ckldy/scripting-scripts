@@ -943,7 +943,7 @@
 
   async function renderOverview(){
     await loadAliases().catch(()=>{});
-    const switchTags = ['switch1','switch5','switch7','switch6','switch13','switch4','switch2','switch12'];
+    const switchTags = ['switch1','switch5','switch7','switch6','switch13','switch4','switch2','switch12','switch_mitm','switch_rewrite'];
     const [stats,domains,clients,slowest,sets,metricsRaw,engineStatus,upCfg,switchVals] = await Promise.all([
       safe(()=>api.stats(), {total_queries:0,blocked_queries:0,average_duration_ms:0,cache_hit_rate:0,active_clients:0}),
       safe(()=>api.rank('domain',1000), []),
@@ -1285,7 +1285,7 @@
           </div>
           <div class="cb-right">
             <button type="button" class="glass-btn" id="btn-toggle-switch7" title="点击切换 AdGuard 广告屏蔽 (switch7)">AdGuard ${sw.switch7==='A'?'已开启':'已关闭'}</button>
-            <span style="font-size:12px;color:var(--text-2);cursor:pointer" data-route="management">${enabledCount}/8 项开启 ›</span>
+            <span style="font-size:12px;color:var(--text-2);cursor:pointer" data-route="management">${enabledCount}/${switchTags.length} 项开启 ›</span>
           </div>
         </div>
       </div>
@@ -2700,7 +2700,9 @@
     {tag:'switch1',name:'请求屏蔽',desc:'对无解析结果的请求进行屏蔽'}, {tag:'switch5',name:'类型屏蔽',desc:'屏蔽 SOA、PTR、HTTPS 等请求'},
     {tag:'switch7',name:'广告屏蔽',desc:'启用 AdGuard 在线规则'}, {tag:'switch6',name:'IPv6 屏蔽',desc:'屏蔽 AAAA 请求类型'},
     {tag:'switch13',name:'核心缓存',desc:'启用最终结果的全部缓存'}, {tag:'switch4',name:'过期缓存',desc:'启用国内及国外缓存的过期响应'},
-    {tag:'switch2',name:'指定 Client FakeIP',desc:'只允许指定客户端科学'}, {tag:'switch12',name:'指定 Client RealIP',desc:'指定客户端不允许科学'}
+    {tag:'switch2',name:'指定 Client FakeIP',desc:'只允许指定客户端科学'}, {tag:'switch12',name:'指定 Client RealIP',desc:'指定客户端不允许科学'},
+    {tag:'switch_mitm',name:'MITM 流量接管',desc:'启用通配域名 FakeIP 映射与 TLS 中间人解密'},
+    {tag:'switch_rewrite',name:'HTTP 重写引擎',desc:'启用 URL 重定向、静态阻断、Header 与 Body 正则替换'}
   ];
 
 

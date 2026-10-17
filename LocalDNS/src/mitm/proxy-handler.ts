@@ -1,4 +1,5 @@
 // HTTP / HTTPS Proxy & Stream Cleaning Pipeline Handler
+import { Store } from '../store';
 import { ModuleManager } from '../modules/module-manager';
 import { StreamCleaner } from '../stream/cleaner';
 import { ScriptSandbox } from '../runtime/sandbox';
@@ -37,37 +38,91 @@ export class ProxyHandler {
   async processRequest(req: ProxyIncomingRequest): Promise<ProxyOutgoingResponse> {
     const url = req.url;
     const moduleMgr = ModuleManager.get();
+    const switches = Store.get().getSwitches();
+    const isRewriteEnabled = switches.switch_rewrite !== 'B';
 
-    // 1. 匹配重写/阻断规则 (Reject / Redirect)
-    const rewriteMatch = moduleMgr.matchRewrite(url);
-    if (rewriteMatch) {
-      const { action, target } = rewriteMatch;
-      if (action === 'redirect' && target) {
-        return {
-          status: 302,
-          headers: {
-            'Location': target,
-            'Connection': 'close',
-          },
-          body: '',
-          intercepted: true,
-          cleanAction: `redirect -> ${target}`,
-        };
+    let currentReq = { ...req, headers: { ...req.headers } };
+    let matchedBodyReplace: { search: string; replace: string } | null = null;
+    let rewriteActionSummary = '';
+
+    // 1. 匹配重写/阻断规则 (Reject / Redirect / Mock / Header / Body)，受控于 switch_rewrite 开关
+    if (isRewriteEnabled) {
+      const rewriteMatch = moduleMgr.matchRewrite(url);
+      if (rewriteMatch) {
+        const { action, target, extra } = rewriteMatch;
+
+        // 1.1 302/307 重定向 (支持 $1, $2 等正则捕获组替换)
+        if (action === 'redirect' && target) {
+          const targetUrl = url.replace(rewriteMatch.rule.regex, target);
+          return {
+            status: 302,
+            headers: {
+              'Location': targetUrl,
+              'Connection': 'close',
+            },
+            body: '',
+            intercepted: true,
+            cleanAction: `redirect -> ${targetUrl}`,
+          };
+        }
+
+        // 1.2 Mock 虚拟响应 (不发真实上游请求，直接返回指定状态码与内容)
+        if (action === 'mock') {
+          const statusCode = parseInt(target || '200', 10) || 200;
+          const content = extra || '';
+          const isJson =
+            (content.startsWith('{') && content.endsWith('}')) ||
+            (content.startsWith('[') && content.endsWith(']'));
+          return {
+            status: statusCode,
+            headers: {
+              'Content-Type': isJson ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8',
+              'Content-Length': String(content.length),
+              'X-LocalDNS-Mock': 'true',
+            },
+            body: content,
+            intercepted: true,
+            cleanAction: `mock (${statusCode})`,
+          };
+        }
+
+        // 1.3 静态阻断 (204 / {} / [] / 1x1 GIF / 404)
+        if (
+          action === 'reject' ||
+          action === 'reject-200' ||
+          action === 'reject-img' ||
+          action === 'reject-dict' ||
+          action === 'reject-array'
+        ) {
+          const rej = StreamCleaner.getRejectResponse(action);
+          return {
+            status: rej.status,
+            headers: rej.headers,
+            body: rej.body,
+            intercepted: true,
+            cleanAction: action,
+          };
+        }
+
+        // 1.4 请求 Header 修改与删除
+        if (action === 'header-replace' && target) {
+          currentReq.headers[target] = extra || '';
+          rewriteActionSummary = `header-replace: ${target}`;
+        } else if (action === 'header-del' && target) {
+          delete currentReq.headers[target];
+          delete currentReq.headers[target.toLowerCase()];
+          rewriteActionSummary = `header-del: ${target}`;
+        }
+
+        // 1.5 响应 Body 替换标记
+        if (action === 'body-replace' && target) {
+          matchedBodyReplace = { search: target, replace: extra || '' };
+          rewriteActionSummary = `body-replace: ${target}`;
+        }
       }
-
-      // 返回对应的 Reject 伪装内容 (204 / {} / 1x1 GIF / [])
-      const rej = StreamCleaner.getRejectResponse(action);
-      return {
-        status: rej.status,
-        headers: rej.headers,
-        body: rej.body,
-        intercepted: true,
-        cleanAction: action,
-      };
     }
 
     // 2. 匹配并执行前置 Request 脚本
-    let currentReq = { ...req };
     const reqScripts = moduleMgr.matchScripts(url, 'http-request');
     for (const script of reqScripts) {
       try {
@@ -76,6 +131,7 @@ export class ProxyHandler {
           currentReq = {
             ...currentReq,
             ...result.modifiedRequest,
+            headers: { ...currentReq.headers, ...(result.modifiedRequest.headers || {}) },
           };
         }
       } catch (err) {
@@ -114,10 +170,20 @@ export class ProxyHandler {
       };
     }
 
-    // 4. 流清洗处理 (HLS M3U8 清单清洗 或 JSON 响应剪枝)
+    // 4. 流清洗处理 (HLS M3U8 清单清洗 或 JSON 响应剪枝 或 正则 Body 替换)
     let cleanedBody = upstreamBody;
     const contentType = (upstreamHeaders['content-type'] || '').toLowerCase();
 
+    // 4.1 执行正则/文本 Body 替换
+    if (matchedBodyReplace) {
+      try {
+        cleanedBody = cleanedBody.replace(new RegExp(matchedBodyReplace.search, 'g'), matchedBodyReplace.replace);
+      } catch {
+        cleanedBody = cleanedBody.split(matchedBodyReplace.search).join(matchedBodyReplace.replace);
+      }
+    }
+
+    // 4.2 执行流式 M3U8 清洗与 JSON 剪枝
     if (
       url.includes('.m3u8') ||
       contentType.includes('mpegurl') ||
@@ -138,6 +204,8 @@ export class ProxyHandler {
       status: upstreamStatus,
       headers: upstreamHeaders,
       body: cleanedBody,
+      intercepted: Boolean(rewriteActionSummary),
+      cleanAction: rewriteActionSummary || undefined,
     };
 
     const respScripts = moduleMgr.matchScripts(url, 'http-response');

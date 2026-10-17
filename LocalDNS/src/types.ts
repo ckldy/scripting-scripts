@@ -98,6 +98,8 @@ export interface SwitchStates {
   switch4: 'A' | 'B';  // 过期缓存 (允许过期响应)
   switch2: 'A' | 'B';  // 指定 Client FakeIP
   switch12: 'A' | 'B'; // 指定 Client RealIP
+  switch_mitm: 'A' | 'B'; // MITM 中间人解密与 FakeIP 接管
+  switch_rewrite: 'A' | 'B'; // HTTP/HTTPS 重写引擎 (Redirect/Reject/Header/Body)
 }
 
 export interface AdGuardRuleSource {

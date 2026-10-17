@@ -1,8 +1,8 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.4.1 (Build 20261018)`  
+> **当前版本**：`v1.4.2 (Build 20261018)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，集成规则管理模块导入入口与 DNS 解析路径全分流动态交互视图）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，集成 MITM/HTTP重写功能开关与增强重写引擎）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地 DNS 与应用层流清洗服务系统。
 
@@ -30,6 +30,17 @@
 - **多维度分流路由器 (`DiversionEngine`)**：涵盖名单管理（白名单/黑名单/灰名单/强制 RealIP/重定向 Rewrite/MITM 劫持）与在线分流（自定义 CN/Non-CN、Geosite CN/Non-CN），支持同组来源合并去重。
 
 ### 2. 跨平台模块引擎与应用层流清洗 (Surge / Loon / Quantumult X)
+- **核心功能策略开关 (`switch_mitm` & `switch_rewrite`)**：
+  - 在 Web 控制台“功能开关”页面与 iOS 原生仪表盘中新增 **「MITM 流量接管」** 与 **「HTTP 重写引擎」** 独立控制项；
+  - 关闭 `switch_mitm` 时，DNS 路由器自动绕过 FakeIP 劫持，恢复原始上游寻址；
+  - 关闭 `switch_rewrite` 时，代理通道直接直连上游，不触发任何重定向、Mock 与切片剥离；
+  - 双开关均支持实时热重载并持久化落盘，各策略互不干扰。
+- **完善的高性能 HTTP 重写引擎 (`ProxyHandler`)**：
+  - **正则捕获组重定向**：支持 `302 / 307` 路径捕获组映射（如 `^https?:\/\/api\.com\/user\/(.+) 302 https://newapi.com/u/$1`）；
+  - **Mock 虚拟响应 (零网络开销)**：支持 `mock 200 {"code":0}` 与 `mock 204`，直接在本地截断返回虚拟报文，免去真实上游请求耗时；
+  - **请求 Header 修改与剥离**：支持 `header-replace` 与 `header-del`，动态重写发往上游的 User-Agent、Token 或剔除敏感头；
+  - **响应 Body 全局正则替换**：支持 `body-replace` / `response-body`，动态查找并替换响应文本内容；
+  - **静态阻断合集**：支持 `reject`, `reject-200`, `reject-img` (1x1透明GIF), `reject-dict` (`{}`), `reject-array` (`[]`)。
 - **规则管理模块导入入口 (`renderModules`)**：
   - 在 Web 控制台“规则管理”新增 **「模块管理 (Surge / Loon / QX)」** 选项卡；
   - 提供模块总览指标（激活模块、MITM 通配主机数、重写规则/脚本数、流清洗次数、FakeIP 占用）；

@@ -121,6 +121,7 @@ hostname = *.ttvnw.net, *.twitch.tv
         pattern: rw.pattern,
         action: rw.action,
         target: rw.target,
+        extra: rw.extra,
       })),
       scripts: m.scripts.map((sc) => ({
         id: sc.id,
@@ -217,7 +218,7 @@ hostname = *.ttvnw.net, *.twitch.tv
   /**
    * 匹配 URL 重定向与静态阻断规则
    */
-  public matchRewrite(url: string): { rule: CleanRewriteRule; action: RewriteAction; target?: string } | null {
+  public matchRewrite(url: string): { rule: CleanRewriteRule; action: RewriteAction; target?: string; extra?: string } | null {
     for (const mod of this.modules) {
       if (!mod.enabled) continue;
       for (const rw of mod.rewrites) {
@@ -227,6 +228,7 @@ hostname = *.ttvnw.net, *.twitch.tv
             rule: rw,
             action: rw.action,
             target: rw.target,
+            extra: rw.extra,
           };
         }
       }

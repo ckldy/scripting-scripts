@@ -44,7 +44,7 @@ declare namespace Safari {
   function openURL(url: string): Promise<void>;
 }
 
-const APP_VERSION = 'v1.4.1';
+const APP_VERSION = 'v1.4.2';
 const APP_BUILD = '20261018';
 const APP_AUTHOR = 'vcncv';
 const UPSTREAM_REPO = 'https://github.com/yyhoworks/LocalDNS';
@@ -80,6 +80,8 @@ function LocalDnsApp() {
   const [switchLazyCache, setSwitchLazyCache] = useState<boolean>(initialSwitches.switch4 === 'A');
   const [switchIpv6Block, setSwitchIpv6Block] = useState<boolean>(initialSwitches.switch6 === 'A');
   const [switchReqBlock, setSwitchReqBlock] = useState<boolean>(initialSwitches.switch1 === 'A');
+  const [switchMitm, setSwitchMitm] = useState<boolean>(initialSwitches.switch_mitm !== 'B');
+  const [switchRewrite, setSwitchRewrite] = useState<boolean>(initialSwitches.switch_rewrite !== 'B');
 
   // DNS Tester state
   const [testDomain, setTestDomain] = useState<string>('baidu.com');
@@ -420,6 +422,18 @@ function LocalDnsApp() {
             title="请求屏蔽 (无解析结果请求拦截)"
             value={switchReqBlock}
             onChanged={(val) => handleSwitchChange('switch1', val, setSwitchReqBlock)}
+          />
+
+          <Toggle
+            title="MITM 流量接管 (FakeIP 虚拟映射)"
+            value={switchMitm}
+            onChanged={(val) => handleSwitchChange('switch_mitm', val, setSwitchMitm)}
+          />
+
+          <Toggle
+            title="HTTP 重写引擎 (Redirect / Reject / Header / Body)"
+            value={switchRewrite}
+            onChanged={(val) => handleSwitchChange('switch_rewrite', val, setSwitchRewrite)}
           />
         </Section>
 

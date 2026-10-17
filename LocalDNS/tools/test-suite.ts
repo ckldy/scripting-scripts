@@ -66,6 +66,7 @@ async function runTests() {
   assert(appJsStr.includes('openModuleModal'), 'app.js implements openModuleModal import modal');
   assert(appJsStr.includes('topo-dynamic-toolbar'), 'app.js includes topo-dynamic-toolbar HTML');
   assert(appJsStr.includes('runTopoTracer'), 'app.js implements runTopoTracer dynamic path reasoning');
+  assert(appJsStr.includes('switch_mitm') && appJsStr.includes('switch_rewrite'), 'app.js switchProfiles includes switch_mitm and switch_rewrite');
 
   // 检查 app.css 中动态视图工具栏样式
   assert(cssStr.includes('.topo-dynamic-toolbar'), 'app.css includes .topo-dynamic-toolbar styles');
@@ -130,6 +131,36 @@ async function runTests() {
     assert(modData.success === true, 'modules api returns success true');
     assert(Array.isArray(modData.modules), 'modules list is an array');
     assert(modData.stats && typeof modData.stats.totalModules === 'number', 'modules stats present');
+
+    // 2.8 验证 switch_mitm 与 switch_rewrite 功能开关接口
+    const resMitm = await fetch(`${baseUrl}/plugins/switch_mitm/show`);
+    assert(resMitm.status === 200, `/plugins/switch_mitm/show returns 200 OK`);
+    const valMitm = (await resMitm.text()).trim();
+    assert(valMitm === 'A' || valMitm === 'B', `switch_mitm value is valid (got ${valMitm})`);
+
+    const resRewrite = await fetch(`${baseUrl}/plugins/switch_rewrite/show`);
+    assert(resRewrite.status === 200, `/plugins/switch_rewrite/show returns 200 OK`);
+    const valRewrite = (await resRewrite.text()).trim();
+    assert(valRewrite === 'A' || valRewrite === 'B', `switch_rewrite value is valid (got ${valRewrite})`);
+
+    // 验证开关切换持久化
+    const postMitm = await fetch(`${baseUrl}/plugins/switch_mitm/post`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: 'B' }),
+    });
+    assert(postMitm.status === 200, `POST /plugins/switch_mitm/post returns 200 OK`);
+    const getMitmB = await (await fetch(`${baseUrl}/plugins/switch_mitm/show`)).text();
+    assert(getMitmB.trim() === 'B', `switch_mitm toggled to B`);
+
+    // 恢复开关为 A
+    await fetch(`${baseUrl}/plugins/switch_mitm/post`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: 'A' }),
+    });
+    const getMitmA = await (await fetch(`${baseUrl}/plugins/switch_mitm/show`)).text();
+    assert(getMitmA.trim() === 'A', `switch_mitm restored to A`);
   } catch (err: any) {
     console.error('API Test Error:', err);
     failed++;

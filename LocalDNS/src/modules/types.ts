@@ -10,7 +10,9 @@ export type RewriteAction =
   | 'reject-array'
   | 'redirect'
   | 'header-replace'
-  | 'body-replace';
+  | 'header-del'
+  | 'body-replace'
+  | 'mock';
 
 export interface CleanRewriteRule {
   id: string;
@@ -18,6 +20,7 @@ export interface CleanRewriteRule {
   regex: RegExp;
   action: RewriteAction;
   target?: string;
+  extra?: string;
 }
 
 export interface CleanScriptRule {

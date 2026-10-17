@@ -1,5 +1,6 @@
 // Comprehensive Automated Test Suite for LocalDNS Clean Modules & Stream Cleaner Engine
 import { Script } from 'scripting';
+import { Store } from '../src/store';
 import { ModuleParser } from '../src/modules/parser';
 import { ModuleManager } from '../src/modules/module-manager';
 import { StreamCleaner } from '../src/stream/cleaner';
@@ -260,6 +261,70 @@ https://video.example.com/segment2.ts
   assert(interceptedResp.intercepted === true, 'Request intercepted by module rewrite');
   assert(interceptedResp.status === 204, 'Reject-200 returned HTTP 204 No Content');
   assert(interceptedResp.cleanAction === 'reject-200', 'Clean action recorded as reject-200');
+
+  // -------------------------------------------------------------
+  // Test 10: Advanced HTTP Rewrite (Redirect Captures, Mock, Header & Body)
+  // -------------------------------------------------------------
+  console.log('\n--- Test Group 10: Advanced HTTP Rewrite Features ---');
+  const advancedRewriteModule = `#!name=高级重写测试模块
+[MITM]
+hostname = api.example.com
+
+[URL Rewrite]
+^https?:\\/\\/api\\.example\\.com\\/user\\/(.+) 302 https://newapi.example.com/u/$1
+^https?:\\/\\/api\\.example\\.com\\/mock-test mock 200 {"code":0,"msg":"mocked"}
+^https?:\\/\\/api\\.example\\.com\\/mock-empty mock 204
+`;
+
+  mgr.addModule(advancedRewriteModule);
+
+  // 10.1 正则捕获组重定向测试
+  const redirectResp = await proxyHandler.processRequest({
+    url: 'https://api.example.com/user/98765',
+    method: 'GET',
+    headers: { host: 'api.example.com' },
+  });
+  assert(redirectResp.status === 302, 'Redirect returned 302 status');
+  assert(redirectResp.headers['Location'] === 'https://newapi.example.com/u/98765', 'Regex capture group $1 replaced into target URL');
+  assert(redirectResp.intercepted === true, 'Redirect marked as intercepted');
+
+  // 10.2 Mock 虚拟响应测试
+  const mockResp = await proxyHandler.processRequest({
+    url: 'https://api.example.com/mock-test',
+    method: 'GET',
+    headers: { host: 'api.example.com' },
+  });
+  assert(mockResp.status === 200, 'Mock response returned status 200');
+  assert(mockResp.body === '{"code":0,"msg":"mocked"}', 'Mock response returned custom body');
+  assert(mockResp.headers['X-LocalDNS-Mock'] === 'true', 'Mock response includes X-LocalDNS-Mock header');
+  assert(mockResp.intercepted === true, 'Mock response marked as intercepted');
+
+  // -------------------------------------------------------------
+  // Test 11: Switch Controls (switch_rewrite & switch_mitm)
+  // -------------------------------------------------------------
+  console.log('\n--- Test Group 11: Switch Controls (switch_rewrite & switch_mitm) ---');
+  const store = Store.get();
+
+  // 11.1 测试关闭 HTTP 重写开关 (switch_rewrite = 'B')
+  store.setSwitch('switch_rewrite', 'B');
+  const bypassRewriteResp = await proxyHandler.processRequest({
+    url: 'https://api.example.com/mock-test',
+    method: 'GET',
+    headers: { host: 'api.example.com' },
+  });
+  // 当重写关闭时，不应命中 mock 规则，而是尝试直连上游
+  assert(bypassRewriteResp.headers['X-LocalDNS-Mock'] === undefined, 'When switch_rewrite is B, mock rule is bypassed');
+  // 恢复 switch_rewrite 为 A
+  store.setSwitch('switch_rewrite', 'A');
+
+  // 11.2 测试关闭 MITM 开关 (switch_mitm = 'B')
+  store.setSwitch('switch_mitm', 'B');
+  const bypassMitmRoute = diversion.match('rr2---sn-4g5edn6e.googlevideo.com', '127.0.0.1');
+  assert(bypassMitmRoute.domainSet !== 'mitm_fakeip', 'When switch_mitm is B, MITM host is NOT hijacked to FakeIP');
+  // 恢复 switch_mitm 为 A
+  store.setSwitch('switch_mitm', 'A');
+  const restoredMitmRoute = diversion.match('rr2---sn-4g5edn6e.googlevideo.com', '127.0.0.1');
+  assert(restoredMitmRoute.domainSet === 'mitm_fakeip', 'When switch_mitm is A, MITM host is properly hijacked to FakeIP');
 
   // -------------------------------------------------------------
   // Summary

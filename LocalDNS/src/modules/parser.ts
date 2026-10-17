@@ -102,28 +102,71 @@ export class ModuleParser {
         continue;
       }
 
-      // 解析 [URL REWRITE]
-      if (currentSection === 'URL REWRITE') {
+      // 解析 [URL REWRITE] 与 [HEADER REWRITE]
+      if (currentSection === 'URL REWRITE' || currentSection === 'HEADER REWRITE') {
         const parts = line.split(/\s+/);
         if (parts.length >= 2) {
           const patternStr = parts[0];
           const actionStr = parts[1].toLowerCase();
-          const targetStr = parts.slice(2).join(' ') || undefined;
 
-          const action = this.normalizeAction(actionStr);
-          if (action) {
-            try {
+          try {
+            const rx = new RegExp(patternStr);
+            if (actionStr === '302' || actionStr === '307') {
               rewrites.push({
                 id: `rw_${rewrites.length + 1}`,
                 pattern: patternStr,
-                regex: new RegExp(patternStr),
-                action,
-                target: targetStr,
+                regex: rx,
+                action: 'redirect',
+                target: parts[2],
               });
-            } catch {
-              // 正则表达式非法则忽略
+            } else if (actionStr === 'header-replace') {
+              rewrites.push({
+                id: `rw_${rewrites.length + 1}`,
+                pattern: patternStr,
+                regex: rx,
+                action: 'header-replace',
+                target: parts[2],
+                extra: parts.slice(3).join(' '),
+              });
+            } else if (actionStr === 'header-del') {
+              rewrites.push({
+                id: `rw_${rewrites.length + 1}`,
+                pattern: patternStr,
+                regex: rx,
+                action: 'header-del',
+                target: parts[2],
+              });
+            } else if (actionStr === 'response-body' || actionStr === 'body-replace') {
+              rewrites.push({
+                id: `rw_${rewrites.length + 1}`,
+                pattern: patternStr,
+                regex: rx,
+                action: 'body-replace',
+                target: parts[2],
+                extra: parts.slice(3).join(' '),
+              });
+            } else if (actionStr === 'mock' || actionStr === 'data') {
+              rewrites.push({
+                id: `rw_${rewrites.length + 1}`,
+                pattern: patternStr,
+                regex: rx,
+                action: 'mock',
+                target: parts[2] || '200',
+                extra: parts.slice(3).join(' '),
+              });
+            } else {
+              const action = this.normalizeAction(actionStr);
+              if (action) {
+                rewrites.push({
+                  id: `rw_${rewrites.length + 1}`,
+                  pattern: patternStr,
+                  regex: rx,
+                  action,
+                  target: parts.slice(2).join(' ') || undefined,
+                });
+              }
             }
-          }
+          } catch {}
         }
         continue;
       }
@@ -237,22 +280,65 @@ export class ModuleParser {
         if (parts.length >= 2) {
           const patternStr = parts[0];
           const actionStr = parts[1].toLowerCase();
-          const targetStr = parts.slice(2).join(' ') || undefined;
 
-          const action = this.normalizeAction(actionStr);
-          if (action) {
-            try {
+          try {
+            const rx = new RegExp(patternStr);
+            if (actionStr === '302' || actionStr === '307') {
               rewrites.push({
                 id: `rw_${rewrites.length + 1}`,
                 pattern: patternStr,
-                regex: new RegExp(patternStr),
-                action,
-                target: targetStr,
+                regex: rx,
+                action: 'redirect',
+                target: parts[2],
               });
-            } catch {
-              // 忽略无效正则
+            } else if (actionStr === 'header-replace') {
+              rewrites.push({
+                id: `rw_${rewrites.length + 1}`,
+                pattern: patternStr,
+                regex: rx,
+                action: 'header-replace',
+                target: parts[2],
+                extra: parts.slice(3).join(' '),
+              });
+            } else if (actionStr === 'header-del') {
+              rewrites.push({
+                id: `rw_${rewrites.length + 1}`,
+                pattern: patternStr,
+                regex: rx,
+                action: 'header-del',
+                target: parts[2],
+              });
+            } else if (actionStr === 'response-body' || actionStr === 'body-replace') {
+              rewrites.push({
+                id: `rw_${rewrites.length + 1}`,
+                pattern: patternStr,
+                regex: rx,
+                action: 'body-replace',
+                target: parts[2],
+                extra: parts.slice(3).join(' '),
+              });
+            } else if (actionStr === 'mock') {
+              rewrites.push({
+                id: `rw_${rewrites.length + 1}`,
+                pattern: patternStr,
+                regex: rx,
+                action: 'mock',
+                target: parts[2] || '200',
+                extra: parts.slice(3).join(' '),
+              });
+            } else {
+              const action = this.normalizeAction(actionStr);
+              if (action) {
+                rewrites.push({
+                  id: `rw_${rewrites.length + 1}`,
+                  pattern: patternStr,
+                  regex: rx,
+                  action,
+                  target: parts.slice(2).join(' ') || undefined,
+                });
+              }
             }
-          }
+          } catch {}
         }
         continue;
       }
@@ -411,6 +497,45 @@ export class ModuleParser {
                 target: targetUrl,
               });
             } catch {}
+          } else if (verb === 'request-header') {
+            const headerLine = actionTokens.slice(1).join(' ');
+            const colonIdx = headerLine.indexOf(':');
+            if (colonIdx !== -1) {
+              const hName = headerLine.substring(0, colonIdx).trim();
+              const hVal = headerLine.substring(colonIdx + 1).trim();
+              try {
+                rewrites.push({
+                  id: `rw_${rewrites.length + 1}`,
+                  pattern: patternStr,
+                  regex: new RegExp(patternStr),
+                  action: 'header-replace',
+                  target: hName,
+                  extra: hVal,
+                });
+              } catch {}
+            }
+          } else if (verb === 'response-body') {
+            try {
+              rewrites.push({
+                id: `rw_${rewrites.length + 1}`,
+                pattern: patternStr,
+                regex: new RegExp(patternStr),
+                action: 'body-replace',
+                target: actionTokens[1],
+                extra: actionTokens.slice(2).join(' '),
+              });
+            } catch {}
+          } else if (verb === 'echo-data' || verb === 'mock') {
+            try {
+              rewrites.push({
+                id: `rw_${rewrites.length + 1}`,
+                pattern: patternStr,
+                regex: new RegExp(patternStr),
+                action: 'mock',
+                target: actionTokens[1] || '200',
+                extra: actionTokens.slice(2).join(' '),
+              });
+            } catch {}
           }
         }
       }
@@ -446,7 +571,9 @@ export class ModuleParser {
     if (val === 'reject-array') return 'reject-array';
     if (val.startsWith('_302_') || val.startsWith('_307_') || val === '302' || val === '307') return 'redirect';
     if (val === 'header-replace' || val === 'request-header' || val === 'response-header') return 'header-replace';
+    if (val === 'header-del') return 'header-del';
     if (val === 'body-replace' || val === 'replace' || val === 'response-body') return 'body-replace';
+    if (val === 'mock' || val === 'echo-data') return 'mock';
     return null;
   }
 
