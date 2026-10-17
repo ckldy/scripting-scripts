@@ -304,6 +304,68 @@ export class LocalDnsServer {
       const path = req.path;
       const method = req.method.toUpperCase();
 
+      // 0. Transparent HTTP Proxy Sniffing (标准 HTTP 代理接管与绝对 URL 自动嗅探)
+      const targetStr = req.target || '';
+      const hostHeader = (req.headers['host'] || req.headers['Host'] || '').split(':')[0].toLowerCase();
+      const isInternalPath =
+        path.startsWith('/ui') ||
+        path.startsWith('/api') ||
+        path.startsWith('/plugins') ||
+        path === '/dns-query' ||
+        path === '/metrics' ||
+        path === '/' ||
+        path === '/ui/';
+
+      const isLocalHost =
+        hostHeader === '127.0.0.1' ||
+        hostHeader === 'localhost' ||
+        hostHeader === '0.0.0.0' ||
+        hostHeader === '';
+
+      const isAbsoluteHttp = targetStr.startsWith('http://') || path.startsWith('http://');
+      const isTransparentProxy = isAbsoluteHttp || (!isInternalPath && !isLocalHost);
+
+      if (isTransparentProxy) {
+        let targetUrl = '';
+        if (targetStr.startsWith('http://')) {
+          targetUrl = targetStr;
+        } else if (path.startsWith('http://')) {
+          targetUrl = path;
+        } else {
+          const targetHost = req.headers['host'] || req.headers['Host'];
+          targetUrl = `http://${targetHost}${path}`;
+        }
+
+        let reqBody: string | undefined;
+        try {
+          reqBody = req.body ? req.body.toRawString('utf-8') : undefined;
+        } catch {}
+
+        const clientIp =
+          req.address?.split(':')[0] ||
+          req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+          '127.0.0.1';
+
+        const proxyResult = await ProxyHandler.get().processRequest({
+          url: targetUrl,
+          method,
+          headers: req.headers || {},
+          body: reqBody,
+          clientIp,
+        });
+
+        const bodyData = Data.fromRawString(proxyResult.body, 'utf-8');
+        return HttpResponse.raw(proxyResult.status, 'OK', {
+          headers: {
+            ...proxyResult.headers,
+            'X-LocalDNS-Cleaned': proxyResult.intercepted ? 'true' : 'false',
+            'X-LocalDNS-Proxy': 'transparent',
+            'Access-Control-Allow-Origin': '*',
+          },
+          body: bodyData,
+        });
+      }
+
       // Redirect root to /ui/
       if (path === '/' || path === '/ui') {
         return HttpResponse.movedTemporarily('/ui/');

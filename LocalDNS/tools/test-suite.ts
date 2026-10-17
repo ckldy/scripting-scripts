@@ -262,6 +262,25 @@ async function runTests() {
     assert(resRwClear.status === 200, `POST /api/v1/rewrites/logs/clear returns 200 OK`);
     const resRwLogsAfter = await (await fetch(`${baseUrl}/api/v1/rewrites/logs`)).json();
     assert(resRwLogsAfter.total === 0, 'rewrites logs cleared to 0');
+
+    // 2.11 验证透明 HTTP 代理与绝对 URL 自动嗅探 (无需 /proxy 路径，标准代理协议对接)
+    const resBiliProxy = await fetch(`${baseUrl}/x/v2/splash`, {
+      method: 'GET',
+      headers: { Host: 'api.bilibili.com' },
+    });
+    assert(resBiliProxy.status === 204, `Transparent HTTP proxy intercepts Bilibili splash ad with 204 (got ${resBiliProxy.status})`);
+    assert(resBiliProxy.headers.get('X-LocalDNS-Proxy') === 'transparent', 'X-LocalDNS-Proxy header is transparent');
+    assert(resBiliProxy.headers.get('X-LocalDNS-Cleaned') === 'true', 'X-LocalDNS-Cleaned header is true');
+
+    // 验证全网通用视频 SDK 桩代码透明代理拦截
+    const resImaProxy = await fetch(`${baseUrl}/js/sdkloader/ima3.js`, {
+      method: 'GET',
+      headers: { Host: 'imasdk.googleapis.com' },
+    });
+    assert(resImaProxy.status === 200, `Transparent HTTP proxy mocks Google IMA3 SDK with 200 (got ${resImaProxy.status})`);
+    const imaBody = await resImaProxy.text();
+    assert(imaBody.includes('window.google={ima:'), 'Google IMA3 SDK mock stub code returned');
+    assert(resImaProxy.headers.get('X-LocalDNS-Cleaned') === 'true', 'IMA SDK marked as cleaned');
   } catch (err: any) {
     console.error('API Test Error:', err);
     failed++;

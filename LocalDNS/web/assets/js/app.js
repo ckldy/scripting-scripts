@@ -2741,6 +2741,11 @@
         content:`#!name=Twitch 直播切片广告清洗\n#!desc=流式剔除 Twitch 直播流中的服务端广告切片 (SSAI) 与预取分片\n[MITM]\nhostname = *.ttvnw.net, *.twitch.tv\n\n[URL Rewrite]\n^https?:\\/\\/usher\\.ttvnw\\.net\\/api\\/channel\\/hls\\/ reject-dict\n^https?:\\/\\/spade\\.twitch\\.tv\\/track reject-200`
       },
       {
+        name:'全网通用视频广告SDK桩与拦截 (Surge/Loon)',
+        url:'',
+        content:`#!name=全网通用视频广告SDK桩与拦截\n#!desc=模拟 Google IMA SDK 桩代码，拦截爱奇艺、优酷、腾讯视频等前贴片与中插广告接口\n[MITM]\nhostname = imasdk.googleapis.com, *.iqiyi.com, *.qiyi.com, adstats.tencentmusic.com, *.youku.com, *.mgtv.com\n\n[URL Rewrite]\n^https?:\\/\\/imasdk\\.googleapis\\.com\\/js\\/sdkloader\\/ima3.*\\.js mock 200 window.google={ima:{AdDisplayContainer:function(){return{initialize:function(){},destroy:function(){}}},AdsLoader:function(){return{addEventListener:function(e,f){if(e==='adsManagerLoaded')setTimeout(function(){f({getAdsManager:function(){return{init:function(){},start:function(){},destroy:function(){},addEventListener:function(ev,cb){if(ev==='allAdsCompleted'||ev==='complete')cb();}}};});},10);}},requestAds:function(){}}},AdsManagerLoadedEvent:{Type:{ADS_MANAGER_LOADED:'adsManagerLoaded'}},AdEvent:{Type:{ALL_ADS_COMPLETED:'allAdsCompleted',COMPLETE:'complete',CONTENT_PAUSE_REQUESTED:'contentPauseRequested',CONTENT_RESUME_REQUESTED:'contentResumeRequested'}}}};\\n^https?:\\/\\/[\\w-]+\\.iqiyi\\.com\\/v5\\/ad\\/ reject-200\\n^https?:\\/\\/api\\.iqiyi\\.com\\/player\\/info mock 200 {"code":"A00000","data":{"ads":[]}}\\n^https?:\\/\\/adstats\\.tencentmusic\\.com\\/.* reject-200\\n^https?:\\/\\/.*\\.youku\\.com\\/.*\\/ad\\/.* reject-dict\\n^https?:\\/\\/.*\\.mgtv\\.com\\/.*\\/ad\\/.* reject-dict`
+      },
+      {
         name:'爱奇艺视频播放去广告 (Quantumult X)',
         url:'',
         content:`# Title: 爱奇艺视频去广告\n[mitm]\nhostname = *.iqiyi.com, *.qiyi.com\n\n[rewrite_local]\n^https?:\\/\\/[\\w-]+\\.iqiyi\\.com\\/v5\\/ad\\/ url reject-200\n^https?:\\/\\/api\\.iqiyi\\.com\\/player\\/info url reject-dict`

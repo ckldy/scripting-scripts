@@ -327,6 +327,47 @@ hostname = api.example.com
   assert(restoredMitmRoute.domainSet === 'mitm_fakeip', 'When switch_mitm is A, MITM host is properly hijacked to FakeIP');
 
   // -------------------------------------------------------------
+  // Test 12: Built-in Video AdBlock Presets (Bilibili & Universal Video SDK)
+  // -------------------------------------------------------------
+  console.log('\n--- Test Group 12: Built-in Video AdBlock Presets ---');
+
+  // 12.1 B站开屏广告拦截测试
+  const biliSplashResp = await proxyHandler.processRequest({
+    url: 'https://api.bilibili.com/x/v2/splash',
+    method: 'GET',
+    headers: { host: 'api.bilibili.com' },
+  });
+  assert(biliSplashResp.status === 204, 'Bilibili splash ad intercepted with 204');
+  assert(biliSplashResp.intercepted === true, 'Bilibili splash ad marked as intercepted');
+
+  // 12.2 B站信息流广告拦截测试
+  const biliFeedResp = await proxyHandler.processRequest({
+    url: 'https://app.bilibili.com/x/v2/feed/index',
+    method: 'GET',
+    headers: { host: 'app.bilibili.com' },
+  });
+  assert(biliFeedResp.status === 200 && biliFeedResp.body === '{}', 'Bilibili feed ad intercepted with reject-dict {}');
+
+  // 12.3 全网通用视频 Google IMA3 SDK 桩测试
+  const imaSdkResp = await proxyHandler.processRequest({
+    url: 'https://imasdk.googleapis.com/js/sdkloader/ima3.js',
+    method: 'GET',
+    headers: { host: 'imasdk.googleapis.com' },
+  });
+  assert(imaSdkResp.status === 200, 'IMA3 SDK returned 200 OK');
+  assert(imaSdkResp.body.includes('window.google={ima:'), 'IMA3 SDK returned mock stub code');
+  assert(imaSdkResp.headers['X-LocalDNS-Mock'] === 'true', 'IMA3 SDK marked with X-LocalDNS-Mock header');
+
+  // 12.4 爱奇艺广告接口拦截与 Mock 测试
+  const iqiyiAdResp = await proxyHandler.processRequest({
+    url: 'https://api.iqiyi.com/player/info',
+    method: 'GET',
+    headers: { host: 'api.iqiyi.com' },
+  });
+  assert(iqiyiAdResp.status === 200, 'iQiyi player info returned 200');
+  assert(iqiyiAdResp.body.includes('"ads":[]'), 'iQiyi player info returned empty ads array');
+
+  // -------------------------------------------------------------
   // Summary
   // -------------------------------------------------------------
   console.log('\n================================================================');

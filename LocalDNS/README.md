@@ -1,8 +1,8 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.4.4 (Build 20261018)`  
+> **当前版本**：`v1.4.5 (Build 20261018)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，集成查询日志 HTTP 重写实时审计追踪与规则管理多维度筛选搜索栏）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，支持 9099 端口透明 HTTP 代理嗅探接管与开箱即用的全网视频去广告规则库）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地 DNS 与应用层流清洗服务系统。
 
@@ -30,6 +30,15 @@
 - **多维度分流路由器 (`DiversionEngine`)**：涵盖名单管理（白名单/黑名单/灰名单/强制 RealIP/重定向 Rewrite/MITM 劫持）与在线分流（自定义 CN/Non-CN、Geosite CN/Non-CN），支持同组来源合并去重。
 
 ### 2. 跨平台模块引擎与应用层流清洗 (Surge / Loon / Quantumult X)
+- **9099 端口标准透明 HTTP 代理与绝对 URL 自动嗅探**：
+  - 本地 HTTP 9099 端口具备双重工作模式：既是 Web 质感控制台与明文 DoH 服务端，又是标准透明 HTTP 代理服务器；
+  - 自动识别客户端发来的绝对代理请求（`GET http://...`）或透明宿主请求（通过 `Host` 头部嗅探），无缝交由 `ProxyHandler` 流水线进行重定向、Mock、Header/Body 篡改与流清洗；
+  - 完美兼容 Surge、Loon、Shadowrocket 等代理工具的 `http, 127.0.0.1, 9099` 本地节点对接与 iOS Wi-Fi 代理手动配置。
+- **开箱即用的全网主流视频去广告规则库**：
+  - **Bilibili 纯净视频与开屏秒开 (`preset_bilibili`)**：拦截开屏广告（`/x/v2/splash`）、信息流推广（`/x/v2/feed/index`）、视频中插推荐（`/x/v2/ad/*`）与搜索广场推广；
+  - **全网通用视频广告 SDK 桩代码 (`preset_universal_video_sdk`)**：本地 Mock 模拟完整的 Google IMA3 (`ima3.js`) SDK，派发 `ALL_ADS_COMPLETED` 与 `COMPLETE` 事件欺骗播放器跳过广告等待；同时预置爱奇艺 (`/player/info` 空广告数组)、优酷、腾讯视频与芒果 TV 去广告规则；
+  - **YouTube 纯净视频切片阻断与流清洗 (`preset_youtube`)**：剥离 `videoplayback?adformat=1` 广告切片、剪枝 `adPlacements`；
+  - **Twitch 直播 SSAI 广告切片清洗 (`preset_twitch`)**：流式剥离 M3U8 中的 DATERANGE 广告段与预取切片。
 - **查询日志 HTTP 重写实时审计追踪 (`renderHttpRewriteLogs`)**：
   - 在 Web 控制台“查询日志”页面新增 **「HTTP 重写日志」** 专属选项卡，与 DNS 查询日志无缝切换；
   - 顶部呈现重写运行体征面板（已截获/总请求数、重定向/Mock 数、Header/Body 替换数、静态阻断数、视频流清洗数、平均处理延迟）；

@@ -6,7 +6,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 
 | 脚本 | 版本 | 说明 | 安装链接 |
 |---|---|---|---|
-| LocalDNS（本地 DNS 服务） | 1.4.4 | 本地 DNS 与应用层流清洗系统，支持在“查询日志”中实时追踪 HTTP 重写与流清洗审计日志、在“规则管理”进行多维度筛选搜索与 HTTP 重写可视化/纯文本深度编辑、单条启闭控制、在线实时推演测试，在“功能开关”独立控制 MITM 流量接管与 HTTP 重写引擎，支持正则捕获组跳转、Mock 响应、Header/Body 替换、Surge/Loon/QX 跨平台模块导入与 DNS 解析路径全分流动态交互推演（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
+| LocalDNS（本地 DNS 服务） | 1.4.5 | 本地 DNS 与应用层流清洗系统，支持 9099 端口标准透明 HTTP 代理嗅探接管、预置 B站全功能去广告与全网通用视频 SDK 桩代码模块（爱优腾芒全覆盖）、在“查询日志”实时追踪 HTTP 重写审计日志、在“规则管理”多维度筛选搜索与 HTTP 重写可视化/纯文本深度编辑、单条启闭控制、在线推演测试，在“功能开关”独立控制 MITM 流量接管与 HTTP 重写引擎（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
 | 台风路径 | 2.3.1 | 实时台风路径、多机构预报与气象图层；主程序刷新后会同步重载用户小组件，大号组件地图缓存批处理仅重载一次 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F台风路径.zip%22%5D) |
 | 黃豆短劇 | 1.2.0 | 浏览、搜索与收藏黃豆短劇内容，支持播放历史、剧集播放、上下滑切集与进度条 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D) |
 | NetRadio（网络收音机） | 1.0.1 | 全球 1000+ 公开网络电台（按 36 个国家/地区归类），黑胶唱机舞台、电平示波器、主题调色板与 iOS 原生后台/锁屏播控（基于 net-redio 移植，作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D) |
@@ -21,8 +21,14 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 ## 🌟 脚本功能详解与直链
 
 ### 🛡️ LocalDNS (本地 DNS 服务与流清洗管理系统)
-- **版本**：`1.4.4` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
+- **版本**：`1.4.5` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
 - **特性**：
+  - **9099 端口标准透明 HTTP 代理接管**：HTTP 9099 端口兼具 Web 控制台、普通 DoH 与透明 HTTP 代理服务；自动嗅探请求绝对 URL 或通过 Host 头部精准接管，直接交由 `ProxyHandler` 流水线重写、Mock 响应与切片清洗，无缝对接 Surge/Loon/小火箭本地节点与 iOS Wi-Fi 代理；
+  - **开箱即用的全网主流视频去广告规则库**：
+    - **Bilibili 纯净视频与开屏秒开 (`preset_bilibili`)**：拦截开屏广告（`/x/v2/splash` 204 秒开）、信息流推广卡片（`/x/v2/feed/index` 剔除）、视频播放中插推荐（`/x/v2/ad/*` 阻断）与搜索广场推广；
+    - **全网通用视频广告 SDK 桩代码 (`preset_universal_video_sdk`)**：本地 Mock 模拟完整的 Google IMA3 (`ima3.js`) SDK，派发 `ALL_ADS_COMPLETED` 与 `COMPLETE` 事件欺骗播放器跳过广告等待；同时预置爱奇艺 (`/player/info` 空广告数组)、优酷、腾讯视频与芒果 TV 去广告规则；
+    - **YouTube 纯净视频切片阻断与流清洗 (`preset_youtube`)**：剥离 `videoplayback?adformat=1` 广告切片、剪枝 `adPlacements`；
+    - **Twitch 直播 SSAI 广告切片清洗 (`preset_twitch`)**：流式剥离 M3U8 中的 DATERANGE 广告段与预取切片；
   - **查询日志 HTTP 重写实时审计追踪**：在 Web 控制台“查询日志”新增「HTTP 重写日志」选项卡，与 DNS 查询日志无缝切换；展示拦截状态、执行动作、状态码、耗时、规则名称、请求主机与完整 URL；提供审计详情抽屉并支持一键清空日志；
   - **规则管理 HTTP 重写多维度筛选与搜索栏**：在“HTTP 重写”列表视图新增多维度筛选工具栏，支持按关键词、动作类型（302重定向/Mock响应/Header替换/Body替换/拟真阻断）、规则来源（自定义/模块内置）与生效状态（生效中/已停用）即时模糊过滤与计数；
   - **规则管理 HTTP 重写深度编辑与在线推演**：支持双视图一键无缝切换（可视化列表 + 纯文本配置编辑），支持单条规则独立启闭开关、编辑、推演与删除；内置经典预设模版（重定向、Mock、UA替换、敏感头剥离、广告开关替换等）；内置 HTTP 重写实时推演与在线测试器，即时反馈命中规则、模拟返回状态码、重定向 Location、报文预览及执行动作；

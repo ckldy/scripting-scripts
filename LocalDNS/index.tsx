@@ -44,7 +44,7 @@ declare namespace Safari {
   function openURL(url: string): Promise<void>;
 }
 
-const APP_VERSION = 'v1.4.4';
+const APP_VERSION = 'v1.4.5';
 const APP_BUILD = '20261018';
 const APP_AUTHOR = 'vcncv';
 const UPSTREAM_REPO = 'https://github.com/yyhoworks/LocalDNS';
@@ -115,6 +115,36 @@ function LocalDnsApp() {
     const strippedAd = !cleaned.includes('stitched-ad') && !cleaned.includes('ad_segment.ts');
     setStatusMessage(`📺 Twitch M3U8 流清洗测试: ${strippedAd ? '成功剥离 SSAI 广告切片与预取行！' : '清洗未变动'}`);
     refreshStats();
+  };
+
+  const handleTestBilibiliAd = () => {
+    const url = 'https://api.bilibili.com/x/v2/splash';
+    const hit = ModuleManager.get().matchRewrite(url);
+    if (hit) {
+      setStatusMessage(`⚡️ 哔哩哔哩开屏去广告测试: 命中 [${hit.rule.pattern}] ➔ 动作: ${hit.action} (秒开无广告)`);
+    } else {
+      setStatusMessage('未命中 B站 去广告规则');
+    }
+    refreshStats();
+  };
+
+  const handleTestUniversalVideoSdk = () => {
+    const url = 'https://imasdk.googleapis.com/js/sdkloader/ima3.js';
+    const hit = ModuleManager.get().matchRewrite(url);
+    if (hit) {
+      setStatusMessage(`🛡️ 全网通用视频SDK桩测试: 命中 [${hit.rule.pattern}] ➔ 动作: ${hit.action} (本地 Mock 播放器广告桩)`);
+    } else {
+      setStatusMessage('未命中 Google IMA 桩规则');
+    }
+    refreshStats();
+  };
+
+  const copyHttpProxyConfig = async () => {
+    const snippet = `HTTP 代理服务器: 127.0.0.1\n端口: ${port}\n\nSurge 节点配置:\nLocalDNS-Proxy = http, 127.0.0.1, ${port}\n\nLoon 节点配置:\nLocalDNS-Proxy = http, 127.0.0.1, ${port}\n\n小火箭代理行:\nhttp://127.0.0.1:${port}`;
+    if (typeof Pasteboard !== 'undefined' && Pasteboard.setString) {
+      await Pasteboard.setString(snippet);
+      setStatusMessage(`已复制透明 HTTP 代理配置：127.0.0.1:${port}！`);
+    }
   };
 
   const handleToggleServer = async () => {
@@ -483,6 +513,18 @@ function LocalDnsApp() {
               action={handleTestTwitchM3u8Clean}
             />
           </HStack>
+
+          <HStack>
+            <Button
+              title="测试: 哔哩哔哩开屏/中插去广告"
+              action={handleTestBilibiliAd}
+            />
+            <Spacer />
+            <Button
+              title="测试: 全网通用视频SDK桩 (IMA3)"
+              action={handleTestUniversalVideoSdk}
+            />
+          </HStack>
         </Section>
 
         {/* 本地 DNS 实时解析排障 */}
@@ -606,6 +648,28 @@ function LocalDnsApp() {
               3. 选择「自定义」，填入 http://当前手机IP:{port}/dns-query 即可全局生效！
             </Text>
           </VStack>
+
+          {/* 透明 HTTP 代理接管与视频流清洗 */}
+          <VStack alignment="leading">
+            <Text bold font="headline">🎬 方案 4：透明 HTTP 代理与视频流清洗接管 (全代理工具 / Wi-Fi)</Text>
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              端口 9099 已开启透明 HTTP 代理嗅探，直接接管 HTTP 流量并剥离视频切片与广告：
+            </Text>
+            <Text font="caption">
+              1. Surge / Loon / 小火箭：添加本地 HTTP 节点 LocalDNS-Proxy = http, 127.0.0.1, {port}；
+            </Text>
+            <Text font="caption">
+              2. 路由分流规则：将需要去广告的视频域名（如 *.googlevideo.com, *.bilibili.com 等）指向该代理；
+            </Text>
+            <Text font="caption">
+              3. iOS Wi-Fi 代理：当前 Wi-Fi 设置 ➔ 配置代理选择手动 ➔ 服务器 127.0.0.1，端口 {port}。
+            </Text>
+          </VStack>
+
+          <Button
+            title={`复制 HTTP 代理配置 (127.0.0.1:${port})`}
+            action={copyHttpProxyConfig}
+          />
         </Section>
 
         {/* 运维与规则更新 */}

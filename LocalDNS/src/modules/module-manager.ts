@@ -79,6 +79,7 @@ export class ModuleManager {
     }
 
     // 确保存在自定义重写模块 (custom_rewrites)
+    let needSave = false;
     if (!this.modules.some((m) => m.id === 'custom_rewrites')) {
       const customModuleRaw = `#!name=自定义 HTTP 重写
 #!desc=本地自定义 URL 重定向、Mock 虚拟响应、Header 篡改与 Body 替换规则
@@ -86,10 +87,61 @@ export class ModuleManager {
 `;
       const mCustom = ModuleParser.parse(customModuleRaw, 'custom_rewrites');
       this.modules.unshift(mCustom);
+      needSave = true;
+    }
+
+    // 自动自愈补齐开箱即用的 B站去广告与全网视频SDK桩模块
+    if (!this.modules.some((m) => m.id === 'preset_bilibili')) {
+      const biliModuleRaw = this.getBilibiliModuleRaw();
+      const mBili = ModuleParser.parse(biliModuleRaw, 'preset_bilibili');
+      this.modules.push(mBili);
+      needSave = true;
+    }
+
+    if (!this.modules.some((m) => m.id === 'preset_universal_video_sdk')) {
+      const sdkModuleRaw = this.getUniversalVideoSdkModuleRaw();
+      const mSdk = ModuleParser.parse(sdkModuleRaw, 'preset_universal_video_sdk');
+      this.modules.push(mSdk);
+      needSave = true;
+    }
+
+    if (needSave) {
       this.saveModules();
     }
 
     this.rebuildMitmIndex();
+  }
+
+  private getBilibiliModuleRaw(): string {
+    return `#!name=Bilibili 纯净视频与开屏去广告
+#!desc=去除哔哩哔哩开屏秒启动、视频播放中插推荐、番剧贴片、信息流广告与推广卡片
+[MITM]
+hostname = *.bilibili.com, api.bilibili.com, app.bilibili.com, grpc.biliapi.net
+
+[URL Rewrite]
+^https?:\\/\\/api\\.bilibili\\.com\\/x\\/v2\\/splash reject-200
+^https?:\\/\\/app\\.bilibili\\.com\\/x\\/v2\\/feed\\/index reject-dict
+^https?:\\/\\/api\\.bilibili\\.com\\/x\\/v2\\/ad\\/.* reject-dict
+^https?:\\/\\/api\\.bilibili\\.com\\/x\\/v2\\/dm\\/ad reject-dict
+^https?:\\/\\/api\\.bilibili\\.com\\/x\\/v2\\/rank\\/.*ad reject-200
+^https?:\\/\\/app\\.bilibili\\.com\\/x\\/v2\\/search\\/square reject-dict
+`;
+  }
+
+  private getUniversalVideoSdkModuleRaw(): string {
+    return `#!name=全网通用视频广告SDK桩与拦截
+#!desc=模拟 Google IMA SDK 桩代码，拦截爱奇艺、优酷、腾讯视频等前贴片与中插广告接口
+[MITM]
+hostname = imasdk.googleapis.com, *.iqiyi.com, *.qiyi.com, adstats.tencentmusic.com, *.youku.com, *.mgtv.com
+
+[URL Rewrite]
+^https?:\\/\\/imasdk\\.googleapis\\.com\\/js\\/sdkloader\\/ima3.*\\.js mock 200 window.google={ima:{AdDisplayContainer:function(){return{initialize:function(){},destroy:function(){}}},AdsLoader:function(){return{addEventListener:function(e,f){if(e==='adsManagerLoaded')setTimeout(function(){f({getAdsManager:function(){return{init:function(){},start:function(){},destroy:function(){},addEventListener:function(ev,cb){if(ev==='allAdsCompleted'||ev==='complete')cb();}}};});},10);}},requestAds:function(){}}},AdsManagerLoadedEvent:{Type:{ADS_MANAGER_LOADED:'adsManagerLoaded'}},AdEvent:{Type:{ALL_ADS_COMPLETED:'allAdsCompleted',COMPLETE:'complete',CONTENT_PAUSE_REQUESTED:'contentPauseRequested',CONTENT_RESUME_REQUESTED:'contentResumeRequested'}}}};
+^https?:\\/\\/[\\w-]+\\.iqiyi\\.com\\/v5\\/ad\\/ reject-200
+^https?:\\/\\/api\\.iqiyi\\.com\\/player\\/info mock 200 {"code":"A00000","data":{"ads":[]}}
+^https?:\\/\\/adstats\\.tencentmusic\\.com\\/.* reject-200
+^https?:\\/\\/.*\\.youku\\.com\\/.*\\/ad\\/.* reject-dict
+^https?:\\/\\/.*\\.mgtv\\.com\\/.*\\/ad\\/.* reject-dict
+`;
   }
 
   private initDefaultPresets(): void {
@@ -106,13 +158,13 @@ export class ModuleManager {
 hostname = *.googlevideo.com, www.youtube.com, youtubei.googleapis.com
 
 [URL Rewrite]
-^https?:\/\/[\w-]+\.googlevideo\.com\/videoplayback\?.+(&adformat=|\/ad\/) reject-200
-^https?:\/\/www\.youtube\.com\/youtubei\/v1\/player\/ad_break reject-dict
-^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/log_event reject-200
-^https?:\/\/www\.youtube\.com\/api\/stats\/ads reject-200
+^https?:\\/\\/[\\w-]+\\.googlevideo\\.com\\/videoplayback\\?.+(&adformat=|\\/ad\\/) reject-200
+^https?:\\/\\/www\\.youtube\\.com\\/youtubei\\/v1\\/player\\/ad_break reject-dict
+^https?:\\/\\/youtubei\\.googleapis\\.com\\/youtubei\\/v1\\/log_event reject-200
+^https?:\\/\\/www\\.youtube\\.com\\/api\\/stats\\/ads reject-200
 
 [Script]
-youtube-player = type=http-response,pattern=^https?:\/\/www\.youtube\.com\/youtubei\/v1\/player,script-path=https://raw.githubusercontent.com/Maasea/sgmodule/master/Script/Youtube/youtube.js,requires-body=true
+youtube-player = type=http-response,pattern=^https?:\\/\\/www\\.youtube\\.com\\/youtubei\\/v1\\/player,script-path=https://raw.githubusercontent.com/Maasea/sgmodule/master/Script/Youtube/youtube.js,requires-body=true
 `;
 
     // 预置 2: Twitch SSAI 广告切片清洗模块
@@ -122,14 +174,16 @@ youtube-player = type=http-response,pattern=^https?:\/\/www\.youtube\.com\/youtu
 hostname = *.ttvnw.net, *.twitch.tv
 
 [URL Rewrite]
-^https?:\/\/usher\.ttvnw\.net\/api\/channel\/hls\/ reject-dict
-^https?:\/\/spade\.twitch\.tv\/track reject-200
+^https?:\\/\\/usher\\.ttvnw\\.net\\/api\\/channel\\/hls\\/ reject-dict
+^https?:\\/\\/spade\\.twitch\\.tv\\/track reject-200
 `;
 
     const m0 = ModuleParser.parse(customModuleRaw, 'custom_rewrites');
     const m1 = ModuleParser.parse(ytModuleRaw, 'preset_youtube');
     const m2 = ModuleParser.parse(twitchModuleRaw, 'preset_twitch');
-    this.modules = [m0, m1, m2];
+    const m3 = ModuleParser.parse(this.getBilibiliModuleRaw(), 'preset_bilibili');
+    const m4 = ModuleParser.parse(this.getUniversalVideoSdkModuleRaw(), 'preset_universal_video_sdk');
+    this.modules = [m0, m1, m2, m3, m4];
     this.saveModules();
   }
 
