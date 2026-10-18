@@ -262,6 +262,8 @@ export class LocalDnsServer {
         path === '/localdns.sgmodule' ||
         path === '/localdns.plugin' ||
         path === '/localdns.conf' ||
+        path === '/localdns.mobileconfig' ||
+        path === '/apple-dns.mobileconfig' ||
         path === '/surge.sgmodule' ||
         path === '/loon.plugin' ||
         path === '/qx.conf' ||
@@ -339,6 +341,23 @@ export class LocalDnsServer {
       }
       if ((path === '/localdns.conf' || path === '/qx.conf' || path === '/quantumultx.conf') && method === 'GET') {
         return textResponse(ModuleManager.get().exportAsQuantumultXConf(), 200, 'text/plain; charset=utf-8');
+      }
+
+      // Native Apple Encrypted DNS configuration profile endpoint: /localdns.mobileconfig
+      if ((path === '/localdns.mobileconfig' || path === '/apple-dns.mobileconfig') && method === 'GET') {
+        const p = isTls ? this.httpsPort : this.port;
+        const s = isTls ? 'https' : 'http';
+        const configXml = this.generateAppleDnsProfile(s, p);
+        const bodyData = Data.fromRawString(configXml, 'utf-8');
+        return HttpResponse.raw(200, 'OK', {
+          headers: {
+            'Content-Type': 'application/x-apple-aspen-config; charset=utf-8',
+            'Content-Disposition': 'attachment; filename="LocalDNS.mobileconfig"',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+          },
+          body: bodyData,
+        });
       }
 
       // Redirect root to /ui/
@@ -472,6 +491,26 @@ export class LocalDnsServer {
 
     server.registerAsyncHandler('/localdns.conf', async () => {
       return textResponse(ModuleManager.get().exportAsQuantumultXConf(), 200, 'text/plain; charset=utf-8');
+    });
+
+    server.registerAsyncHandler('/localdns.mobileconfig', async () => {
+      const p = isTls ? this.httpsPort : this.port;
+      const s = isTls ? 'https' : 'http';
+      const configXml = this.generateAppleDnsProfile(s, p);
+      const bodyData = Data.fromRawString(configXml, 'utf-8');
+      return HttpResponse.raw(200, 'OK', {
+        headers: {
+          'Content-Type': 'application/x-apple-aspen-config; charset=utf-8',
+          'Content-Disposition': 'attachment; filename="LocalDNS.mobileconfig"',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        },
+        body: bodyData,
+      });
+    });
+
+    server.registerAsyncHandler('/api/v1/system/vpn', async (req) => {
+      return await this.handleApi('/api/v1/system/vpn', req.method.toUpperCase(), req);
     });
 
     // Fallback 404
@@ -1061,6 +1100,43 @@ $httpClient.get({
       });
     }
 
+    // 28. /api/v1/system/vpn (Scripting 原生系统级 VPN 控制与状态透视)
+    if (cleanPath === '/api/v1/system/vpn') {
+      if (method === 'GET') {
+        try {
+          const vpnState = typeof VPN !== 'undefined' ? await VPN.getState() : { status: 'unsupported', active: false };
+          return jsonResponse({ success: true, vpn: vpnState });
+        } catch (e: any) {
+          return jsonResponse({ success: false, error: e.message }, 500);
+        }
+      }
+      if (method === 'POST') {
+        const body = parseJsonBody(req);
+        const action = body.action || 'toggle';
+        try {
+          if (typeof VPN === 'undefined') {
+            return jsonResponse({ error: 'VPN API not available in current environment' }, 501);
+          }
+          let nextState: any;
+          if (action === 'start') {
+            nextState = await VPN.start();
+          } else if (action === 'stop') {
+            nextState = await VPN.stop();
+          } else {
+            const cur = await VPN.getState();
+            if (cur.active || cur.status === 'connected') {
+              nextState = await VPN.stop();
+            } else {
+              nextState = await VPN.start();
+            }
+          }
+          return jsonResponse({ success: true, vpn: nextState });
+        } catch (e: any) {
+          return jsonResponse({ success: false, error: e.message }, 500);
+        }
+      }
+    }
+
     return jsonResponse({ error: 'Unknown API endpoint' }, 404);
   }
 
@@ -1419,5 +1495,57 @@ $httpClient.get({
     }
 
     return jsonResponse({ error: 'Plugin action not supported' }, 404);
+  }
+
+  private generateAppleDnsProfile(scheme: string, port: number): string {
+    const serverUrl = `${scheme}://127.0.0.1:${port}/dns-query`;
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>PayloadContent</key>
+    <array>
+        <dict>
+            <key>DNSSettings</key>
+            <dict>
+                <key>DNSProtocol</key>
+                <string>HTTPS</string>
+                <key>ServerURL</key>
+                <string>${serverUrl}</string>
+                <key>ServerAddresses</key>
+                <array>
+                    <string>127.0.0.1</string>
+                </array>
+            </dict>
+            <key>PayloadDescription</key>
+            <string>LocalDNS iOS 原生系统级 Encrypted DNS (DoH) 纯净去广告与防追踪配置</string>
+            <key>PayloadDisplayName</key>
+            <string>LocalDNS 原生纯净加密 DNS</string>
+            <key>PayloadIdentifier</key>
+            <string>com.localdns.apple.dns.managed</string>
+            <key>PayloadType</key>
+            <string>com.apple.dnsSettings.managed</string>
+            <key>PayloadUUID</key>
+            <string>8F2C7480-323A-4217-A186-0D5303E48C5B</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+        </dict>
+    </array>
+    <key>PayloadDescription</key>
+    <string>LocalDNS 原生系统级纯净 DNS 配置，零外挂、零耗电，全局自动拦截 18.5 万条广告与恶意追踪域名。</string>
+    <key>PayloadDisplayName</key>
+    <string>LocalDNS 原生纯净加密 DNS</string>
+    <key>PayloadIdentifier</key>
+    <string>com.localdns.apple.profile</string>
+    <key>PayloadRemovalDisallowed</key>
+    <false/>
+    <key>PayloadType</key>
+    <string>Configuration</string>
+    <key>PayloadUUID</key>
+    <string>7A14486E-6F39-44F4-9C78-592DB96DF026</string>
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+</dict>
+</plist>`;
   }
 }

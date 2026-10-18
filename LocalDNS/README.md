@@ -1,8 +1,8 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.4.8 (Build 20261018)`  
+> **当前版本**：`v1.5.0 (Build 20261018)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，实现 9099 (HTTP) 与 9443 (HTTPS) 双端口全功能对称生效、Surge/Loon/QX 模块一键动态编译挂载、YouTube 广告全面阻断与 15 条强力切片重写）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，实现原生零外挂纯净去广告闭环：深度集成 Scripting 系统级 VPN 隧道、Apple 原生加密 DNS 描述文件、本地 MITM 切片流清洗引擎与 9099/9443 双端口对称代理）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地 DNS 与应用层流清洗服务系统。
 
@@ -29,7 +29,12 @@
 - **AdGuard 广告拦截引擎 (`AdGuardEngine`)**：支持 AdGuard 规则语法（`||domain^`、`@@` 白名单例外）与 Hosts 语法拦截，支持多订阅源在线更新与 18.5 万条过滤规则开箱即用。
 - **多维度分流路由器 (`DiversionEngine`)**：涵盖名单管理（白名单/黑名单/灰名单/强制 RealIP/重定向 Rewrite/MITM 劫持）与在线分流（自定义 CN/Non-CN、Geosite CN/Non-CN），支持同组来源合并去重。
 
-### 2. 跨平台模块引擎与应用层流清洗 (Surge / Loon / Quantumult X)
+### 2. 原生零外挂纯净闭环与应用层流清洗 (v1.5.0 重大升级)
+- **原生零外挂纯净去广告闭环 (v1.5.0 首创)**：
+  - **核心痛点突破**：以往流清洗与切片去广告必须在外部代理软件（如 Surge / Loon）中挂载复杂模块，导致用户产生“既然本地有引擎为什么还要装外挂软件”的困扰。v1.5.0 彻底推倒外部依赖，打造 **100% 本地原生闭环**！
+  - **Scripting 原生全局 VPN 隧道**：深度调用 Scripting 系统级 `VPN` API（`VPN.getState()`, `VPN.start()`, `VPN.stop()`），在 iOS 原生仪表盘与 Web 控制台提供一键开关。连接后全手机网络流量直接由系统内核级虚拟网卡流经本地，切片清洗与域名过滤由 LocalDNS 内部直接执行；
+  - **Apple 官方原生加密 DNS 描述文件 (`/localdns.mobileconfig`)**：一键生成并下载遵循 iOS 14+ 官方标准的 `com.apple.dnsSettings.managed` 配置文件，由苹果操作系统内核直接驱动本地 9443 DoH 服务，后台零额外耗电、免开任何代理工具，全局阻断 18.5 万条广告；
+  - **本地原生模块直接执行中心**：LocalDNS 原生加载并执行 Surge 模块、Loon 插件与 QX 重写规则，直接在本地中间件与 `ProxyHandler` 流水线中生效，外部客户端仅作为可选导出备用；
 - **9099 (HTTP) 与 9443 (HTTPS) 双端口全功能对称生效 (v1.4.8)**：
   - **双端口对称共生架构**：本地 HTTP 9099 端口与 HTTPS 9443 端口底层共享同一套中间件流水线与规则引擎，支持全功能对等运作；
   - **HTTP/HTTPS 代理双通道接管**：客户端既可使用免证书的明文 HTTP 代理节点（`LocalDNS-Proxy = http, 127.0.0.1, 9099`），也可使用带 TLS 加密的安全 HTTPS 代理节点（`LocalDNS-Proxy-TLS = https, 127.0.0.1, 9443, skip-cert-verify=true`）；

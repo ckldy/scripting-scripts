@@ -72,6 +72,8 @@ async function runTests() {
   assert(appJsStr.includes('openModuleModal'), 'app.js implements openModuleModal import modal');
   assert(appJsStr.includes('btn-mount-surge'), 'app.js includes btn-mount-surge client link button');
   assert(appJsStr.includes('btn-mount-loon'), 'app.js includes btn-mount-loon client link button');
+  assert(appJsStr.includes('btn-native-vpn-toggle'), 'app.js includes btn-native-vpn-toggle native VPN button');
+  assert(appJsStr.includes('btn-download-mobileconfig'), 'app.js includes btn-download-mobileconfig Apple DNS button');
   assert(appJsStr.includes('btn-preview-compiled-module'), 'app.js includes btn-preview-compiled-module button');
   assert(appJsStr.includes('topo-dynamic-toolbar'), 'app.js includes topo-dynamic-toolbar HTML');
   assert(appJsStr.includes('runTopoTracer'), 'app.js implements runTopoTracer dynamic path reasoning');
@@ -307,6 +309,20 @@ async function runTests() {
     assert(resQxExport.status === 200, `/localdns.conf returns 200 OK`);
     const qxExportText = await resQxExport.text();
     assert(qxExportText.includes('[rewrite_local]') && qxExportText.includes('[mitm]'), 'Quantumult X export contains rewrite_local and mitm sections');
+
+    // 2.13 验证系统级原生 VPN 控制接口与 Apple 原生加密 DNS 描述文件
+    const resVpn = await fetch(`${baseUrl}/api/v1/system/vpn`);
+    assert(resVpn.status === 200, `/api/v1/system/vpn returns 200 OK`);
+    const vpnData = await resVpn.json();
+    assert(vpnData.success === true && vpnData.vpn, 'Native VPN status contract valid');
+
+    const resMobileconfig = await fetch(`${baseUrl}/localdns.mobileconfig`);
+    assert(resMobileconfig.status === 200, `/localdns.mobileconfig returns 200 OK`);
+    const cTypeMc = resMobileconfig.headers.get('Content-Type') || '';
+    assert(cTypeMc.includes('apple-aspen-config'), 'Content-Type is apple-aspen-config');
+    const mcText = await resMobileconfig.text();
+    assert(mcText.includes('com.apple.dnsSettings.managed'), 'Apple DNS payload type matches com.apple.dnsSettings.managed');
+    assert(mcText.includes('ServerURL'), 'Apple DNS payload includes ServerURL');
   } catch (err: any) {
     console.error('API Test Error:', err);
     failed++;

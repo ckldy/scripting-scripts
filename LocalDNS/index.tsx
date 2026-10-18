@@ -44,7 +44,7 @@ declare namespace Safari {
   function openURL(url: string): Promise<void>;
 }
 
-const APP_VERSION = 'v1.4.7';
+const APP_VERSION = 'v1.5.0';
 const APP_BUILD = '20261018';
 const APP_AUTHOR = 'vcncv';
 const UPSTREAM_REPO = 'https://github.com/yyhoworks/LocalDNS';
@@ -64,6 +64,13 @@ function LocalDnsApp() {
   // Server state
   const [isRunning, setIsRunning] = useState<boolean>(server.getIsRunning());
   const [port, setPort] = useState<number>(server.getPort());
+
+  // Native System VPN state
+  const [vpnState, setVpnState] = useState<{ status: string; active: boolean }>({
+    status: 'disconnected',
+    active: false,
+  });
+  const [isVpnToggling, setIsVpnToggling] = useState<boolean>(false);
 
   // Stats state
   const [stats, setStats] = useState(AuditManager.get().getStats());
@@ -96,6 +103,54 @@ function LocalDnsApp() {
     setModuleStats(ModuleManager.get().getStats());
     setFakeipStats(FakeIpPool.get().getStats());
     setLastRefreshed(new Date().toLocaleTimeString('zh-CN', { hour12: false }));
+    refreshVpnState();
+  };
+
+  const refreshVpnState = async () => {
+    try {
+      if (typeof VPN !== 'undefined' && VPN.getState) {
+        const s = await VPN.getState();
+        setVpnState({ status: s.status, active: s.active });
+      }
+    } catch {}
+  };
+
+  const handleToggleVpn = async () => {
+    if (typeof VPN === 'undefined') {
+      setStatusMessage('当前环境不支持 Scripting 原生 VPN API');
+      return;
+    }
+    setIsVpnToggling(true);
+    try {
+      const cur = await VPN.getState();
+      if (cur.active || cur.status === 'connected') {
+        setStatusMessage('正在停止原生纯净 VPN 隧道...');
+        const next = await VPN.stop();
+        setVpnState({ status: next.status, active: next.active });
+        setStatusMessage('原生系统 VPN 已断开');
+      } else {
+        setStatusMessage('正在启动原生纯净 VPN 隧道...');
+        const next = await VPN.start();
+        setVpnState({ status: next.status, active: next.active });
+        setStatusMessage('🛡️ 原生系统级 VPN 已成功连接！全设备广告已由本地直接接管！');
+      }
+    } catch (err: any) {
+      setStatusMessage(`VPN 控制失败: ${err.message}`);
+    } finally {
+      setIsVpnToggling(false);
+    }
+  };
+
+  const installAppleDnsProfile = async () => {
+    if (!isRunning) {
+      server.start(port);
+      setIsRunning(true);
+    }
+    const profileUrl = `http://127.0.0.1:${port}/localdns.mobileconfig`;
+    if (typeof Safari !== 'undefined' && Safari.openURL) {
+      await Safari.openURL(profileUrl);
+      setStatusMessage('正在下载 Apple 原生纯净加密 DNS 描述文件，请前往 iOS「设置」➔「已下载描述文件」安装，即可在内核层原生去广告！');
+    }
   };
 
   const handleTestYoutubeStreamAd = () => {
@@ -422,6 +477,59 @@ function LocalDnsApp() {
           </HStack>
         </Section>
 
+        {/* 🛡️ 原生系统级零外挂纯净闭环控制专区 */}
+        <Section
+          header={<Text>🛡️ 原生系统级零外挂纯净闭环</Text>}
+          footer={<Text>无需安装任何第三方外挂软件（如 Surge/Loon/小火箭），直接通过 iOS 原生能力闭环完成广告拦截与切片清洗。</Text>}
+        >
+          {/* Scripting 原生 VPN 隧道控制 */}
+          <HStack alignment="center">
+            <Image
+              systemName={vpnState.active || vpnState.status === 'connected' ? 'lock.shield.fill' : 'shield.slash.fill'}
+              tint={vpnState.active || vpnState.status === 'connected' ? '#10b981' : '#6b7280'}
+            />
+            <VStack alignment="leading">
+              <Text bold>
+                {vpnState.active || vpnState.status === 'connected'
+                  ? '原生纯净 VPN 运行中'
+                  : '原生纯净 VPN 未连接'}
+              </Text>
+              <Text font="caption" foregroundStyle="secondaryLabel">
+                {vpnState.active || vpnState.status === 'connected'
+                  ? '状态: 已连接 · 全设备流量由本地闭环接管'
+                  : `状态: ${vpnState.status} · 点击一键启动系统原生隧道`}
+              </Text>
+            </VStack>
+            <Spacer />
+            <Button
+              title={
+                isVpnToggling
+                  ? '切换中...'
+                  : vpnState.active || vpnState.status === 'connected'
+                  ? '断开'
+                  : '一键启动'
+              }
+              action={handleToggleVpn}
+            />
+          </HStack>
+
+          {/* Apple 原生加密 DNS 描述文件安装 */}
+          <HStack alignment="center">
+            <Image systemName="arrow.down.doc.fill" tint="#3b82f6" />
+            <VStack alignment="leading">
+              <Text bold>Apple 原生加密 DNS 描述文件</Text>
+              <Text font="caption" foregroundStyle="secondaryLabel">
+                系统内核级 DoH 直连 · 零耗电 · 自动拦截 18.5 万条广告
+              </Text>
+            </VStack>
+            <Spacer />
+            <Button
+              title="一键安装"
+              action={installAppleDnsProfile}
+            />
+          </HStack>
+        </Section>
+
         {/* 提示信息 */}
         {statusMessage ? (
           <Section>
@@ -640,110 +748,78 @@ function LocalDnsApp() {
           ) : null}
         </Section>
 
-        {/* 客户端引流与流量接管详细使用教程 */}
+        {/* 零外挂纯净闭环与引流详细指南 */}
         <Section
-          header={<Text>客户端引流与流量接管详细指南</Text>}
-          footer={<Text>LocalDNS 作为本地 DNS 核心服务端，需通过客户端或代理工具将 DNS 导流至本机，全机 App 流量才会进入控制台统计与 AdGuard 过滤。</Text>}
+          header={<Text>零外挂纯净闭环与引流详细指南</Text>}
+          footer={<Text>LocalDNS 支持 Scripting 原生系统级 VPN、Apple 原生加密 DNS 描述文件与 Wi-Fi 代理，无需依赖任何第三方 App 即可实现全自动去广告闭环。</Text>}
         >
-          {/* Surge 详细使用方法 */}
+          {/* 方案 1：Scripting 原生全局 VPN 隧道 */}
           <VStack alignment="leading">
-            <Text bold font="headline">⚡️ 方案 1：Surge 专属 DoH 接管 (强烈推荐)</Text>
+            <Text bold font="headline">⚡️ 方案 1：Scripting 原生全局 VPN (首选推荐·一键闭环)</Text>
             <Text font="caption" foregroundStyle="secondaryLabel">
-              DoH 地址严格锁定为 https://127.0.0.1:9443/dns-query，请按照以下 5 步完成闭环：
+              完全不需要安装 Surge、Loon、小火箭等任何外部软件！直接由 Scripting 官方系统级 VPN 隧道接管：
             </Text>
             <Text font="caption">
-              1. 点击下方「安装 CA 根证书」，在 Safari 中允许下载描述文件；
+              1. 点击上方「🛡️ 原生系统级零外挂纯净闭环」专区的【一键启动】按键；
             </Text>
             <Text font="caption">
-              2. 打开 iOS「设置」➔「已下载的描述文件」，点击安装 LocalDNS Root CA；
-            </Text>
-            <Text font="caption" foregroundStyle="systemRed">
-              3. 【关键核心】前往「设置」➔「通用」➔「关于本机」➔「证书信任设置」，开启完全信任！
+              2. 首次启动时系统会弹出 iOS 官方标准的“添加 VPN 配置”授权，点击“允许”；
             </Text>
             <Text font="caption">
-              4. 点击下方「复制 Surge 专属 DoH 配置」，粘贴至 Surge 配置文件文本模式；
-            </Text>
-            <Text font="caption">
-              5. 开启 Surge 代理，在浏览器中访问任意网页，控制台日志将实时刷屏！
-            </Text>
-          </VStack>
-
-          <HStack>
-            <Button
-              title="① 安装 CA 根证书"
-              action={installCaCert}
-            />
-            <Spacer />
-            <Button
-              title="重新生成 CA 证书"
-              action={handleReissueCert}
-            />
-          </HStack>
-
-          <Button
-            title="② 复制 Surge 专属 DoH 配置 (https://127.0.0.1:9443/dns-query)"
-            action={copySurgeDohConfig}
-          />
-
-          {/* Shadowrocket 详细使用方法 */}
-          <VStack alignment="leading">
-            <Text bold font="headline">📱 方案 2：Shadowrocket (小火箭·免证书全局接管)</Text>
-            <Text font="caption" foregroundStyle="secondaryLabel">
-              小火箭原生支持明文 HTTP DoH，无需安装和信任任何证书，只需 3 步：
-            </Text>
-            <Text font="caption">
-              1. 点击下方「复制通用 DoH 地址」，获得 http://127.0.0.1:9099/dns-query；
-            </Text>
-            <Text font="caption">
-              2. 打开小火箭 ➔ 底部「设置」➔「DNS」➔「DNS 覆写」，粘贴该地址并保存；
-            </Text>
-            <Text font="caption">
-              3. 返回小火箭首页开启开关，即可瞬间接管全手机所有 App 的 DNS 流量！
+              3. 连接成功后，全手机所有网络流量立即由系统内核原生隧道无缝接管，广告切片与 18.5 万条域名由 LocalDNS 内部流水线直接清洗！
             </Text>
           </VStack>
 
           <Button
-            title="复制通用 DoH 地址 (http://127.0.0.1:9099/dns-query)"
-            action={copyDohUrl}
+            title={
+              isVpnToggling
+                ? '正在操作原生 VPN...'
+                : vpnState.active || vpnState.status === 'connected'
+                ? '暂停 Scripting 原生 VPN 隧道'
+                : '一键启动 Scripting 原生纯净 VPN'
+            }
+            action={handleToggleVpn}
           />
 
-          {/* 电脑 / 局域网设备接管 */}
+          {/* 方案 2：Apple 原生加密 DNS 描述文件 */}
           <VStack alignment="leading">
-            <Text bold font="headline">💻 方案 3：电脑 / 局域网设备接入 (家庭 DNS 防火墙)</Text>
+            <Text bold font="headline">🍎 方案 2：Apple 原生加密 DNS 描述文件 (零外挂·零耗电·免代理)</Text>
             <Text font="caption" foregroundStyle="secondaryLabel">
-              让局域网内的 Mac、Windows PC 或电视盒子通过当前手机进行过滤与加速：
+              iOS 14+ 官方支持的系统级 Encrypted DNS (DoH) 标准，由苹果操作系统内核直接驱动：
             </Text>
             <Text font="caption">
-              1. 确保手机与电脑处于同一个 Wi-Fi 网络，查看当前 iPhone 的局域网 IP；
+              1. 点击下方「安装 Apple 纯净 DNS 描述文件」，Safari 将提示允许下载配置文件；
             </Text>
             <Text font="caption">
-              2. 在电脑的 Chrome/Edge 浏览器 ➔「设置」➔「安全」➔ 开启「使用安全 DNS」；
+              2. 打开 iPhone「设置」➔「已下载的描述文件」➔ 点击安装「LocalDNS 原生纯净加密 DNS」；
             </Text>
             <Text font="caption">
-              3. 选择「自定义」，填入 http://当前手机IP:{port}/dns-query 即可全局生效！
+              3. 安装后前往「设置」➔「通用」➔「VPN 与设备管理」➔「DNS」中勾选 LocalDNS；
+            </Text>
+            <Text font="caption">
+              4. 全局 18.5 万条广告域名由 iOS 内核直接阻断，后台零额外耗电，免开任何代理工具！
             </Text>
           </VStack>
 
-          {/* 透明代理接管与视频流清洗（9099 HTTP 与 9443 HTTPS 双端口同时生效） */}
+          <Button
+            title="一键安装 Apple 官方纯净 DNS 描述文件"
+            action={installAppleDnsProfile}
+          />
+
+          {/* 方案 3：本机 Wi-Fi / 局域网透明代理 */}
           <VStack alignment="leading">
-            <Text bold font="headline">🎬 方案 4：透明代理与视频流清洗 (9099 与 9443 双端口完全对称生效)</Text>
+            <Text bold font="headline">🎬 方案 3：本机 Wi-Fi / 局域网透明代理 (9099 HTTP / 9443 HTTPS)</Text>
             <Text font="caption" foregroundStyle="secondaryLabel">
-              LocalDNS 采用双端口对称流水线，无论流量通过 9099 还是 9443 进出，去广告、切片剥离与重写全部同时生效：
+              无需任何第三方软件，利用 iOS 系统的 Wi-Fi 代理功能直接将流量导入 LocalDNS 流水线：
             </Text>
             <Text font="caption">
-              • 端口 9099 (明文 HTTP): 适用于本地极速直连，免证书校验；
+              1. 打开 iPhone「设置」➔「无线局域网」➔ 点击当前 Wi-Fi 右侧的 ⓘ 按钮；
             </Text>
             <Text font="caption">
-              • 端口 9443 (TLS 加密 HTTPS): 适用于 TLS 加密代理节点，保护本地传输；
+              2. 滑到最底部「配置代理」选择「手动」，服务器填 127.0.0.1，端口填 9099；
             </Text>
             <Text font="caption">
-              1. Surge / Loon / 小火箭：添加本地 HTTP 节点 (9099) 或 HTTPS 节点 (9443)；
-            </Text>
-            <Text font="caption">
-              2. 路由分流规则：将需要去广告的视频域名（如 *.googlevideo.com, *.bilibili.com 等）指向该节点；
-            </Text>
-            <Text font="caption">
-              3. iOS Wi-Fi 代理：当前 Wi-Fi 设置 ➔ 配置代理选择手动 ➔ 服务器 127.0.0.1，端口 {port}。
+              3. 局域网其他设备（电脑/电视盒子）也可将代理服务器设置为当前 iPhone 的局域网 IP，共享去广告！
             </Text>
           </VStack>
 
@@ -759,22 +835,31 @@ function LocalDnsApp() {
             />
           </HStack>
 
-          {/* 方案 5：Surge / Loon 模块与 HTTPS MITM 挂载 (彻底去除 YouTube 视频广告) */}
+          {/* 方案 4：高级备用选项：第三方外部代理客户端导出 */}
           <VStack alignment="leading">
-            <Text bold font="headline">🎬 方案 5：Surge / Loon 模块挂载与 HTTPS MITM (YouTube 去广告终极解法)</Text>
+            <Text bold font="headline">⚙️ 方案 4：高级备用选项：外部客户端模块同步 (可选)</Text>
             <Text font="caption" foregroundStyle="secondaryLabel">
-              YouTube 与主流 App 视频流采用 HTTPS 端到端加密，纯 DNS 只能拦截外链追踪。要在客户端彻底剥离视频切片 (SSAI) 与播放器内插广告，必须一键挂载 LocalDNS 动态编译模块：
+              如果您已有使用 Surge、Loon 或 Quantumult X 的习惯，LocalDNS 支持将本地模块规则一键导出给外部工具：
             </Text>
             <Text font="caption">
-              1. 确保已安装并信任 CA 根证书（参考上方方案 1 步骤 1~3）；
+              1. Surge DoH：https://127.0.0.1:9443/dns-query（需安装下方 CA 证书）；
             </Text>
             <Text font="caption">
-              2. 点击下方「安装到 Surge」或「安装到 Loon」，客户端将自动下载本地编译的模块；
-            </Text>
-            <Text font="caption">
-              3. 在 Surge/Loon 中启用该模块，勾选开启 MITM 解密，即可在 YouTube/B站中享受 100% 纯净无广告体验！
+              2. 模块一键安装：点击下方按钮可调起 Surge/Loon 自动订阅本地编译的规则。
             </Text>
           </VStack>
+
+          <HStack>
+            <Button
+              title="安装 CA 根证书"
+              action={installCaCert}
+            />
+            <Spacer />
+            <Button
+              title="复制 Surge DoH 配置"
+              action={copySurgeDohConfig}
+            />
+          </HStack>
 
           <HStack>
             <Button

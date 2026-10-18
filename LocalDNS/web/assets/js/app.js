@@ -1246,6 +1246,24 @@
         </div>
       </section>
 
+      <!-- 🛡️ 原生系统级零外挂纯净闭环横幅 -->
+      <section class="glass-card" style="margin-bottom:14px;padding:12px 16px;background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(59,130,246,0.06));border:1px solid rgba(16,185,129,0.25);border-radius:calc(12px * var(--radius-scale));display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:20px">🛡️</span>
+          <div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <strong style="font-size:14px;color:var(--text-1)">原生系统级零外挂纯净闭环</strong>
+              <span class="tn-pill mono" id="ov-vpn-badge" style="font-size:11px;color:var(--text-3)">VPN 检测中...</span>
+            </div>
+            <p style="font-size:11.5px;color:var(--text-2);margin-top:2px">无需任何外部 App，直接通过 Scripting 原生 VPN 或 Apple 原生加密 DNS 驱动本地流清洗与广告拦截</p>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button type="button" class="button small primary" id="btn-ov-vpn-toggle">一键启动原生 VPN</button>
+          <button type="button" class="button small" id="btn-ov-install-mobileconfig">🍎 安装 Apple 原生 DNS</button>
+        </div>
+      </section>
+
       <!-- 第一层：3 张等宽快捷控制条 (4 + 4 + 4 = 12列)，100% 绑定 LocalDNS 真实功能 -->
       <div class="col-4">
         <div class="glass-card control-bar-card">
@@ -1902,6 +1920,58 @@
       };
     }
     if ($('#slow-detail-button')) $('#slow-detail-button').onclick = () => openSlowDetailModal(slowGroups);
+
+    // 绑定概览页原生系统 VPN 与 Apple 描述文件事件
+    const ovUpdateVpn = (vpn) => {
+      const badge = $('#ov-vpn-badge');
+      const btn = $('#btn-ov-vpn-toggle');
+      if (!badge || !btn) return;
+      if (vpn && (vpn.active || vpn.status === 'connected')) {
+        badge.textContent = '运行中 (已接管)';
+        badge.style.color = '#10B981';
+        badge.style.background = 'rgba(16,185,129,0.15)';
+        btn.textContent = '暂停原生 VPN';
+        btn.classList.remove('primary');
+      } else {
+        const s = vpn ? vpn.status : 'disconnected';
+        badge.textContent = s === 'connecting' ? '连接中...' : '已断开';
+        badge.style.color = 'var(--text-3)';
+        badge.style.background = 'rgba(255,255,255,0.05)';
+        btn.textContent = '一键启动原生 VPN';
+        btn.classList.add('primary');
+      }
+    };
+
+    safe(() => api.json('/api/v1/system/vpn')).then(res => {
+      if (res && res.vpn) ovUpdateVpn(res.vpn);
+    });
+
+    if ($('#btn-ov-vpn-toggle')) {
+      $('#btn-ov-vpn-toggle').onclick = async () => {
+        const btn = $('#btn-ov-vpn-toggle');
+        btn.disabled = true;
+        toast('正在切换原生 VPN 状态...');
+        try {
+          const res = await api.json('/api/v1/system/vpn', 'POST', { action: 'toggle' });
+          if (res && res.vpn) {
+            ovUpdateVpn(res.vpn);
+            toast(res.vpn.active || res.vpn.status === 'connected' ? '🛡️ 原生系统级 VPN 已成功连接！' : '原生 VPN 已断开');
+          }
+        } catch (e) {
+          toast('VPN 操作失败', 'error', e.message);
+        } finally {
+          btn.disabled = false;
+        }
+      };
+    }
+
+    if ($('#btn-ov-install-mobileconfig')) {
+      $('#btn-ov-install-mobileconfig').onclick = () => {
+        const url = `${location.protocol}//${location.hostname}:${location.port || '9099'}/localdns.mobileconfig`;
+        window.location.href = url;
+        toast('正在下载 Apple 官方纯净 DNS 描述文件，请前往系统设置安装！');
+      };
+    }
 
     // 挂载概览页实时轻量心跳（秒级刷新运行时长、2秒刷新进程 CPU 与真实内存）
     let pulseInFlight = false;
@@ -2650,56 +2720,92 @@
     `;
 
     const clientMountCardHtml = `
-      <div class="glass-card" style="margin-bottom:16px;padding:16px;background:linear-gradient(135deg,rgba(59,130,246,0.08),rgba(139,92,246,0.06));border:1px solid rgba(59,130,246,0.22);border-radius:calc(12px * var(--radius-scale))">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+      <div class="glass-card" style="margin-bottom:16px;padding:16px;background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(59,130,246,0.06));border:1px solid rgba(16,185,129,0.25);border-radius:calc(12px * var(--radius-scale))">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px">
           <div>
             <div style="display:flex;align-items:center;gap:8px">
-              <span class="tn-pill" style="color:#3B82F6;background:rgba(59,130,246,0.15);font-weight:700">客户端联动核心</span>
-              <strong style="font-size:15px;color:var(--text-1)">将模块一键挂载至 Surge / Loon / Quantumult X</strong>
+              <span class="tn-pill" style="color:#10B981;background:rgba(16,185,129,0.15);font-weight:700">本地原生闭环</span>
+              <strong style="font-size:15px;color:var(--text-1)">本地原生模块执行中心 · 零外部软件去广告</strong>
             </div>
-            <p style="font-size:12px;color:var(--text-2);margin-top:4px;line-height:1.5">
-              ⚠️ <strong>去广告生效原理</strong>：YouTube 与主流视频流采用端到端 HTTPS 加密，纯 DNS 只能屏蔽广告外链域名。要彻底去除视频切片广告（SSAI）与播放器中插，必须在代理客户端中安装本服务动态编译的模块并开启 MITM 解密！
+            <p style="font-size:12px;color:var(--text-2);margin-top:5px;line-height:1.55">
+              🛡️ <strong>原生引擎直接驱动</strong>：本服务已内置完整的本地 MITM、HLS M3U8 切片清洗与 JSON 剪枝流水线。在此处启用的所有 Surge 模块、Loon 插件、QX 规则及自定义重写将在<strong>本地原生管线中直接执行，无需安装任何外部软件</strong>！
             </p>
           </div>
-          <button type="button" class="button small" id="btn-preview-compiled-module">${icon('search')}预览动态编译模块</button>
+          <button type="button" class="button small" id="btn-preview-compiled-module">${icon('search')}预览动态编译规则</button>
         </div>
 
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
-          <div style="padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border-glass);border-radius:8px;display:flex;flex-direction:column;gap:6px">
+        {/* 原生零外挂两大闭环途径 */}
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:12px">
+          {/* 原生途径 1: Scripting 系统级 VPN 隧道 */}
+          <div style="padding:12px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--border-glass);border-radius:10px;display:flex;flex-direction:column;gap:8px">
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <strong style="font-size:13px;color:#3B82F6">⚡️ Surge 模块 (.sgmodule)</strong>
-              <span class="tn-pill mono" style="font-size:10.5px;color:var(--text-3)">本地动态编译</span>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-size:16px">⚡️</span>
+                <strong style="font-size:13.5px;color:#10B981">Scripting 原生全局 VPN</strong>
+              </div>
+              <span class="tn-pill mono" id="native-vpn-badge" style="font-size:11px;color:var(--text-3)">检测中...</span>
             </div>
-            <div class="mono" style="font-size:11px;color:var(--text-2);word-break:break-all">${location.protocol}//${location.hostname}:${location.port || '9099'}/localdns.sgmodule</div>
-            <div style="display:flex;gap:6px;margin-top:2px">
-              <button type="button" class="button small primary" id="btn-mount-surge">一键安装至 Surge</button>
-              <button type="button" class="button small" id="btn-copy-surge-url">复制链接</button>
+            <div style="font-size:11.5px;color:var(--text-2);line-height:1.4">
+              直接调用 iOS 系统级官方 VPN 扩展，全设备网络流量由本地引擎秒级无缝接管，零外部工具。
+            </div>
+            <div style="display:flex;gap:8px;margin-top:2px">
+              <button type="button" class="button small primary" id="btn-native-vpn-toggle">一键启动原生 VPN</button>
+              <button type="button" class="button small" id="btn-native-vpn-refresh">刷新状态</button>
             </div>
           </div>
 
-          <div style="padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border-glass);border-radius:8px;display:flex;flex-direction:column;gap:6px">
+          {/* 原生途径 2: Apple 官方加密 DNS 描述文件 */}
+          <div style="padding:12px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--border-glass);border-radius:10px;display:flex;flex-direction:column;gap:8px">
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <strong style="font-size:13px;color:#F59E0B">🎈 Loon 插件 (.plugin)</strong>
-              <span class="tn-pill mono" style="font-size:10.5px;color:var(--text-3)">本地动态编译</span>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-size:16px">🍎</span>
+                <strong style="font-size:13.5px;color:#3B82F6">Apple 原生加密 DNS 描述文件</strong>
+              </div>
+              <span class="tn-pill mono" style="font-size:10.5px;color:#3B82F6">内核级 DoH</span>
             </div>
-            <div class="mono" style="font-size:11px;color:var(--text-2);word-break:break-all">${location.protocol}//${location.hostname}:${location.port || '9099'}/localdns.plugin</div>
-            <div style="display:flex;gap:6px;margin-top:2px">
-              <button type="button" class="button small primary" id="btn-mount-loon">一键安装至 Loon</button>
-              <button type="button" class="button small" id="btn-copy-loon-url">复制链接</button>
+            <div style="font-size:11.5px;color:var(--text-2);line-height:1.4">
+              iOS 14+ 官方系统级 DoH，由苹果内核直连本地 9443 端口，零耗电全局拦截 18.5 万条广告。
             </div>
-          </div>
-
-          <div style="padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border-glass);border-radius:8px;display:flex;flex-direction:column;gap:6px">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <strong style="font-size:13px;color:#8B5CF6">🎯 Quantumult X 规则 (.conf)</strong>
-              <span class="tn-pill mono" style="font-size:10.5px;color:var(--text-3)">本地动态编译</span>
-            </div>
-            <div class="mono" style="font-size:11px;color:var(--text-2);word-break:break-all">${location.protocol}//${location.hostname}:${location.port || '9099'}/localdns.conf</div>
-            <div style="display:flex;gap:6px;margin-top:2px">
-              <button type="button" class="button small" id="btn-copy-qx-url">复制重写引用链接</button>
+            <div style="display:flex;gap:8px;margin-top:2px">
+              <button type="button" class="button small primary" id="btn-download-mobileconfig">一键安装描述文件</button>
+              <button type="button" class="button small" id="btn-copy-mobileconfig-url">复制直链</button>
             </div>
           </div>
         </div>
+
+        {/* 外部客户端模块同步（折叠备用） */}
+        <details style="padding:10px 12px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:8px">
+          <summary style="font-size:12.5px;color:var(--text-2);cursor:pointer;font-weight:600">
+            ⚙️ 高级选项：外部客户端模块同步 (Surge / Loon / QX 备用)
+          </summary>
+          <p style="font-size:11.5px;color:var(--text-3);margin:8px 0 10px 0;line-height:1.4">
+            如果您已有使用第三方代理客户端的习惯，本服务亦支持将本地编译规则一键导入给外部客户端：
+          </p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px">
+            <div style="padding:8px 10px;background:rgba(255,255,255,0.02);border:1px solid var(--border-glass);border-radius:6px;display:flex;flex-direction:column;gap:4px">
+              <strong style="font-size:12px;color:#3B82F6">Surge 模块 (.sgmodule)</strong>
+              <div style="display:flex;gap:4px">
+                <button type="button" class="button small" id="btn-mount-surge" style="padding:4px 8px;font-size:11px">安装至 Surge</button>
+                <button type="button" class="button small" id="btn-copy-surge-url" style="padding:4px 8px;font-size:11px">复制链接</button>
+              </div>
+            </div>
+
+            <div style="padding:8px 10px;background:rgba(255,255,255,0.02);border:1px solid var(--border-glass);border-radius:6px;display:flex;flex-direction:column;gap:4px">
+              <strong style="font-size:12px;color:#F59E0B">Loon 插件 (.plugin)</strong>
+              <div style="display:flex;gap:4px">
+                <button type="button" class="button small" id="btn-mount-loon" style="padding:4px 8px;font-size:11px">安装至 Loon</button>
+                <button type="button" class="button small" id="btn-copy-loon-url" style="padding:4px 8px;font-size:11px">复制链接</button>
+              </div>
+            </div>
+
+            <div style="padding:8px 10px;background:rgba(255,255,255,0.02);border:1px solid var(--border-glass);border-radius:6px;display:flex;flex-direction:column;gap:4px">
+              <strong style="font-size:12px;color:#8B5CF6">Quantumult X (.conf)</strong>
+              <div style="display:flex;gap:4px">
+                <button type="button" class="button small" id="btn-copy-qx-url" style="padding:4px 8px;font-size:11px">复制重写引用链接</button>
+              </div>
+            </div>
+          </div>
+        </details>
       </div>
     `;
 
@@ -2771,6 +2877,70 @@
         downloadText('module-url.txt', text);
       }
     };
+
+    // 原生系统 VPN 状态联动
+    const updateNativeVpnBadge = (vpn) => {
+      const badge = $('#native-vpn-badge');
+      const btn = $('#btn-native-vpn-toggle');
+      if (!badge || !btn) return;
+      if (vpn && (vpn.active || vpn.status === 'connected')) {
+        badge.textContent = '运行中 (已接管)';
+        badge.style.color = '#10B981';
+        badge.style.background = 'rgba(16,185,129,0.15)';
+        btn.textContent = '暂停原生 VPN';
+        btn.classList.remove('primary');
+      } else {
+        const s = vpn ? vpn.status : 'disconnected';
+        badge.textContent = s === 'connecting' ? '连接中...' : '已断开';
+        badge.style.color = 'var(--text-3)';
+        badge.style.background = 'rgba(255,255,255,0.05)';
+        btn.textContent = '一键启动原生 VPN';
+        btn.classList.add('primary');
+      }
+    };
+
+    const fetchVpnStatus = async () => {
+      try {
+        const res = await api.json('/api/v1/system/vpn');
+        if (res && res.vpn) updateNativeVpnBadge(res.vpn);
+      } catch {}
+    };
+
+    $('#btn-native-vpn-toggle')?.addEventListener('click', async () => {
+      const btn = $('#btn-native-vpn-toggle');
+      btn.disabled = true;
+      toast('正在切换原生 VPN 状态...');
+      try {
+        const res = await api.json('/api/v1/system/vpn', 'POST', { action: 'toggle' });
+        if (res && res.vpn) {
+          updateNativeVpnBadge(res.vpn);
+          toast(res.vpn.active || res.vpn.status === 'connected' ? '🛡️ 原生系统级 VPN 已成功连接！' : '原生 VPN 已断开');
+        }
+      } catch (e) {
+        toast('VPN 操作失败', 'error', e.message);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    $('#btn-native-vpn-refresh')?.addEventListener('click', async () => {
+      toast('正在刷新 VPN 状态...');
+      await fetchVpnStatus();
+    });
+
+    // 初始拉取一次 VPN 状态
+    fetchVpnStatus();
+
+    // Apple 原生 Encrypted DNS 描述文件下载与复制
+    $('#btn-download-mobileconfig')?.addEventListener('click', () => {
+      const profileUrl = `${getHostOrigin()}/localdns.mobileconfig`;
+      window.location.href = profileUrl;
+      toast('正在下载 Apple 官方纯净 DNS 描述文件，请前往系统设置安装！');
+    });
+
+    $('#btn-copy-mobileconfig-url')?.addEventListener('click', () => {
+      copyToClipboard(`${getHostOrigin()}/localdns.mobileconfig`, 'Apple 原生加密 DNS 描述文件链接');
+    });
 
     $('#btn-mount-surge')?.addEventListener('click', () => {
       const modUrl = `${getHostOrigin()}/localdns.sgmodule`;
