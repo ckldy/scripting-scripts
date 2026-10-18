@@ -1054,19 +1054,17 @@
       icon: 'dots'
     });
 
-    // 03 分流规则集（7 节点：覆盖国内直连、海外分流、Surge/Loon 模块与流清洗、广告拦截与黑名单）
+    // 03 分流规则集（6 节点：覆盖国内直连、白名单、海外无污染、灰名单/代理、AdGuard 广告拦截与黑名单）
     const isClaude = document.documentElement.dataset.skin === 'claude';
     const rRules = engineStatus?.rules || {};
     const eStats = engineStatus?.stats || {};
-    const modStats = engineStatus?.modules || {};
     const topoRules = [
       { id: 'r1', tab: 'diversion', name: 'geosite_cn', sub: `国内大陆域名直连 · ${num(rRules.geosite_cn || 0)} 条规则`, val: compactNum(eStats.domestic || 0), iconColor: isClaude ? '#2D6A4F' : '#10B981', icon: 'globe', cat: 'domestic' },
       { id: 'r2', tab: 'lists', name: 'whitelist / custom_cn', sub: `白名单与自定义国内 · ${num(rRules.force_domestic || 0)} 条规则`, val: `${num(rRules.force_domestic || 0)} 条`, iconColor: isClaude ? '#C96442' : '#60A5FA', icon: 'check', cat: 'domestic' },
       { id: 'r3', tab: 'diversion', name: 'geosite_non_cn', sub: `海外无污染分流 · ${num(rRules.geosite_non_cn || 0)} 条规则`, val: compactNum((+eStats.foreign || 0) + (+eStats.foreign_ecs || 0)), iconColor: isClaude ? '#3D6B66' : '#14B8A6', icon: 'split', cat: 'foreign' },
-      { id: 'r4', tab: 'lists', name: 'force_fakeip / 灰名单', sub: `FakeIP 分流映射 · ${num(rRules.force_foreign_fakeip || 0)} 条规则`, val: compactNum(eStats.fakeip || 0), iconColor: isClaude ? '#B45309' : '#F59E0B', icon: 'spark', cat: 'foreign' },
-      { id: 'r_mod', tab: 'modules', name: 'Surge / Loon 模块 (MITM)', sub: `视频流清洗与 FakeIP · ${num(modStats.totalRewrites || 0)} 条重写`, val: `${compactNum(modStats.cleanedStreams || 0)} 清洗`, iconColor: '#8B5CF6', icon: 'spark', cat: 'mitm' },
-      { id: 'r5', tab: 'adguard', name: 'adguard_block', sub: `广告与追踪器拦截 · ${num(engineStatus?.adguard_rules || 0)} 条规则`, val: compactNum(adguardBlocked), iconColor: isClaude ? '#B91C1C' : '#EF4444', icon: 'shield', cat: 'block' },
-      { id: 'r6', tab: 'lists', name: 'block / 特殊类型清洗', sub: `黑名单与类型抑制 · ${num(rRules.block || 0)} 条规则`, val: compactNum(eStats.blocked || 0), iconColor: isClaude ? '#857F74' : '#94A3B8', icon: 'sliders', cat: 'block' }
+      { id: 'r4', tab: 'lists', name: 'greylist / 代理分流', sub: `灰名单与代理映射 · ${num(rRules.force_foreign_fakeip || 0)} 条规则`, val: compactNum(eStats.proxy || 0), iconColor: isClaude ? '#B45309' : '#F59E0B', icon: 'spark', cat: 'foreign' },
+      { id: 'r5', tab: 'adguard', name: 'adguard_block', sub: `AdGuard 广告拦截 · ${num(engineStatus?.adguard_rules || 0)} 条规则`, val: compactNum(adguardBlocked), iconColor: isClaude ? '#B91C1C' : '#EF4444', icon: 'shield', cat: 'block' },
+      { id: 'r6', tab: 'lists', name: 'block / 黑名单', sub: `本地拦截黑名单 · ${num(rRules.block || 0)} 条规则`, val: compactNum(eStats.blocked || 0), iconColor: isClaude ? '#857F74' : '#94A3B8', icon: 'sliders', cat: 'block' }
     ];
 
     // 提取真实配置的上游列表及性能指标
@@ -1087,7 +1085,7 @@
       { id: 'g1', code: 'CN', codeColor: isClaude ? '#2D6A4F' : '#34D399', codeBg: isClaude ? 'rgba(45,106,79,0.12)' : 'rgba(16,185,129,0.14)', name: '国内组 (domestic)', sub: `并发竞速 · ${groupAvgMs('domestic')} · ${num(eStats.domestic || 0)} 次`, cat: 'domestic' },
       { id: 'g2', code: 'GL', codeColor: isClaude ? '#3D6B66' : '#2DD4BF', codeBg: isClaude ? 'rgba(61,107,102,0.12)' : 'rgba(20,184,166,0.14)', name: '国外组 (foreign)', sub: `无污染解析 · ${groupAvgMs('foreign')} · ${num(eStats.foreign || 0)} 次`, cat: 'foreign' },
       { id: 'g3', code: 'ECS', codeColor: isClaude ? '#C96442' : '#93C5FD', codeBg: isClaude ? 'rgba(201,100,66,0.12)' : 'rgba(59,130,246,0.16)', name: '国外 ECS (foreign_ecs)', sub: `EDNS 子网 · ${groupAvgMs('foreign_ecs')} · ${num(eStats.foreign_ecs || 0)} 次`, cat: 'foreign' },
-      { id: 'g4', code: 'PX', codeColor: '#8B5CF6', codeBg: 'rgba(139,92,246,0.14)', name: '代理与 FakeIP 流清洗', sub: `198.18.0.0/15 · ${compactNum(modStats.cleanedStreams || 0)} 次清洗`, cat: 'mitm' },
+      { id: 'g4', code: 'PX', codeColor: isClaude ? '#B45309' : '#FBBF24', codeBg: isClaude ? 'rgba(180,83,9,0.12)' : 'rgba(245,158,11,0.16)', name: '代理组 (proxy)', sub: `代理节点分流 · ${groupAvgMs('proxy')} · ${num(eStats.proxy || 0)} 次`, cat: 'foreign' },
       { id: 'g5', code: 'BLK', codeColor: isClaude ? '#B91C1C' : '#F87171', codeBg: isClaude ? 'rgba(185,28,28,0.12)' : 'rgba(239,68,68,0.15)', name: '本地拦截黑洞', sub: `0.0.0.0 / NXDOMAIN · ${num(eStats.blocked || 0)} 拦截`, cat: 'block' }
     ];
 
@@ -1141,25 +1139,12 @@
       };
     });
 
-    // s5: FakeIP 虚拟池与应用层流清洗处理管道
+    // s5: 拦截直接响应 (AdGuard / 黑名单 0.0.0.0)
     topoServers.push({
       id: 's5',
-      groupNode: 'g4',
-      name: 'FakeIP / L7 流清洗',
-      sub: '198.18.0.0/15 · 视频切片剔除',
-      badge: `${compactNum(modStats.cleanedStreams || 0)} 清洗`,
-      badgeColor: '#8B5CF6',
-      badgeBg: 'rgba(139,92,246,0.16)',
-      icon: 'spark',
-      cat: 'mitm'
-    });
-
-    // s6: 拦截直接响应
-    topoServers.push({
-      id: 's6',
       groupNode: 'g5',
       name: '拦截直接响应',
-      sub: '零上游消耗 · 立即阻断',
+      sub: '零上游消耗 · 立即阻断 (0.0.0.0)',
       badge: `${compactNum(eStats.blocked || 0)} 阻断`,
       badgeColor: isClaude ? '#B91C1C' : '#F87171',
       badgeBg: isClaude ? 'rgba(185,28,28,0.12)' : 'rgba(239,68,68,0.16)',
@@ -1182,7 +1167,6 @@
       ['e_core', 'r2', cPrimary, 'domestic'],
       ['e_core', 'r3', cTeal, 'foreign'],
       ['e_core', 'r4', cAmber, 'foreign'],
-      ['e_core', 'r_mod', '#8B5CF6', 'mitm'],
       ['e_core', 'r5', '#EF4444', 'block'],
       ['e_core', 'r6', '#94A3B8', 'block'],
 
@@ -1191,7 +1175,6 @@
       ['r3', 'g2', cTeal, 'foreign'],
       ['r3', 'g3', cPrimary, 'foreign'],
       ['r4', 'g4', cAmber, 'foreign'],
-      ['r_mod', 'g4', '#8B5CF6', 'mitm'],
       ['r5', 'g5', '#EF4444', 'block'],
       ['r6', 'g5', '#94A3B8', 'block'],
 
@@ -1199,8 +1182,8 @@
       ['g1', 's2', cGreen, 'domestic'],
       ['g2', 's3', cTeal, 'foreign'],
       ['g3', 's4', cPrimary, 'foreign'],
-      ['g4', 's5', '#8B5CF6', 'mitm'],
-      ['g5', 's6', '#EF4444', 'block'],
+      ['g4', 's4', cAmber, 'foreign'],
+      ['g5', 's5', '#EF4444', 'block'],
     ].map(([from, to, color, category]) => ({
       from, to, color, category: category || 'all',
       muted: Boolean(topoClients.find(c => c.id === from)?.muted || topoServers.find(s => s.id === to)?.muted)
@@ -1395,7 +1378,6 @@
                 <button type="button" class="seg-item active" data-topo-cat="all">全部全景</button>
                 <button type="button" class="seg-item" data-topo-cat="domestic">国内直连</button>
                 <button type="button" class="seg-item" data-topo-cat="foreign">国外无污染</button>
-                <button type="button" class="seg-item" data-topo-cat="mitm">视频流清洗/FakeIP</button>
                 <button type="button" class="seg-item" data-topo-cat="block">广告与安全拦截</button>
               </div>
             </div>
@@ -1408,7 +1390,7 @@
                 </div>
                 <div class="topo-quick-pills">
                   <span class="topo-pill-label">快捷推演：</span>
-                  <button type="button" class="topo-pill-btn" data-trace-domain="rr1---sn-4g5edn6e.googlevideo.com">📺 YouTube 视频切片</button>
+                  <button type="button" class="topo-pill-btn" data-trace-domain="s.youtube.com">🚫 YouTube 广告打点</button>
                   <button type="button" class="topo-pill-btn" data-trace-domain="www.bilibili.com">⚡️ 哔哩哔哩直连</button>
                   <button type="button" class="topo-pill-btn" data-trace-domain="mobads.baidu.com">🛡️ 移动广告拦截</button>
                   <button type="button" class="topo-pill-btn" data-trace-domain="github.com">🌍 GitHub 国际服务</button>
@@ -1759,17 +1741,11 @@
       let nodeDesc = '';
       let badgeCol = '#10B981';
 
-      if (ds === 'mitm_fakeip' || (domain.includes('googlevideo') || domain.includes('ttvnw.net') || domain.includes('twitch.tv'))) {
-        path = ['c1', 'e_core', 'r_mod', 'g4', 's5'];
-        layer = '第 3 级 · 跨平台去广告模块 (Surge/Loon MITM 劫持)';
-        action = 'FakeIP 虚拟分配 (198.18.0.x) ➔ 本地 L7 视频流清洗管道';
-        nodeDesc = '命中已启用模块通配规则，视频切片 (HLS/DASH) 与播放器广告将在本地自动剥离！';
-        badgeCol = '#8B5CF6';
-      } else if (isBlocked || ds === 'adguard' || ds === 'blocklist') {
-        path = ['c1', 'e_core', 'r5', 'g5', 's6'];
+      if (isBlocked || ds === 'adguard' || ds === 'blocklist') {
+        path = ['c1', 'e_core', 'r5', 'g5', 's5'];
         layer = ds === 'blocklist' ? '第 2 级 · 本地黑名单拦截' : '第 4 级 · AdGuard 广告拦截引擎';
         action = '本地黑洞拦截 (返回 0.0.0.0 / :: 立即阻断)';
-        nodeDesc = '命中广告过滤或追踪黑名单，播放器无广告等待立即播放正片。';
+        nodeDesc = '命中 18.5 万条 AdGuard 广告或追踪黑名单，DNS 层面直接阻断。';
         badgeCol = '#EF4444';
       } else if (ds === 'rewrite') {
         path = ['c1', 'e_core', 'r2', 'g1', 's1'];
