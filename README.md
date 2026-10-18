@@ -6,7 +6,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 
 | 脚本 | 版本 | 说明 | 安装链接 |
 |---|---|---|---|
-| LocalDNS（本地 DNS 服务） | 1.5.0 | 本地 DNS 与原生流清洗系统，首创「零外挂软件纯净去广告闭环」：深度集成 Scripting 系统级 VPN 隧道一键接管、支持 Apple 官方原生加密 DNS (DoH) 描述文件内核级驱动、内置本地 MITM 与切片流清洗引擎（直接执行 Surge/Loon 模块与 QX 规则无需外部 App）、支持 9099 (HTTP) 与 9443 (HTTPS) 双端口全功能对称代理、强化 15 条 YouTube 切片阻断与全网通用视频 SDK 桩代码（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
+| LocalDNS（本地 DNS 服务） | 1.5.1 | 本地 DNS 与原生流清洗系统，首创「零外挂软件纯净去广告闭环」：深度集成 Scripting 系统级 VPN 隧道一键接管、修复 Apple 官方原生加密 DNS 描述文件安装校验（内嵌 com.apple.security.root 根证书载荷与 FQDN 规范）、内置本地 MITM 与切片流清洗引擎（直接执行 Surge/Loon 模块与 QX 规则无需外部 App）、支持 9099 (HTTP) 与 9443 (HTTPS) 双端口全功能对称代理、强化 15 条 YouTube 切片阻断与全网通用视频 SDK 桩代码（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
 | 台风路径 | 2.3.1 | 实时台风路径、多机构预报与气象图层；主程序刷新后会同步重载用户小组件，大号组件地图缓存批处理仅重载一次 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F台风路径.zip%22%5D) |
 | 黃豆短劇 | 1.2.0 | 浏览、搜索与收藏黃豆短劇内容，支持播放历史、剧集播放、上下滑切集与进度条 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D) |
 | NetRadio（网络收音机） | 1.0.1 | 全球 1000+ 公开网络电台（按 36 个国家/地区归类），黑胶唱机舞台、电平示波器、主题调色板与 iOS 原生后台/锁屏播控（基于 net-redio 移植，作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D) |
@@ -21,12 +21,12 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 ## 🌟 脚本功能详解与直链
 
 ### 🛡️ LocalDNS (本地 DNS 服务与流清洗管理系统)
-- **版本**：`1.5.0` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
+- **版本**：`1.5.1` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
 - **特性**：
-  - **原生零外挂纯净去广告闭环 (v1.5.0 重大升级)**：
+  - **原生零外挂纯净去广告闭环 (v1.5.1 重大升级)**：
     - **彻底推倒外部软件依赖**：直接在 LocalDNS 原生闭环实现全自动去广告，无需在手机上额外运行 Surge、Loon、小火箭等第三方外挂软件；
     - **Scripting 原生系统级 VPN 隧道**：深度调用 Scripting 原生 `VPN` API（`VPN.getState()`, `VPN.start()`, `VPN.stop()`），在 iOS 原生仪表盘与 Web 控制台提供一键开关。连接后全手机网络流量直接由系统内核级虚拟网卡流经本地，切片清洗与域名过滤由 LocalDNS 内部直接执行；
-    - **Apple 官方原生加密 DNS 描述文件 (`/localdns.mobileconfig`)**：一键生成并下载遵循 iOS 14+ 官方标准的 `com.apple.dnsSettings.managed` 配置文件，由苹果操作系统内核直接驱动本地 9443 DoH 服务，后台零额外耗电、免开任何代理工具，全局阻断 18.5 万条广告；
+    - **Apple 官方原生加密 DNS 描述文件修复与根证书内嵌 (`/localdns.mobileconfig`)**：纠正此前因 `ServerURL` 协议与裸 IP 地址触发的 iOS 描述文件安装校验报错；合入 `com.apple.security.root` 安全载荷一并下发 `LocalDNS Root CA`，实现“证书信任 + 内核级 DoH”一次性顺畅安装，后台零额外耗电、免开任何代理工具，全局阻断 18.5 万条广告；
     - **本地原生模块直接执行中心**：LocalDNS 原生加载并执行 Surge 模块、Loon 插件与 QX 重写规则，直接在本地中间件与 `ProxyHandler` 流水线中生效，外部客户端仅作为可选导出备用；
   - **9099 (HTTP) 与 9443 (HTTPS) 双端口全功能对称生效 (v1.4.8)**：
     - **双端口对称共生架构**：本地 HTTP 9099 端口与 HTTPS 9443 端口底层共享同一套中间件流水线与规则引擎，支持全功能对等运作；

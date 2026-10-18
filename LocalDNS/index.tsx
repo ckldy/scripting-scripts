@@ -44,7 +44,7 @@ declare namespace Safari {
   function openURL(url: string): Promise<void>;
 }
 
-const APP_VERSION = 'v1.5.0';
+const APP_VERSION = 'v1.5.1';
 const APP_BUILD = '20261018';
 const APP_AUTHOR = 'vcncv';
 const UPSTREAM_REPO = 'https://github.com/yyhoworks/LocalDNS';
@@ -149,7 +149,7 @@ function LocalDnsApp() {
     const profileUrl = `http://127.0.0.1:${port}/localdns.mobileconfig`;
     if (typeof Safari !== 'undefined' && Safari.openURL) {
       await Safari.openURL(profileUrl);
-      setStatusMessage('正在下载 Apple 原生纯净加密 DNS 描述文件，请前往 iOS「设置」➔「已下载描述文件」安装，即可在内核层原生去广告！');
+      setStatusMessage('正在下载 Apple 官方原生加密 DNS 描述文件（已合入 LocalDNS 根证书与内核级 DoH）。请前往 iOS「设置」➔「已下载描述文件」安装！');
     }
   };
 
@@ -791,13 +791,16 @@ function LocalDnsApp() {
               1. 点击下方「安装 Apple 纯净 DNS 描述文件」，Safari 将提示允许下载配置文件；
             </Text>
             <Text font="caption">
-              2. 打开 iPhone「设置」➔「已下载的描述文件」➔ 点击安装「LocalDNS 原生纯净加密 DNS」；
+              2. 打开 iPhone「设置」➔ 顶部点击「已下载的描述文件」➔ 安装「LocalDNS 原生纯净加密 DNS」（已自动合入安全根证书与 DNS 设置）；
+            </Text>
+            <Text font="caption" foregroundStyle="systemRed">
+              3. 【关键必做】前往「设置」➔「通用」➔「关于本机」➔「证书信任设置」，开启 LocalDNS Root CA 完全信任！
             </Text>
             <Text font="caption">
-              3. 安装后前往「设置」➔「通用」➔「VPN 与设备管理」➔「DNS」中勾选 LocalDNS；
+              4. 前往「设置」➔「通用」➔「VPN 与设备管理」➔「DNS」中勾选 LocalDNS；
             </Text>
             <Text font="caption">
-              4. 全局 18.5 万条广告域名由 iOS 内核直接阻断，后台零额外耗电，免开任何代理工具！
+              5. 全局 18.5 万条广告域名由 iOS 内核直接阻断，后台零额外耗电，免开任何代理工具！
             </Text>
           </VStack>
 

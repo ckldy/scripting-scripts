@@ -322,7 +322,10 @@ async function runTests() {
     assert(cTypeMc.includes('apple-aspen-config'), 'Content-Type is apple-aspen-config');
     const mcText = await resMobileconfig.text();
     assert(mcText.includes('com.apple.dnsSettings.managed'), 'Apple DNS payload type matches com.apple.dnsSettings.managed');
-    assert(mcText.includes('ServerURL'), 'Apple DNS payload includes ServerURL');
+    assert(mcText.includes('com.apple.security.root'), 'Apple profile bundles com.apple.security.root root CA');
+    assert(mcText.includes('https://localdns.local:'), 'ServerURL uses standard FQDN https://localdns.local:');
+    assert(!mcText.includes('http://127.0.0.1'), 'ServerURL strictly avoids forbidden plain HTTP or IP addresses');
+    assert(mcText.includes('<string>127.0.0.1</string>'), 'ServerAddresses contains 127.0.0.1 bootstrap address');
   } catch (err: any) {
     console.error('API Test Error:', err);
     failed++;

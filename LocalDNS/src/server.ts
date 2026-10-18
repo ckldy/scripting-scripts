@@ -345,9 +345,7 @@ export class LocalDnsServer {
 
       // Native Apple Encrypted DNS configuration profile endpoint: /localdns.mobileconfig
       if ((path === '/localdns.mobileconfig' || path === '/apple-dns.mobileconfig') && method === 'GET') {
-        const p = isTls ? this.httpsPort : this.port;
-        const s = isTls ? 'https' : 'http';
-        const configXml = this.generateAppleDnsProfile(s, p);
+        const configXml = this.generateAppleDnsProfile(this.httpsPort);
         const bodyData = Data.fromRawString(configXml, 'utf-8');
         return HttpResponse.raw(200, 'OK', {
           headers: {
@@ -494,9 +492,7 @@ export class LocalDnsServer {
     });
 
     server.registerAsyncHandler('/localdns.mobileconfig', async () => {
-      const p = isTls ? this.httpsPort : this.port;
-      const s = isTls ? 'https' : 'http';
-      const configXml = this.generateAppleDnsProfile(s, p);
+      const configXml = this.generateAppleDnsProfile(this.httpsPort);
       const bodyData = Data.fromRawString(configXml, 'utf-8');
       return HttpResponse.raw(200, 'OK', {
         headers: {
@@ -1497,25 +1493,60 @@ $httpClient.get({
     return jsonResponse({ error: 'Plugin action not supported' }, 404);
   }
 
-  private generateAppleDnsProfile(scheme: string, port: number): string {
-    const serverUrl = `${scheme}://127.0.0.1:${port}/dns-query`;
+  private generateAppleDnsProfile(httpsPort: number): string {
+    const serverUrl = `https://localdns.local:${httpsPort}/dns-query`;
+
+    let caBase64 = '';
+    const caPath = Path.join(Script.directory, 'cert/ca.crt');
+    try {
+      if (FileManager.existsSync(caPath)) {
+        const rawCert = FileManager.readAsStringSync(caPath);
+        caBase64 = rawCert
+          .replace(/-----BEGIN CERTIFICATE-----/g, '')
+          .replace(/-----END CERTIFICATE-----/g, '')
+          .replace(/[\r\n\s]/g, '');
+      }
+    } catch {}
+
+    const caPayload = caBase64 ? `
+        <dict>
+            <key>PayloadCertificateFileName</key>
+            <string>LocalDNS-Root-CA.crt</string>
+            <key>PayloadContent</key>
+            <data>
+                ${caBase64}
+            </data>
+            <key>PayloadDescription</key>
+            <string>LocalDNS 安全根证书，用于系统级加密 DNS 安全握手与防篡改验证</string>
+            <key>PayloadDisplayName</key>
+            <string>LocalDNS Root CA</string>
+            <key>PayloadIdentifier</key>
+            <string>com.localdns.apple.ca</string>
+            <key>PayloadType</key>
+            <string>com.apple.security.root</string>
+            <key>PayloadUUID</key>
+            <string>C516805E-B561-4FA5-900E-6F47963C8159</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+        </dict>` : '';
+
     return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>PayloadContent</key>
-    <array>
+    <array>${caPayload}
         <dict>
             <key>DNSSettings</key>
             <dict>
                 <key>DNSProtocol</key>
                 <string>HTTPS</string>
-                <key>ServerURL</key>
-                <string>${serverUrl}</string>
                 <key>ServerAddresses</key>
                 <array>
                     <string>127.0.0.1</string>
                 </array>
+                <key>ServerURL</key>
+                <string>${serverUrl}</string>
             </dict>
             <key>PayloadDescription</key>
             <string>LocalDNS iOS 原生系统级 Encrypted DNS (DoH) 纯净去广告与防追踪配置</string>
@@ -1537,6 +1568,8 @@ $httpClient.get({
     <string>LocalDNS 原生纯净加密 DNS</string>
     <key>PayloadIdentifier</key>
     <string>com.localdns.apple.profile</string>
+    <key>PayloadOrganization</key>
+    <string>LocalDNS</string>
     <key>PayloadRemovalDisallowed</key>
     <false/>
     <key>PayloadType</key>

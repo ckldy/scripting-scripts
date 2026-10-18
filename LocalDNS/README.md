@@ -1,8 +1,8 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.5.0 (Build 20261018)`  
+> **当前版本**：`v1.5.1 (Build 20261018)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，实现原生零外挂纯净去广告闭环：深度集成 Scripting 系统级 VPN 隧道、Apple 原生加密 DNS 描述文件、本地 MITM 切片流清洗引擎与 9099/9443 双端口对称代理）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，实现原生零外挂纯净去广告闭环：深度集成 Scripting 系统级 VPN 隧道、彻底修复 Apple 原生加密 DNS 描述文件安装校验并内嵌安全根证书载荷、本地 MITM 切片流清洗引擎与 9099/9443 双端口对称代理）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地 DNS 与应用层流清洗服务系统。
 
@@ -33,7 +33,11 @@
 - **原生零外挂纯净去广告闭环 (v1.5.0 首创)**：
   - **核心痛点突破**：以往流清洗与切片去广告必须在外部代理软件（如 Surge / Loon）中挂载复杂模块，导致用户产生“既然本地有引擎为什么还要装外挂软件”的困扰。v1.5.0 彻底推倒外部依赖，打造 **100% 本地原生闭环**！
   - **Scripting 原生全局 VPN 隧道**：深度调用 Scripting 系统级 `VPN` API（`VPN.getState()`, `VPN.start()`, `VPN.stop()`），在 iOS 原生仪表盘与 Web 控制台提供一键开关。连接后全手机网络流量直接由系统内核级虚拟网卡流经本地，切片清洗与域名过滤由 LocalDNS 内部直接执行；
-  - **Apple 官方原生加密 DNS 描述文件 (`/localdns.mobileconfig`)**：一键生成并下载遵循 iOS 14+ 官方标准的 `com.apple.dnsSettings.managed` 配置文件，由苹果操作系统内核直接驱动本地 9443 DoH 服务，后台零额外耗电、免开任何代理工具，全局阻断 18.5 万条广告；
+  - **Apple 官方原生加密 DNS 描述文件修复与根证书内嵌 (`/localdns.mobileconfig`)**：
+    - 针对此前 iOS 描述文件安装校验报错问题进行了彻底重构：
+      1. 严格对齐 Apple MDM 规范，`DNSProtocol: HTTPS` 下的 `ServerURL` 强制使用 `https://localdns.local:${httpsPort}/dns-query`，杜绝任何 `http://` 协议失配；
+      2. 纠正此前在 `ServerURL` 填写裸 IP 地址（`127.0.0.1`）触发 Apple 系统“包含无效值”拒装的问题，改用完全合规的 FQDN（`localdns.local`），并通过 `ServerAddresses` 注入 `["127.0.0.1"]` 提供本地自引导寻址；
+      3. 在描述文件中直接内嵌 `com.apple.security.root` 安全载荷，打包下发 `LocalDNS Root CA`，实现“根证书 + 系统 DoH”一键同装，彻底消除系统安装报错；
   - **本地原生模块直接执行中心**：LocalDNS 原生加载并执行 Surge 模块、Loon 插件与 QX 重写规则，直接在本地中间件与 `ProxyHandler` 流水线中生效，外部客户端仅作为可选导出备用；
 - **9099 (HTTP) 与 9443 (HTTPS) 双端口全功能对称生效 (v1.4.8)**：
   - **双端口对称共生架构**：本地 HTTP 9099 端口与 HTTPS 9443 端口底层共享同一套中间件流水线与规则引擎，支持全功能对等运作；
