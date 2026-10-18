@@ -581,7 +581,11 @@
       const fn={overview:renderOverview,logs:renderLogs,upstreams:renderUpstreams,rules:renderRules,management:renderManagement}[state.route];
       await fn(force);
       if(seq!==state.renderSeq)return;
-      window.LocalDNSInterface?.apply();
+      try {
+        window.LocalDNSInterface?.apply();
+      } catch (err) {
+        console.warn('[LocalDNS] LocalDNSInterface.apply() ignored error:', err);
+      }
       if(!silent){playViewEnter();animateCountUps(page)}
       syncAllSegThumbs();
       state.silent=false;

@@ -33,22 +33,35 @@
     window.LocalDNSTrafficClient.mount(container,minutes);
   }
   function overview(){
-    const main=$('#page-content');if($('.console-kpi',main)||!$('.spark-kpi-card',main))return;
-    $('#btn-overview-custom-bg')?.remove();
-    const title=$('.view-title-row'),short=document.createElement('details');short.className='console-shortcuts';short.open=shortcutsOpen;short.innerHTML='<summary><strong>快捷控制</strong><span>客户端分流 / 缓存 / 广告屏蔽</span></summary><div class="console-shortcut-grid"></div>';short.addEventListener('toggle',()=>shortcutsOpen=short.open);
-    $$('.control-bar-card',main).forEach(card=>{const old=card.parentElement;$('.console-shortcut-grid',short).append(card);old.remove();});title.after(short);
-    $$('.spark-kpi-card',main).forEach((card,i)=>{card.parentElement.classList.add('console-kpi');const key=['total','cache','clients','blocked','latency','domains'][i];const values=series.slice(-60).map(p=>p[key]).filter(Number.isFinite);const svg=$('.sk-chart',card);if(svg){if(values.length<2){svg.remove();}else{svg.innerHTML=`<path d="${tinyPath(values)}" fill="none" stroke="var(--console-line)" stroke-width="1.8"/>`;svg.setAttribute('aria-label','当前会话采样趋势');}}});
-    const service=$('.console-service-summary',main);if(service){$$('.console-kpi',main).forEach(kpi=>service.append(kpi));$('.view-title-row>div:first-child>.mono',main)?.remove();}
-    const topo=$('.topology-glass-card');topo.parentElement.classList.add('console-topology');if(!$('.console-topology-heading',topo))topo.insertAdjacentHTML('afterbegin','<div class="console-topology-heading"><h2>DNS 解析路径</h2><span>选择节点查看详情 · 连线为解析路径示意</span></div>');
-    const trend=$('.traffic-chart-body');trend?.closest('.col-8, .col-6').classList.add('console-trend');
-    const head=$('.gc-head',trend.closest('.glass-card'));$('.gc-title',head).innerHTML='查询吞吐趋势<span class="console-chart-sub">每秒 DNS 请求数 · 按实际采样时段显示</span>';
-    const range=head.lastElementChild;range.className='console-range';range.removeAttribute('style');range.innerHTML=[[60,'1 小时'],[360,'6 小时'],[1440,'1 天'],[4320,'3 天'],[10080,'7 天']].map(([m,label])=>`<button type="button" data-chart-range="${m}" aria-pressed="${trafficRange===m}">${label}</button>`).join('');
-    drawTraffic(trend);$$('[data-chart-range]',head).forEach(b=>b.onclick=()=>{trafficRange=+b.dataset.chartRange;$$('[data-chart-range]',head).forEach(x=>x.setAttribute('aria-pressed',String(x===b)));drawTraffic(trend);});
-    trafficResize?.disconnect();let trafficWidth=trend.clientWidth;
-    const chartResize=new ResizeObserver(()=>{if(!trend.isConnected){chartResize.disconnect();return;}if(Math.abs(trend.clientWidth-trafficWidth)>1){trafficWidth=trend.clientWidth;drawTraffic(trend);}});trafficResize=chartResize;chartResize.observe(trend);
-    $('.outbound-donut-body')?.closest('.col-4').classList.add('console-donut');$$('.uniform-4rows').forEach(e=>e.closest('.col-4')?.classList.add('console-lower'));
-    $$('.t-node').forEach(node=>{const name=$('.tn-name',node),sub=$('.tn-sub',node);if(!node.title)node.title=[name?.textContent,sub?.textContent].filter(Boolean).join(' · ');if(labels[node.dataset.nodeId]&&!$('.tn-proto-tag',name))name.textContent=labels[node.dataset.nodeId];if(node.dataset.nodeId==='e_core')node.setAttribute('aria-label','查看多级缓存管理');});
-    const names={whitelist:'白名单',greylist:'灰名单',blocklist:'黑名单'};$$('.rl-name').forEach(e=>{const t=e.lastChild;if(t?.nodeType===3)t.textContent=names[t.textContent.trim()]||t.textContent;});requestAnimationFrame(()=>window.dispatchEvent(new Event('resize')));
+    try {
+      const main=$('#page-content');if($('.console-kpi',main)||!$('.spark-kpi-card',main))return;
+      $('#btn-overview-custom-bg')?.remove();
+      const title=$('.view-title-row'),short=document.createElement('details');short.className='console-shortcuts';short.open=shortcutsOpen;short.innerHTML='<summary><strong>快捷控制</strong><span>客户端分流 / 缓存 / 广告屏蔽</span></summary><div class="console-shortcut-grid"></div>';short.addEventListener('toggle',()=>shortcutsOpen=short.open);
+      $$('.control-bar-card',main).forEach(card=>{const old=card.parentElement;$('.console-shortcut-grid',short).append(card);old.remove();});title?.after(short);
+      $$('.spark-kpi-card',main).forEach((card,i)=>{card.parentElement?.classList.add('console-kpi');const key=['total','cache','clients','blocked','latency','domains'][i];const values=series.slice(-60).map(p=>p[key]).filter(Number.isFinite);const svg=$('.sk-chart',card);if(svg){if(values.length<2){svg.remove();}else{svg.innerHTML=`<path d="${tinyPath(values)}" fill="none" stroke="var(--console-line)" stroke-width="1.8"/>`;svg.setAttribute('aria-label','当前会话采样趋势');}}});
+      const service=$('.console-service-summary',main);if(service){$$('.console-kpi',main).forEach(kpi=>service.append(kpi));$('.view-title-row>div:first-child>.mono',main)?.remove();}
+      const topo=$('.topology-glass-card');topo?.parentElement?.classList.add('console-topology');if(topo&&!$('.console-topology-heading',topo))topo.insertAdjacentHTML('afterbegin','<div class="console-topology-heading"><h2>DNS 解析路径</h2><span>选择节点查看详情 · 连线为解析路径示意</span></div>');
+      const trend=$('.traffic-chart-body');trend?.closest('.col-8, .col-6')?.classList.add('console-trend');
+      const head=$('.gc-head',trend?.closest('.glass-card'));
+      if(head){
+        const gcTitle=$('.gc-title',head);if(gcTitle)gcTitle.innerHTML='查询吞吐趋势<span class="console-chart-sub">每秒 DNS 请求数 · 按实际采样时段显示</span>';
+        const range=head.lastElementChild;
+        if(range){
+          range.className='console-range';range.removeAttribute('style');range.innerHTML=[[60,'1 小时'],[360,'6 小时'],[1440,'1 天'],[4320,'3 天'],[10080,'7 天']].map(([m,label])=>`<button type="button" data-chart-range="${m}" aria-pressed="${trafficRange===m}">${label}</button>`).join('');
+        }
+        drawTraffic(trend);
+        $$('[data-chart-range]',head).forEach(b=>b.onclick=()=>{trafficRange=+b.dataset.chartRange;$$('[data-chart-range]',head).forEach(x=>x.setAttribute('aria-pressed',String(x===b)));drawTraffic(trend);});
+      }
+      trafficResize?.disconnect();let trafficWidth=trend?.clientWidth||0;
+      const chartResize=new ResizeObserver(()=>{if(!trend?.isConnected){chartResize.disconnect();return;}if(Math.abs(trend.clientWidth-trafficWidth)>1){trafficWidth=trend.clientWidth;drawTraffic(trend);}});trafficResize=chartResize;
+      if(trend)chartResize.observe(trend);
+      $('.outbound-donut-body')?.closest('.col-4, .col-6')?.classList.add('console-donut');
+      $$('.uniform-4rows').forEach(e=>e.closest('.col-4, .col-6')?.classList.add('console-lower'));
+      $$('.t-node').forEach(node=>{const name=$('.tn-name',node),sub=$('.tn-sub',node);if(!node.title)node.title=[name?.textContent,sub?.textContent].filter(Boolean).join(' · ');if(labels[node.dataset.nodeId]&&!$('.tn-proto-tag',name))name.textContent=labels[node.dataset.nodeId];if(node.dataset.nodeId==='e_core')node.setAttribute('aria-label','查看多级缓存管理');});
+      const names={whitelist:'白名单',greylist:'灰名单',blocklist:'黑名单'};$$('.rl-name').forEach(e=>{const t=e.lastChild;if(t?.nodeType===3)t.textContent=names[t.textContent.trim()]||t.textContent;});requestAnimationFrame(()=>window.dispatchEvent(new Event('resize')));
+    } catch(err) {
+      console.warn('[LocalDNS Console] overview() error handled safely:', err);
+    }
   }
   function semantics(root=document){
     $$('input:not([type=file]),select,textarea',root).forEach(input=>{const field=input.closest('.field'),label=field&&$('label',field);if(label&&input.id)label.htmlFor=input.id;if(input.type==='checkbox'&&!input.getAttribute('aria-label'))input.setAttribute('aria-label',input.closest('.feature-card')?.querySelector('h3')?.textContent||input.closest('tr')?.querySelector('strong')?.textContent||input.closest('label')?.textContent.trim()||'启用');});
