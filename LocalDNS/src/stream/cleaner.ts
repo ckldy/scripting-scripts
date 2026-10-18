@@ -58,22 +58,46 @@ export class StreamCleaner {
       let changed = false;
 
       // 针对 YouTube 官方播放器响应接口特化处理
-      if (url.includes('/youtubei/v1/player')) {
-        if (obj.adPlacements) {
-          delete obj.adPlacements;
-          changed = true;
-        }
-        if (obj.playerAds) {
-          delete obj.playerAds;
-          changed = true;
-        }
-        if (obj.adSlots) {
-          delete obj.adSlots;
-          changed = true;
-        }
-        if (obj.playbackTracking?.videostatsPlaybackUrl) {
-          delete obj.playbackTracking.videostatsPlaybackUrl;
-          changed = true;
+      if (
+        url.includes('/youtubei/v1/player') ||
+        url.includes('/youtubei/v1/get_watch') ||
+        url.includes('/youtubei/v1/browse') ||
+        url.includes('/watch?')
+      ) {
+        const cleanPlayerObject = (pObj: any) => {
+          if (!pObj || typeof pObj !== 'object') return;
+          const adKeys = [
+            'adPlacements',
+            'playerAds',
+            'adSlots',
+            'adPlacementRenderer',
+            'adLayoutLoggingData',
+          ];
+          for (const k of adKeys) {
+            if (pObj[k] !== undefined) {
+              delete pObj[k];
+              changed = true;
+            }
+          }
+          if (pObj.playbackTracking) {
+            if (pObj.playbackTracking.videostatsPlaybackUrl) {
+              delete pObj.playbackTracking.videostatsPlaybackUrl;
+              changed = true;
+            }
+            if (pObj.playbackTracking.videostatsAtrUrl) {
+              delete pObj.playbackTracking.videostatsAtrUrl;
+              changed = true;
+            }
+            if (pObj.playbackTracking.atrUrl) {
+              delete pObj.playbackTracking.atrUrl;
+              changed = true;
+            }
+          }
+        };
+
+        cleanPlayerObject(obj);
+        if (obj.playerResponse) {
+          cleanPlayerObject(obj.playerResponse);
         }
       }
 
@@ -82,11 +106,15 @@ export class StreamCleaner {
         'ad_info',
         'ad_list',
         'ad_slots',
+        'adSlots',
         'advertisement',
         'banner_list',
         'commercial',
         'adPlacements',
         'playerAds',
+        'adPlacementRenderer',
+        'adSlotRenderer',
+        'promotedSparklesWebRenderer',
       ];
 
       const recursivePrune = (node: any) => {

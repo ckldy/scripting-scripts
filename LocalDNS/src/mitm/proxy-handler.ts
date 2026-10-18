@@ -271,8 +271,10 @@ export class ProxyHandler {
       }
     } else if (
       contentType.includes('json') ||
-      url.includes('/youtubei/v1/player') ||
-      (cleanedBody.startsWith('{') && cleanedBody.endsWith('}'))
+      url.includes('youtube') ||
+      url.includes('bilibili') ||
+      (cleanedBody.startsWith('{') && cleanedBody.endsWith('}')) ||
+      (cleanedBody.startsWith('[') && cleanedBody.endsWith(']'))
     ) {
       const prev = cleanedBody;
       cleanedBody = StreamCleaner.cleanJSON(cleanedBody, url);

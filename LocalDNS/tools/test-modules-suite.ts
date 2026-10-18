@@ -233,17 +233,36 @@ https://video.example.com/segment2.ts
   assert(lookedUpDomain === 'rr1---sn-test.googlevideo.com', 'Reverse lookup retrieves correct domain');
 
   // -------------------------------------------------------------
-  // Test 8: DiversionEngine Integration with FakeIP MITM
+  // Test 8: DiversionEngine Integration with FakeIP MITM & DNS Guard
   // -------------------------------------------------------------
   console.log('\n--- Test Group 8: DiversionEngine MITM & FakeIP Integration ---');
   const diversion = DiversionEngine.get();
-  // 命中已启用的 YouTube 模块 MITM 域名
-  const routeMitm = diversion.match('rr2---sn-4g5edn6e.googlevideo.com', '127.0.0.1');
-  assert(routeMitm.group === 'rewrite', 'MITM host routes to rewrite group');
-  assert(routeMitm.domainSet === 'mitm_fakeip', 'Domain set tagged as mitm_fakeip');
-  assert(routeMitm.rewriteIp !== undefined && fakePool.isFakeIp(routeMitm.rewriteIp), 'Returns valid FakeIP');
+  const store = Store.get();
 
-  // 普通域名不受影响
+  // 8.1 默认模式 (switch2 !== 'A') 下，合法视频域名正常返回真实上游策略组 (foreign/domestic)，不返回未监听的 FakeIP
+  store.setSwitch('switch2', 'B');
+  const routeDefaultStream = diversion.match('rr2---sn-4g5edn6e.googlevideo.com', '127.0.0.1');
+  assert(routeDefaultStream.group === 'foreign', 'Default mode routes foreign video stream to foreign group');
+  assert(routeDefaultStream.domainSet === 'mitm_stream', 'Domain set tagged as mitm_stream');
+  assert(routeDefaultStream.rewriteIp === undefined, 'No FakeIP returned to prevent network breakage');
+
+  // 8.2 显式开启 Client FakeIP 模式 (switch2 === 'A') 时，才为该域名分配 FakeIP 虚拟地址
+  store.setSwitch('switch2', 'A');
+  const routeFakeIpStream = diversion.match('rr2---sn-4g5edn6e.googlevideo.com', '127.0.0.1');
+  assert(routeFakeIpStream.group === 'rewrite', 'FakeIP mode routes to rewrite group');
+  assert(routeFakeIpStream.domainSet === 'mitm_fakeip', 'Domain set tagged as mitm_fakeip');
+  assert(routeFakeIpStream.rewriteIp !== undefined && fakePool.isFakeIp(routeFakeIpStream.rewriteIp), 'Returns valid FakeIP');
+  store.setSwitch('switch2', 'B'); // 恢复默认
+
+  // 8.3 YouTube 核心广告与追踪域名必须优先由 AdGuard 100% 阻断为 0.0.0.0
+  const routeYtAd1 = diversion.match('s.youtube.com', '127.0.0.1');
+  assert(routeYtAd1.group === 'blocked' && routeYtAd1.domainSet === 'adguard', 's.youtube.com blocked by AdGuard');
+  const routeYtAd2 = diversion.match('video-stats.l.google.com', '127.0.0.1');
+  assert(routeYtAd2.group === 'blocked' && routeYtAd2.domainSet === 'adguard', 'video-stats.l.google.com blocked by AdGuard');
+  const routeYtAd3 = diversion.match('pagead2.googlesyndication.com', '127.0.0.1');
+  assert(routeYtAd3.group === 'blocked' && routeYtAd3.domainSet === 'adguard', 'pagead2.googlesyndication.com blocked by AdGuard');
+
+  // 8.4 国内普通域名不受影响
   const routeBaidu = diversion.match('www.baidu.com', '127.0.0.1');
   assert(routeBaidu.group === 'domestic', 'Domestic domain still routes to domestic');
 
@@ -303,7 +322,7 @@ hostname = api.example.com
   // Test 11: Switch Controls (switch_rewrite & switch_mitm)
   // -------------------------------------------------------------
   console.log('\n--- Test Group 11: Switch Controls (switch_rewrite & switch_mitm) ---');
-  const store = Store.get();
+  // store already retrieved in Test Group 8
 
   // 11.1 测试关闭 HTTP 重写开关 (switch_rewrite = 'B')
   store.setSwitch('switch_rewrite', 'B');
@@ -319,12 +338,14 @@ hostname = api.example.com
 
   // 11.2 测试关闭 MITM 开关 (switch_mitm = 'B')
   store.setSwitch('switch_mitm', 'B');
+  store.setSwitch('switch2', 'A');
   const bypassMitmRoute = diversion.match('rr2---sn-4g5edn6e.googlevideo.com', '127.0.0.1');
   assert(bypassMitmRoute.domainSet !== 'mitm_fakeip', 'When switch_mitm is B, MITM host is NOT hijacked to FakeIP');
   // 恢复 switch_mitm 为 A
   store.setSwitch('switch_mitm', 'A');
   const restoredMitmRoute = diversion.match('rr2---sn-4g5edn6e.googlevideo.com', '127.0.0.1');
-  assert(restoredMitmRoute.domainSet === 'mitm_fakeip', 'When switch_mitm is A, MITM host is properly hijacked to FakeIP');
+  assert(restoredMitmRoute.domainSet === 'mitm_fakeip', 'When switch_mitm is A and switch2 is A, MITM host is properly hijacked to FakeIP');
+  store.setSwitch('switch2', 'B'); // 恢复 switch2 为 B
 
   // -------------------------------------------------------------
   // Test 12: Built-in Video AdBlock Presets (Bilibili & Universal Video SDK)
@@ -358,14 +379,49 @@ hostname = api.example.com
   assert(imaSdkResp.body.includes('window.google={ima:'), 'IMA3 SDK returned mock stub code');
   assert(imaSdkResp.headers['X-LocalDNS-Mock'] === 'true', 'IMA3 SDK marked with X-LocalDNS-Mock header');
 
-  // 12.4 爱奇艺广告接口拦截与 Mock 测试
-  const iqiyiAdResp = await proxyHandler.processRequest({
-    url: 'https://api.iqiyi.com/player/info',
+  // 12.5 YouTube 增强版去广告规则测试 (切片阻断与广告上报阻断)
+  const ytVideoPlaybackResp = await proxyHandler.processRequest({
+    url: 'https://rr1---sn-4g5edn6e.googlevideo.com/videoplayback?id=999&oad=1&ad_v=2',
     method: 'GET',
-    headers: { host: 'api.iqiyi.com' },
+    headers: { host: 'rr1---sn-4g5edn6e.googlevideo.com' },
   });
-  assert(iqiyiAdResp.status === 200, 'iQiyi player info returned 200');
-  assert(iqiyiAdResp.body.includes('"ads":[]'), 'iQiyi player info returned empty ads array');
+  assert(ytVideoPlaybackResp.status === 204, 'YouTube oad/ad_v video slice intercepted with 204');
+
+  const ytStatsAdsResp = await proxyHandler.processRequest({
+    url: 'https://www.youtube.com/api/stats/ads?ns=yt',
+    method: 'GET',
+    headers: { host: 'www.youtube.com' },
+  });
+  assert(ytStatsAdsResp.status === 204, 'YouTube api/stats/ads tracking intercepted with 204');
+
+  const ytStatsAtrResp = await proxyHandler.processRequest({
+    url: 'https://m.youtube.com/api/stats/atr?ns=yt',
+    method: 'POST',
+    headers: { host: 'm.youtube.com' },
+  });
+  assert(ytStatsAtrResp.status === 204, 'YouTube m.youtube.com atr tracking intercepted with 204');
+
+  // 12.6 YouTube 播放器 JSON 响应多级嵌套剪枝测试
+  const nestedYtJson = JSON.stringify({
+    playerResponse: {
+      adPlacements: [{ adPlacementRenderer: { adId: 'abc' } }],
+      playerAds: [{ format: 'instream' }],
+      adSlots: ['slot_ad_1'],
+      playbackTracking: {
+        atrUrl: { baseUrl: 'https://youtube.com/atr' },
+        videostatsPlaybackUrl: { baseUrl: 'https://youtube.com/stats' },
+        genuineStats: { baseUrl: 'https://youtube.com/qoe' }
+      },
+      videoDetails: { title: 'Genuine Video' }
+    }
+  });
+
+  const cleanedNestedStr = StreamCleaner.cleanJSON(nestedYtJson, 'https://www.youtube.com/watch?v=123');
+  const cleanedNested = JSON.parse(cleanedNestedStr);
+  assert(cleanedNested.playerResponse.adPlacements === undefined, 'Nested adPlacements in playerResponse purged');
+  assert(cleanedNested.playerResponse.playerAds === undefined, 'Nested playerAds in playerResponse purged');
+  assert(cleanedNested.playerResponse.playbackTracking.atrUrl === undefined, 'atrUrl tracking purged');
+  assert(cleanedNested.playerResponse.videoDetails.title === 'Genuine Video', 'Genuine videoDetails preserved');
 
   // -------------------------------------------------------------
   // Summary

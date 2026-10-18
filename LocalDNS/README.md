@@ -1,8 +1,8 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.4.5 (Build 20261018)`  
+> **当前版本**：`v1.4.6 (Build 20261018)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，支持 9099 端口透明 HTTP 代理嗅探接管与开箱即用的全网视频去广告规则库）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，强化 YouTube 广告域名阻断与分流 FakeIP 寻址优化）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地 DNS 与应用层流清洗服务系统。
 
@@ -30,6 +30,10 @@
 - **多维度分流路由器 (`DiversionEngine`)**：涵盖名单管理（白名单/黑名单/灰名单/强制 RealIP/重定向 Rewrite/MITM 劫持）与在线分流（自定义 CN/Non-CN、Geosite CN/Non-CN），支持同组来源合并去重。
 
 ### 2. 跨平台模块引擎与应用层流清洗 (Surge / Loon / Quantumult X)
+- **YouTube / Google 广告域名深度阻断与 CDN 分流寻址修复 (v1.4.6)**：
+  - **广告与追踪域名强力黑洞化**：在内置 AdGuard 规则库中加入 `s.youtube.com`, `s2.youtube.com`, `ads.youtube.com`, `video-stats.l.google.com`, `pagead2.googlesyndication.com` 等 YouTube 专属广告与打点域名，确保 DNS 查询 100% 立即阻断并返回 `0.0.0.0`，从源头消灭前贴片广告请求；
+  - **视频 CDN 分流逻辑纠正**：修正了 `diversion.ts` 中一刀切将 `googlevideo.com` 等视频流域名误劫持为 `198.18.0.x` FakeIP 的缺陷。在标准 DNS 模式下，合法视频流域名正常返回真实上游海外 CDN IP，保证客户端建立直连通道，避免因 FakeIP 未建连导致的播放器重试与广告降级回退；仅在用户显式开启 `switch2` 客户端 FakeIP 时按需分配；
+  - **YouTube 模块规则与流清洗强化**：预置 9 条 YouTube 专属重写规则，全面阻断 `videoplayback?oad=1` 广告切片、拦截 `api/stats/ads` 与 `api/stats/atr`，并针对 YouTube 播放器 JSON 响应中的 `playerResponse` 嵌套结构进行递归剪枝，彻底抹除 `adPlacements` 与广告插槽；
 - **9099 端口标准透明 HTTP 代理与绝对 URL 自动嗅探**：
   - 本地 HTTP 9099 端口具备双重工作模式：既是 Web 质感控制台与明文 DoH 服务端，又是标准透明 HTTP 代理服务器；
   - 自动识别客户端发来的绝对代理请求（`GET http://...`）或透明宿主请求（通过 `Host` 头部嗅探），无缝交由 `ProxyHandler` 流水线进行重定向、Mock、Header/Body 篡改与流清洗；

@@ -29,11 +29,34 @@ async function fetchRuleWithFallback(url: string): Promise<string> {
 
 const BUILTIN_AD_RULES = `
 ! Builtin High-frequency Mobile Ads & Tracking Filters
+! YouTube & Google Ads / Tracking
+||s.youtube.com^
+||s2.youtube.com^
+||ads.youtube.com^
+||ytads.google.com^
+||video-stats.l.google.com^
+||video-stats.youtube.com^
+||stats_check.youtube.com^
 ||adservice.google.com^
 ||pagead2.googlesyndication.com^
+||pagead.l.doubleclick.net^
 ||googleads.g.doubleclick.net^
-||ads.google.com^
+||pubads.g.doubleclick.net^
+||securepubads.g.doubleclick.net^
+||static.doubleclick.net^
+||ad.doubleclick.net^
+||doubleclick.net^
+||g.doubleclick.net^
+||partnerad.l.google.com^
+||adwords.google.com^
+||admob.com^
+||googletagservices.com^
+||googletagmanager.com^
+||google-analytics.com^
 ||analytics.google.com^
+||ads.google.com^
+
+! Domestic Ads & Tracking
 ||mobads.baidu.com^
 ||mobads-logs.baidu.com^
 ||pos.baidu.com^

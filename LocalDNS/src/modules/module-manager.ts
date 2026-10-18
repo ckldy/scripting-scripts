@@ -105,6 +105,21 @@ export class ModuleManager {
       needSave = true;
     }
 
+    // 自愈升级 YouTube 纯净去广告模块至最强完整版规则
+    const ytIdx = this.modules.findIndex((m) => m.id === 'preset_youtube');
+    if (ytIdx !== -1) {
+      if (this.modules[ytIdx].rewrites.length < 9 || !this.modules[ytIdx].mitmHosts.includes('m.youtube.com')) {
+        const mYt = ModuleParser.parse(this.getYouTubeModuleRaw(), 'preset_youtube');
+        mYt.enabled = this.modules[ytIdx].enabled;
+        this.modules[ytIdx] = mYt;
+        needSave = true;
+      }
+    } else {
+      const mYt = ModuleParser.parse(this.getYouTubeModuleRaw(), 'preset_youtube');
+      this.modules.push(mYt);
+      needSave = true;
+    }
+
     if (needSave) {
       this.saveModules();
     }
@@ -144,6 +159,28 @@ hostname = imasdk.googleapis.com, *.iqiyi.com, *.qiyi.com, adstats.tencentmusic.
 `;
   }
 
+  private getYouTubeModuleRaw(): string {
+    return `#!name=YouTube 纯净去广告与流净化
+#!desc=屏蔽 YouTube 贴片广告、中插广告、信息流推广与后台跟踪
+[MITM]
+hostname = *.googlevideo.com, www.youtube.com, youtubei.googleapis.com, m.youtube.com, *.youtube.com
+
+[URL Rewrite]
+^https?:\\/\\/[\\w-]+\\.googlevideo\\.com\\/videoplayback\\?.*(&adformat=|\\/ad\\/|&oad=|[?&]ad_v=) reject-200
+^https?:\\/\\/[\\w-]+\\.googlevideo\\.com\\/initplayback\\?.*(&adformat=|\\/ad\\/) reject-200
+^https?:\\/\\/(www|m)\\.youtube\\.com\\/youtubei\\/v1\\/player\\/ad_break reject-dict
+^https?:\\/\\/youtubei\\.googleapis\\.com\\/youtubei\\/v1\\/player\\/ad_break reject-dict
+^https?:\\/\\/youtubei\\.googleapis\\.com\\/youtubei\\/v1\\/log_event reject-200
+^https?:\\/\\/(www|m)\\.youtube\\.com\\/api\\/stats\\/ads reject-200
+^https?:\\/\\/(www|m)\\.youtube\\.com\\/api\\/stats\\/atr reject-200
+^https?:\\/\\/(www|m)\\.youtube\\.com\\/api\\/stats\\/qoe\\?.*(&adformat=|\\/ad\\/) reject-200
+^https?:\\/\\/s\\.youtube\\.com\\/api\\/stats\\/.* reject-200
+
+[Script]
+youtube-player = type=http-response,pattern=^https?:\\/\\/(www|m)\\.youtube\\.com\\/youtubei\\/v1\\/player,script-path=https://raw.githubusercontent.com/Maasea/sgmodule/master/Script/Youtube/youtube.js,requires-body=true
+`;
+  }
+
   private initDefaultPresets(): void {
     // 预置 0: 自定义 HTTP 重写模块
     const customModuleRaw = `#!name=自定义 HTTP 重写
@@ -152,20 +189,7 @@ hostname = imasdk.googleapis.com, *.iqiyi.com, *.qiyi.com, adstats.tencentmusic.
 `;
 
     // 预置 1: YouTube 视频去广告与清爽模块 (Surge 规范)
-    const ytModuleRaw = `#!name=YouTube 纯净去广告与流净化
-#!desc=屏蔽 YouTube 贴片广告、中插广告、信息流推广与后台跟踪
-[MITM]
-hostname = *.googlevideo.com, www.youtube.com, youtubei.googleapis.com
-
-[URL Rewrite]
-^https?:\\/\\/[\\w-]+\\.googlevideo\\.com\\/videoplayback\\?.+(&adformat=|\\/ad\\/) reject-200
-^https?:\\/\\/www\\.youtube\\.com\\/youtubei\\/v1\\/player\\/ad_break reject-dict
-^https?:\\/\\/youtubei\\.googleapis\\.com\\/youtubei\\/v1\\/log_event reject-200
-^https?:\\/\\/www\\.youtube\\.com\\/api\\/stats\\/ads reject-200
-
-[Script]
-youtube-player = type=http-response,pattern=^https?:\\/\\/www\\.youtube\\.com\\/youtubei\\/v1\\/player,script-path=https://raw.githubusercontent.com/Maasea/sgmodule/master/Script/Youtube/youtube.js,requires-body=true
-`;
+    const ytModuleRaw = this.getYouTubeModuleRaw();
 
     // 预置 2: Twitch SSAI 广告切片清洗模块
     const twitchModuleRaw = `#!name=Twitch 直播切片广告清洗
