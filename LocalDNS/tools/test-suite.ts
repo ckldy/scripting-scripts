@@ -326,6 +326,60 @@ async function runTests() {
     assert(mcText.includes('https://localdns.local:'), 'ServerURL uses standard FQDN https://localdns.local:');
     assert(!mcText.includes('http://127.0.0.1'), 'ServerURL strictly avoids forbidden plain HTTP or IP addresses');
     assert(mcText.includes('<string>127.0.0.1</string>'), 'ServerAddresses contains 127.0.0.1 bootstrap address');
+
+    // 2.14 验证 /api/proxy-config/... 协同管理与备份接口 (FJGAC / UI 2026.10.18.19)
+    // 2.14.1 界面设置 (interface/brand)
+    const resGetBrand = await fetch(`${baseUrl}/api/proxy-config/interface/brand`);
+    assert(resGetBrand.status === 200, `GET /api/proxy-config/interface/brand returns 200 OK`);
+    const brandData = await resGetBrand.json();
+    assert(brandData.revision !== undefined, 'interface/brand has revision field');
+
+    const resPostBrand = await fetch(`${baseUrl}/api/proxy-config/interface/brand`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: { name: 'LocalDNS Test', logo: '' }, revision: '0' }),
+    });
+    assert(resPostBrand.status === 200, `POST /api/proxy-config/interface/brand returns 200 OK`);
+    const postedBrand = await resPostBrand.json();
+    assert(postedBrand.value?.name === 'LocalDNS Test', 'Brand name saved in server interface settings');
+
+    // 2.14.2 规则备份与恢复 (rule-backups)
+    const resPostBackup = await fetch(`${baseUrl}/api/proxy-config/rule-backups`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tag: 'whitelist', content: 'test.example.com\nmytest.com' }),
+    });
+    assert(resPostBackup.status === 200, `POST /api/proxy-config/rule-backups returns 200 OK`);
+    const backupResult = await resPostBackup.json();
+    assert(backupResult.saved === true && backupResult.backup?.id, 'Backup saved on server with valid id');
+    const backupId = backupResult.backup.id;
+
+    const resGetBackups = await fetch(`${baseUrl}/api/proxy-config/rule-backups?tag=whitelist`);
+    assert(resGetBackups.status === 200, `GET /api/proxy-config/rule-backups?tag=whitelist returns 200 OK`);
+    const backupsList = await resGetBackups.json();
+    assert(Array.isArray(backupsList.backups) && backupsList.backups.length > 0, 'Backups list returns array with backup');
+
+    const resGetSingleBackup = await fetch(`${baseUrl}/api/proxy-config/rule-backups?tag=whitelist&id=${backupId}`);
+    assert(resGetSingleBackup.status === 200, `GET single backup by id returns 200 OK`);
+    const singleBackup = await resGetSingleBackup.json();
+    assert(singleBackup.content.includes('test.example.com'), 'Backup content matches original saved text');
+
+    // 2.14.3 流量历史采样 (traffic)
+    const resTraffic = await fetch(`${baseUrl}/api/proxy-config/traffic?minutes=60`);
+    assert(resTraffic.status === 200, `GET /api/proxy-config/traffic returns 200 OK`);
+    const trafficData = await resTraffic.json();
+    assert(Array.isArray(trafficData.points) && Number.isFinite(trafficData.now), 'Traffic data contains points array and valid now timestamp');
+
+    // 2.14.4 配置核心与文件查看
+    const resCores = await fetch(`${baseUrl}/api/proxy-config/cores`);
+    assert(resCores.status === 200, `GET /api/proxy-config/cores returns 200 OK`);
+    const coresData = await resCores.json();
+    assert(Array.isArray(coresData.cores) && coresData.cores.length > 0, 'Cores returns active local core');
+
+    const resFiles = await fetch(`${baseUrl}/api/proxy-config/files`);
+    assert(resFiles.status === 200, `GET /api/proxy-config/files returns 200 OK`);
+    const filesData = await resFiles.json();
+    assert(Array.isArray(filesData.files) && filesData.directory, 'Files returns directory listing');
   } catch (err: any) {
     console.error('API Test Error:', err);
     failed++;

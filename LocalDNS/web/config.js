@@ -1,6 +1,6 @@
 window.LOCALDNS_UI_CONFIG = {
   apiBase: "",
-
+  proxyConfigBase: typeof location !== 'undefined' ? location.origin : "",
   title: "LocalDNS 控制台",
   refreshInterval: 30,
   requestTimeout: 10000,

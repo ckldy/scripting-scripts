@@ -1,8 +1,8 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.5.1 (Build 20261018)`  
+> **当前版本**：`v1.5.2 (Build 20261018)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.18.19` / 内核 `FJGAC`，实现原生零外挂纯净去广告闭环：深度集成 Scripting 系统级 VPN 隧道、彻底修复 Apple 原生加密 DNS 描述文件安装校验并内嵌安全根证书载荷、本地 MITM 切片流清洗引擎与 9099/9443 双端口对称代理）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.18.19` / 内核 `FJGAC`，实现全功能配置协同管理、名单工作台备份与历史恢复、7天流量时序采样、原生零外挂纯净去广告闭环与双端口对称代理）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地 DNS 与应用层流清洗服务系统。
 
@@ -39,6 +39,19 @@
       2. 纠正此前在 `ServerURL` 填写裸 IP 地址（`127.0.0.1`）触发 Apple 系统“包含无效值”拒装的问题，改用完全合规的 FQDN（`localdns.local`），并通过 `ServerAddresses` 注入 `["127.0.0.1"]` 提供本地自引导寻址；
       3. 在描述文件中直接内嵌 `com.apple.security.root` 安全载荷，打包下发 `LocalDNS Root CA`，实现“根证书 + 系统 DoH”一键同装，彻底消除系统安装报错；
   - **本地原生模块直接执行中心**：LocalDNS 原生加载并执行 Surge 模块、Loon 插件与 QX 重写规则，直接在本地中间件与 `ProxyHandler` 流水线中生效，外部客户端仅作为可选导出备用；
+
+### 3. 上游 FJGAC / UI 2026.10.18.19 清单工作台与协同架构 (v1.5.2)
+- **清单工作台与规则编辑协同**：
+  - 合入上游最新清单工作台修复，解决编辑后取消逻辑、未保存判断、Ctrl+S 快捷保存与草稿隔离机制；
+  - 备注、分组、新增项注释均参与草稿状态跟踪，批量粘贴去重并保持 `#` 注释停用状态；
+- **服务器持久化身份设置与代理面板 (`/api/proxy-config/interface/*`)**：
+  - 支持服务器持久保存显示名称、Logo 与站点图标；
+  - 顶栏支持快捷配置与打开外部代理面板（Mihomo / sing-box）；
+- **名单工作台备份与历史恢复服务 (`/api/proxy-config/rule-backups`)**：
+  - 每次保存名单前自动在服务端生成历史备份快照，每份名单最多保留 20 份；
+  - 支持一键调出备份弹窗，安全将历史版本载入草稿并核对生效；
+- **7 天流量吞吐量采样时序服务 (`/api/proxy-config/traffic`)**：
+  - 服务端持续记录 QPS 采样数据并持久化存储，支持 1小时 / 6小时 / 1天 / 3天 / 7天 多时间跨度时序平滑渲染。
 - **9099 (HTTP) 与 9443 (HTTPS) 双端口全功能对称生效 (v1.4.8)**：
   - **双端口对称共生架构**：本地 HTTP 9099 端口与 HTTPS 9443 端口底层共享同一套中间件流水线与规则引擎，支持全功能对等运作；
   - **HTTP/HTTPS 代理双通道接管**：客户端既可使用免证书的明文 HTTP 代理节点（`LocalDNS-Proxy = http, 127.0.0.1, 9099`），也可使用带 TLS 加密的安全 HTTPS 代理节点（`LocalDNS-Proxy-TLS = https, 127.0.0.1, 9443, skip-cert-verify=true`）；

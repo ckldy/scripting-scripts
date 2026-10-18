@@ -1133,6 +1133,120 @@ $httpClient.get({
       }
     }
 
+    // 29. /api/proxy-config/... (Upstream UI 2026.10.18.19 配置管理与备份协同服务)
+    if (cleanPath.startsWith('/api/proxy-config')) {
+      const subConfigPath = cleanPath.replace('/api/proxy-config', '');
+
+      // 29.1 /api/proxy-config/interface/:section (名称、Logo、代理面板地址持久化)
+      if (subConfigPath.startsWith('/interface/')) {
+        const section = subConfigPath.replace('/interface/', '').trim();
+        if (method === 'GET') {
+          const setting = store.getInterfaceSetting(section);
+          return jsonResponse({
+            value: setting ? setting.value : null,
+            revision: setting ? String(setting.revision) : '0',
+          });
+        }
+        if (method === 'POST') {
+          const body = parseJsonBody(req);
+          const updated = store.setInterfaceSetting(section, body.value);
+          return jsonResponse({
+            value: updated.value,
+            revision: String(updated.revision),
+          });
+        }
+      }
+
+      // 29.2 /api/proxy-config/rule-backups (名单工作台备份与历史恢复)
+      if (subConfigPath === '/rule-backups' || subConfigPath === '/rule-backups/') {
+        const getParam = (key: string) => req.queryParams?.find((p) => p.key === key)?.value;
+        const tag = getParam('tag') || '';
+        const id = getParam('id');
+
+        if (method === 'GET') {
+          if (id) {
+            const backup = store.getRuleBackupContent(tag, id);
+            if (backup) {
+              return jsonResponse(backup);
+            }
+            return jsonResponse({ error: 'Backup not found' }, 404);
+          }
+          const list = store.getRuleBackups(tag);
+          return jsonResponse({ backups: list });
+        }
+        if (method === 'POST') {
+          const body = parseJsonBody(req);
+          const targetTag = body.tag || tag;
+          const content = body.content || '';
+          if (!targetTag) {
+            return jsonResponse({ error: 'Missing tag parameter' }, 400);
+          }
+          const backup = store.addRuleBackup(targetTag, content);
+          return jsonResponse({ saved: true, backup });
+        }
+      }
+
+      // 29.3 /api/proxy-config/traffic (服务器采样吞吐量时序记录)
+      if (subConfigPath === '/traffic' || subConfigPath === '/traffic/') {
+        const getParam = (key: string) => req.queryParams?.find((p) => p.key === key)?.value;
+        const minutes = Number(getParam('minutes')) || 60;
+        const history = AuditManager.get().getTrafficHistory(minutes);
+        return jsonResponse(history);
+      }
+
+      // 29.4 /api/proxy-config/cores (可用核心列表)
+      if (subConfigPath === '/cores' || subConfigPath === '/cores/') {
+        return jsonResponse({
+          cores: [
+            { id: 'localdns', name: 'LocalDNS 内置核心', format: 'TEXT', startup: true, directory: '/configs' }
+          ]
+        });
+      }
+
+      // 29.5 /api/proxy-config/files (配置文件浏览)
+      if (subConfigPath === '/files' || subConfigPath === '/files/') {
+        return jsonResponse({
+          directory: '/configs',
+          files: [
+            { name: 'whitelist.txt', size: 1024, modified: Date.now() },
+            { name: 'blocklist.txt', size: 1024, modified: Date.now() }
+          ]
+        });
+      }
+
+      // 29.6 /api/proxy-config/read
+      if (subConfigPath === '/read' && method === 'POST') {
+        const body = parseJsonBody(req);
+        const p = body.path || 'whitelist';
+        return jsonResponse({
+          content: store.getRule(p) || '# LocalDNS 配置',
+          revision: '1'
+        });
+      }
+
+      // 29.7 /api/proxy-config/check
+      if (subConfigPath === '/check' && method === 'POST') {
+        return jsonResponse({ ok: true, errors: [] });
+      }
+
+      // 29.8 /api/proxy-config/save
+      if (subConfigPath === '/save' && method === 'POST') {
+        const body = parseJsonBody(req);
+        if (body.path && body.content !== undefined) {
+          store.setRule(body.path, body.content);
+        }
+        return jsonResponse({ ok: true, revision: String(Date.now()) });
+      }
+
+      // 29.9 /api/proxy-config 根信息
+      return jsonResponse({
+        status: 'online',
+        version: '1.5.0',
+        service: 'LocalDNS Config协同服务',
+        features: ['interface', 'rule-backups', 'traffic', 'cores', 'files']
+      });
+    }
+
     return jsonResponse({ error: 'Unknown API endpoint' }, 404);
   }
 

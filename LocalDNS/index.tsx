@@ -44,7 +44,7 @@ declare namespace Safari {
   function openURL(url: string): Promise<void>;
 }
 
-const APP_VERSION = 'v1.5.1';
+const APP_VERSION = 'v1.5.2';
 const APP_BUILD = '20261018';
 const APP_AUTHOR = 'vcncv';
 const UPSTREAM_REPO = 'https://github.com/yyhoworks/LocalDNS';

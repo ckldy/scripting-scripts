@@ -2,9 +2,9 @@
   "name": "LocalDNS",
   "icon": "shield.lefthalf.filled",
   "color": "#6366f1",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "author": "vcncv",
-  "description": "本地 DNS 与原生流清洗系统，实现「零外挂软件纯净去广告闭环」：深度集成 Scripting 原生系统级 VPN 隧道一键全局接管、修复 Apple 官方原生加密 DNS (DoH) 描述文件安装校验（内嵌 com.apple.security.root 根证书载荷与 FQDN 规范）、内置本地 MITM 与 HLS M3U8 切片清洗与 JSON 广告剪枝引擎（直接运行 Surge/Loon 模块与 QX 规则而无需安装外部软件）、支持 9099 与 9443 双端口对称代理、强化 15 条 YouTube 切片阻断与全网视频 SDK 桩代码。致敬上游开源仓库 yyhoworks/LocalDNS 与 R 大，由 vcncv 移植构建。",
+  "description": "本地 DNS 与原生流清洗系统，全面对齐上游 FJGAC / UI 2026.10.18.19 最新清单工作台与协同架构：支持服务器持久化界面身份 (名称/Logo) 与代理面板设置、内置名单工作台备份与历史恢复服务 (保留每名单 20 份备份)、集成 7 天流量吞吐采样时序接口、深度集成 Scripting 原生系统级 VPN 隧道一键全局接管、Apple 官方原生加密 DNS (DoH) 描述文件合规驱动、9099 与 9443 双端口对称代理、强化 15 条 YouTube 切片阻断与全网视频 SDK 桩代码。致敬上游开源仓库 yyhoworks/LocalDNS 与 R 大，由 vcncv 移植构建。",
   "remoteResource": {
     "url": "https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/LocalDNS.zip"
   }

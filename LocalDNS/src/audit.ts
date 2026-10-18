@@ -39,6 +39,11 @@ export class AuditManager {
   private totalStreamCleans = 0;
   private totalHttpDurationMs = 0;
 
+  // Traffic History Sampling (Upstream UI 2026.10.18.17 / .18 / .19 traffic-client.js)
+  private trafficSeries: Array<{ time: number; elapsed: number; qps: number | null; delta: number; total: number }> = [];
+  private lastSampleTime = Date.now();
+  private lastSampleTotal = 0;
+
   private constructor() {}
 
   static get(): AuditManager {
@@ -594,5 +599,53 @@ export class AuditManager {
    */
   clearHttpRewriteLogs(): void {
     this.httpRewriteLogs = [];
+  }
+
+  /**
+   * 收集并返回指定时间范围内的服务器流量吞吐量采样历史 (Upstream /api/proxy-config/traffic)
+   */
+  getTrafficHistory(minutes = 60): {
+    now: number;
+    points: Array<{ time: number; elapsed: number; qps: number | null }>;
+    current: { qps: number | null };
+    error: string;
+  } {
+    const now = Date.now();
+    // 建立周期采样基线（最少 1.5 秒采样一次，形成平滑的 QPS 时序曲线）
+    const elapsed = this.lastSampleTime > 0 ? (now - this.lastSampleTime) / 1000 : 0;
+    if (elapsed >= 1.5 || this.trafficSeries.length === 0) {
+      const delta = this.totalQueries >= this.lastSampleTotal ? this.totalQueries - this.lastSampleTotal : 0;
+      const qps = elapsed > 0 ? Number((delta / elapsed).toFixed(2)) : null;
+      this.trafficSeries.push({
+        time: now,
+        elapsed: Number(elapsed.toFixed(2)),
+        qps,
+        delta,
+        total: this.totalQueries,
+      });
+      this.lastSampleTime = now;
+      this.lastSampleTotal = this.totalQueries;
+
+      // 保留最多 7 天采样历史
+      const cutoff7d = now - 7 * 86400 * 1000;
+      while (this.trafficSeries.length > 5000 || (this.trafficSeries[0] && this.trafficSeries[0].time < cutoff7d)) {
+        this.trafficSeries.shift();
+      }
+    }
+
+    const cutoff = now - Math.max(1, minutes) * 60000;
+    const points = this.trafficSeries
+      .filter((p) => p.time >= cutoff)
+      .map((p) => ({ time: p.time, elapsed: p.elapsed, qps: p.qps }));
+
+    const latest = this.trafficSeries[this.trafficSeries.length - 1];
+    const currentQps = latest && now - latest.time <= 90000 && latest.qps !== null ? latest.qps : null;
+
+    return {
+      now,
+      points,
+      current: { qps: currentQps },
+      error: '',
+    };
   }
 }

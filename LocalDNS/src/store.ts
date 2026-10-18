@@ -23,6 +23,8 @@ export class Store {
     refresh_days: 7,
     first_run_time: '04:00',
   };
+  private interfaceSettings: Record<string, { value: any; revision: number }> = {};
+  private ruleBackups: Record<string, Array<{ id: string; time: number; bytes: number; tag: string; content: string }>> = {};
 
   private constructor() {
     this.upstreamConfig = this.loadOrDefault('localdns_upstreams', {
@@ -131,6 +133,8 @@ export class Store {
     this.auditCapturing = this.loadOrDefault('localdns_audit_capturing', true);
     this.upstreamEcs = this.loadOrDefault('localdns_upstream_ecs', '');
     this.requeryConfig = this.loadOrDefault('localdns_requery_config', this.requeryConfig);
+    this.interfaceSettings = this.loadOrDefault('localdns_interface_settings', {});
+    this.ruleBackups = this.loadOrDefault('localdns_rule_backups', {});
 
     // Auto-healing: Ensure primary AdGuard filter source and switch7 are enabled so ad blocking works out of the box!
     let sourcesChanged = false;
@@ -291,5 +295,51 @@ export class Store {
   setRequeryConfig(cfg: any) {
     this.requeryConfig = { ...this.requeryConfig, ...cfg };
     this.persist('localdns_requery_config', this.requeryConfig);
+  }
+
+  // Interface Settings (brand identity, proxy-panel settings)
+  getInterfaceSetting(section: string): { value: any; revision: number } | null {
+    return this.interfaceSettings[section] || null;
+  }
+
+  setInterfaceSetting(section: string, value: any): { value: any; revision: number } {
+    const cur = this.interfaceSettings[section];
+    const newRev = (cur?.revision || 0) + 1;
+    const entry = { value, revision: newRev };
+    this.interfaceSettings[section] = entry;
+    this.persist('localdns_interface_settings', this.interfaceSettings);
+    return entry;
+  }
+
+  // Rule Backups (Upstream UI 2026.10.18.18 / .19 rule-backups.js)
+  getRuleBackups(tag: string): Array<{ id: string; time: number; bytes: number }> {
+    const list = this.ruleBackups[tag] || [];
+    return list.map((b) => ({ id: b.id, time: b.time, bytes: b.bytes }));
+  }
+
+  getRuleBackupContent(tag: string, id: string): { id: string; time: number; bytes: number; tag: string; content: string } | null {
+    const list = this.ruleBackups[tag] || [];
+    const found = list.find((b) => b.id === id);
+    return found || null;
+  }
+
+  addRuleBackup(tag: string, content: string): { id: string; time: number; bytes: number } {
+    if (!this.ruleBackups[tag]) {
+      this.ruleBackups[tag] = [];
+    }
+    const backupItem = {
+      id: `bk_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      time: Date.now(),
+      bytes: content.length,
+      tag,
+      content,
+    };
+    // Keep most recent 20 backups per tag
+    this.ruleBackups[tag].unshift(backupItem);
+    if (this.ruleBackups[tag].length > 20) {
+      this.ruleBackups[tag] = this.ruleBackups[tag].slice(0, 20);
+    }
+    this.persist('localdns_rule_backups', this.ruleBackups);
+    return { id: backupItem.id, time: backupItem.time, bytes: backupItem.bytes };
   }
 }
