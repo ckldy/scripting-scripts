@@ -266,14 +266,21 @@ async function runTests() {
     const resRwLogsAfter = await (await fetch(`${baseUrl}/api/v1/rewrites/logs`)).json();
     assert(resRwLogsAfter.total === 0, 'rewrites logs cleared to 0');
 
-    // 2.11 验证透明 HTTP 代理与绝对 URL 自动嗅探 (无需 /proxy 路径，标准代理协议对接)
+    // 2.11 验证透明 HTTP/HTTPS 代理与绝对 URL 自动嗅探 (9099 与 9443 双端口对称生效)
     const resBiliProxy = await fetch(`${baseUrl}/x/v2/splash`, {
       method: 'GET',
       headers: { Host: 'api.bilibili.com' },
     });
     assert(resBiliProxy.status === 204, `Transparent HTTP proxy intercepts Bilibili splash ad with 204 (got ${resBiliProxy.status})`);
-    assert(resBiliProxy.headers.get('X-LocalDNS-Proxy') === 'transparent', 'X-LocalDNS-Proxy header is transparent');
+    assert(resBiliProxy.headers.get('X-LocalDNS-Proxy')?.startsWith('transparent'), 'X-LocalDNS-Proxy header is transparent');
     assert(resBiliProxy.headers.get('X-LocalDNS-Cleaned') === 'true', 'X-LocalDNS-Cleaned header is true');
+
+    // 验证以绝对 HTTPS 路径发起的代理请求 (如通过 HTTPS 端口或客户端代理连接发起)
+    const resBiliAbsHttps = await fetch(`${baseUrl}/https://api.bilibili.com/x/v2/splash`, {
+      method: 'GET',
+    });
+    assert(resBiliAbsHttps.status === 204, `Absolute HTTPS proxy URL intercepts Bilibili splash ad with 204 (got ${resBiliAbsHttps.status})`);
+    assert(resBiliAbsHttps.headers.get('X-LocalDNS-Cleaned') === 'true', 'Absolute HTTPS URL proxy marked as cleaned');
 
     // 验证全网通用视频 SDK 桩代码透明代理拦截
     const resImaProxy = await fetch(`${baseUrl}/js/sdkloader/ima3.js`, {

@@ -6,7 +6,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 
 | 脚本 | 版本 | 说明 | 安装链接 |
 |---|---|---|---|
-| LocalDNS（本地 DNS 服务） | 1.4.7 | 本地 DNS 与应用层流清洗系统，支持本地动态编译并一键挂载 Surge 模块/Loon 插件/QX 重写配置，强化 YouTube 广告域名黑洞阻断与 15 条强力切片重写、纠正视频 CDN 寻址直连（避免 FakeIP 误劫持导致播放器回退）、支持 9099 端口标准透明 HTTP 代理嗅探接管、预置 B站全功能去广告与全网通用视频 SDK 桩代码模块（爱优腾芒全覆盖）、在“查询日志”实时追踪 HTTP 重写审计日志、在“规则管理”多维度筛选搜索与 HTTP 重写可视化/纯文本深度编辑（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
+| LocalDNS（本地 DNS 服务） | 1.4.8 | 本地 DNS 与应用层流清洗系统，支持 9099 (HTTP) 与 9443 (HTTPS) 双端口全功能对称生效、支持透明 HTTP/HTTPS 代理嗅探接管与 TLS 安全隧道、支持本地动态编译并一键挂载 Surge 模块/Loon 插件/QX 重写配置，强化 YouTube 广告域名黑洞阻断与 15 条强力切片重写、纠正视频 CDN 寻址直连（避免 FakeIP 误劫持导致播放器回退）、预置 B站全功能去广告与全网通用视频 SDK 桩代码模块（爱优腾芒全覆盖）、在“查询日志”实时追踪 HTTP 重写审计日志、在“规则管理”多维度筛选搜索与 HTTP 重写可视化/纯文本深度编辑（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
 | 台风路径 | 2.3.1 | 实时台风路径、多机构预报与气象图层；主程序刷新后会同步重载用户小组件，大号组件地图缓存批处理仅重载一次 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F台风路径.zip%22%5D) |
 | 黃豆短劇 | 1.2.0 | 浏览、搜索与收藏黃豆短劇内容，支持播放历史、剧集播放、上下滑切集与进度条 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D) |
 | NetRadio（网络收音机） | 1.0.1 | 全球 1000+ 公开网络电台（按 36 个国家/地区归类），黑胶唱机舞台、电平示波器、主题调色板与 iOS 原生后台/锁屏播控（基于 net-redio 移植，作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D) |
@@ -21,8 +21,14 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 ## 🌟 脚本功能详解与直链
 
 ### 🛡️ LocalDNS (本地 DNS 服务与流清洗管理系统)
-- **版本**：`1.4.7` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
+- **版本**：`1.4.8` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
 - **特性**：
+  - **9099 (HTTP) 与 9443 (HTTPS) 双端口全功能对称生效 (v1.4.8)**：
+    - **双端口对称共生架构**：本地 HTTP 9099 端口与 HTTPS 9443 端口底层共享同一套中间件流水线与规则引擎，支持全功能对等运作；
+    - **HTTP/HTTPS 代理双通道接管**：客户端既可使用免证书的明文 HTTP 代理节点（`LocalDNS-Proxy = http, 127.0.0.1, 9099`），也可使用带 TLS 加密的安全 HTTPS 代理节点（`LocalDNS-Proxy-TLS = https, 127.0.0.1, 9443, skip-cert-verify=true`）；
+    - **绝对 URL 自动嗅探增强**：全面支持 `http://`、`https://` 以及 `/https://...` 格式的代理请求解析，自动识别请求来源端口协议，无论是明文还是 TLS 密文均可无缝重定向、Mock、Header/Body 篡改与切片清洗；
+    - **双通道 DoH 与 Web 控制台**：`http://127.0.0.1:9099/dns-query` 与 `https://127.0.0.1:9443/dns-query` 完全对称生效，共享四级缓存池与 AdGuard 过滤状态；`http://127.0.0.1:9099/ui/` 与 `https://127.0.0.1:9443/ui/` 均可访问毛玻璃 Web 控制台；
+    - **动态模块链接自适应**：Web 控制台与原生仪表盘自适应当前访问端口与协议，一键调起安装至 Surge/Loon；
   - **Surge / Loon / QX 模块一键动态编译与客户端挂载 (v1.4.7)**：
     - **核心机制打通**：YouTube、B站等现代视频平台全面采用 HTTPS 加密传输，纯 DNS 只能拦截外链广告域名，无法解密并修改视频切片或播放器 JSON。必须由 Surge、Loon、Quantumult X 等客户端执行 HTTPS MITM 解密；
     - **本地动态编译端点**：提供 `/localdns.sgmodule`、`/localdns.plugin`、`/localdns.conf` 实时导出接口，将 LocalDNS 内存中所有激活的 MITM 主机名与重写规则编译为标准客户端配置；

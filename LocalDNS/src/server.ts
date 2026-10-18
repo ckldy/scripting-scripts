@@ -116,7 +116,7 @@ export class LocalDnsServer {
 
     for (const p of candidatePorts) {
       const s = new HttpServer();
-      this.setupServerMiddleware(s, webDir);
+      this.setupServerMiddleware(s, webDir, false);
       const err = s.start({ port: p, forceIPv4: false });
       if (!err) {
         startedPort = s.port || p;
@@ -143,36 +143,7 @@ export class LocalDnsServer {
     if (FileManager.existsSync(p12Path)) {
       try {
         const tlsServer = new HttpServer();
-        
-        // Explicitly register async route handlers so Swifter router matches them
-        tlsServer.registerAsyncHandler('/dns-query', async (req: HttpRequest) => {
-          if (req.method === 'OPTIONS') {
-            return HttpResponse.raw(204, 'No Content', {
-              headers: {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-              },
-            });
-          }
-          return await this.handleDoh(req);
-        });
-
-        tlsServer.registerAsyncHandler('/api/resolve', async (req: HttpRequest) => {
-          return await this.handleApi('/api/resolve', req.method.toUpperCase(), req);
-        });
-
-        const caPath = Path.join(Script.directory, 'cert/ca.crt');
-        tlsServer.registerAsyncHandler('/ca.crt', async () => {
-          if (FileManager.existsSync(caPath)) {
-            const f = FileEntity.openForReading(caPath);
-            return HttpResponse.raw(200, 'OK', {
-              headers: { 'Content-Type': 'application/x-x509-ca-cert' },
-              body: f,
-            });
-          }
-          return HttpResponse.notFound();
-        });
+        this.setupServerMiddleware(tlsServer, webDir, true);
 
         const tlsCandidatePorts = [9443, 8443, 9093];
         for (const tp of tlsCandidatePorts) {
@@ -205,6 +176,7 @@ export class LocalDnsServer {
 
   reloadTlsServer(): boolean {
     const p12Path = Path.join(Script.directory, 'cert/server.p12');
+    const webDir = Path.join(Script.directory, 'web');
     if (this.httpsServer) {
       try { this.httpsServer.stop(); } catch {}
       this.httpsServer = null;
@@ -217,34 +189,7 @@ export class LocalDnsServer {
 
     try {
       const tlsServer = new HttpServer();
-      tlsServer.registerAsyncHandler('/dns-query', async (req: HttpRequest) => {
-        if (req.method === 'OPTIONS') {
-          return HttpResponse.raw(204, 'No Content', {
-            headers: {
-              'Access-Control-Allow-Origin': '*',
-              'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-              'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-            },
-          });
-        }
-        return await this.handleDoh(req);
-      });
-
-      tlsServer.registerAsyncHandler('/api/resolve', async (req: HttpRequest) => {
-        return await this.handleApi('/api/resolve', req.method.toUpperCase(), req);
-      });
-
-      const caPath = Path.join(Script.directory, 'cert/ca.crt');
-      tlsServer.registerAsyncHandler('/ca.crt', async () => {
-        if (FileManager.existsSync(caPath)) {
-          const f = FileEntity.openForReading(caPath);
-          return HttpResponse.raw(200, 'OK', {
-            headers: { 'Content-Type': 'application/x-x509-ca-cert' },
-            body: f,
-          });
-        }
-        return HttpResponse.notFound();
-      });
+      this.setupServerMiddleware(tlsServer, webDir, true);
 
       const tlsCandidatePorts = [this.httpsPort, 9443, 8443, 9093];
       for (const tp of tlsCandidatePorts) {
@@ -286,7 +231,7 @@ export class LocalDnsServer {
     this.isHttpsActive = false;
   }
 
-  private setupServerMiddleware(server: HttpServer, webDir: string): void {
+  private setupServerMiddleware(server: HttpServer, webDir: string, isTls = false): void {
 
     // 2. Global Dispatcher Middleware
     server.registerMiddleware(async (req: HttpRequest) => {
@@ -304,7 +249,7 @@ export class LocalDnsServer {
       const path = req.path;
       const method = req.method.toUpperCase();
 
-      // 0. Transparent HTTP Proxy Sniffing (标准 HTTP 代理接管与绝对 URL 自动嗅探)
+      // 0. Transparent HTTP/HTTPS Proxy Sniffing (双端口对称代理接管与绝对 URL 自动嗅探)
       const targetStr = req.target || '';
       const hostHeader = (req.headers['host'] || req.headers['Host'] || '').split(':')[0].toLowerCase();
       const isInternalPath =
@@ -313,6 +258,14 @@ export class LocalDnsServer {
         path.startsWith('/plugins') ||
         path === '/dns-query' ||
         path === '/metrics' ||
+        path === '/ca.crt' ||
+        path === '/localdns.sgmodule' ||
+        path === '/localdns.plugin' ||
+        path === '/localdns.conf' ||
+        path === '/surge.sgmodule' ||
+        path === '/loon.plugin' ||
+        path === '/qx.conf' ||
+        path === '/quantumultx.conf' ||
         path === '/' ||
         path === '/ui/';
 
@@ -322,18 +275,28 @@ export class LocalDnsServer {
         hostHeader === '0.0.0.0' ||
         hostHeader === '';
 
-      const isAbsoluteHttp = targetStr.startsWith('http://') || path.startsWith('http://');
+      const isAbsoluteHttp =
+        targetStr.startsWith('http://') ||
+        targetStr.startsWith('https://') ||
+        path.startsWith('http://') ||
+        path.startsWith('https://') ||
+        path.startsWith('/http://') ||
+        path.startsWith('/https://');
       const isTransparentProxy = isAbsoluteHttp || (!isInternalPath && !isLocalHost);
 
       if (isTransparentProxy) {
         let targetUrl = '';
-        if (targetStr.startsWith('http://')) {
+        if (targetStr.startsWith('http://') || targetStr.startsWith('https://')) {
           targetUrl = targetStr;
-        } else if (path.startsWith('http://')) {
+        } else if (path.startsWith('http://') || path.startsWith('https://')) {
           targetUrl = path;
+        } else if (path.startsWith('/http://') || path.startsWith('/https://')) {
+          targetUrl = path.slice(1);
         } else {
-          const targetHost = req.headers['host'] || req.headers['Host'];
-          targetUrl = `http://${targetHost}${path}`;
+          const targetHost = req.headers['host'] || req.headers['Host'] || '';
+          const protoHeader = (req.headers['x-forwarded-proto'] || '').toLowerCase();
+          const defaultScheme = (protoHeader === 'https' || isTls || targetHost.includes(':443')) ? 'https' : 'http';
+          targetUrl = `${defaultScheme}://${targetHost}${path}`;
         }
 
         let reqBody: string | undefined;
@@ -359,7 +322,8 @@ export class LocalDnsServer {
           headers: {
             ...proxyResult.headers,
             'X-LocalDNS-Cleaned': proxyResult.intercepted ? 'true' : 'false',
-            'X-LocalDNS-Proxy': 'transparent',
+            'X-LocalDNS-Proxy': isTls ? 'transparent-https' : 'transparent-http',
+            'X-LocalDNS-Port': String(isTls ? this.httpsPort : this.port),
             'Access-Control-Allow-Origin': '*',
           },
           body: bodyData,
@@ -423,6 +387,21 @@ export class LocalDnsServer {
         }
       }
 
+      // CA Root Certificate download: /ca.crt
+      if (path === '/ca.crt' && method === 'GET') {
+        const caPath = Path.join(Script.directory, 'cert/ca.crt');
+        if (FileManager.existsSync(caPath)) {
+          const f = FileEntity.openForReading(caPath);
+          return HttpResponse.raw(200, 'OK', {
+            headers: {
+              'Content-Type': 'application/x-x509-ca-cert',
+              'Access-Control-Allow-Origin': '*',
+            },
+            body: f,
+          });
+        }
+      }
+
       // DoH DNS-over-HTTPS endpoint: /dns-query
       if (path === '/dns-query') {
         return await this.handleDoh(req);
@@ -446,6 +425,53 @@ export class LocalDnsServer {
 
       // Let pass through to static files handler
       return null;
+    });
+
+    // Explicit async route registrations to guarantee 100% routing match across Swifter engines
+    server.registerAsyncHandler('/dns-query', async (req: HttpRequest) => {
+      if (req.method === 'OPTIONS') {
+        return HttpResponse.raw(204, 'No Content', {
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          },
+        });
+      }
+      return await this.handleDoh(req);
+    });
+
+    server.registerAsyncHandler('/api/resolve', async (req: HttpRequest) => {
+      return await this.handleApi('/api/resolve', req.method.toUpperCase(), req);
+    });
+
+    const caPath = Path.join(Script.directory, 'cert/ca.crt');
+    server.registerAsyncHandler('/ca.crt', async () => {
+      if (FileManager.existsSync(caPath)) {
+        const f = FileEntity.openForReading(caPath);
+        return HttpResponse.raw(200, 'OK', {
+          headers: { 'Content-Type': 'application/x-x509-ca-cert', 'Access-Control-Allow-Origin': '*' },
+          body: f,
+        });
+      }
+      return HttpResponse.notFound();
+    });
+
+    server.registerAsyncHandler('/metrics', async () => {
+      const metrics = AuditManager.get().generatePrometheusMetrics();
+      return textResponse(metrics, 200, 'text/plain; version=0.0.4; charset=utf-8');
+    });
+
+    server.registerAsyncHandler('/localdns.sgmodule', async () => {
+      return textResponse(ModuleManager.get().exportAsSurgeModule(), 200, 'text/plain; charset=utf-8');
+    });
+
+    server.registerAsyncHandler('/localdns.plugin', async () => {
+      return textResponse(ModuleManager.get().exportAsLoonPlugin(), 200, 'text/plain; charset=utf-8');
+    });
+
+    server.registerAsyncHandler('/localdns.conf', async () => {
+      return textResponse(ModuleManager.get().exportAsQuantumultXConf(), 200, 'text/plain; charset=utf-8');
     });
 
     // Fallback 404

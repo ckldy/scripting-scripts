@@ -2670,7 +2670,7 @@
               <strong style="font-size:13px;color:#3B82F6">⚡️ Surge 模块 (.sgmodule)</strong>
               <span class="tn-pill mono" style="font-size:10.5px;color:var(--text-3)">本地动态编译</span>
             </div>
-            <div class="mono" style="font-size:11px;color:var(--text-2);word-break:break-all">http://127.0.0.1:${location.port || '9099'}/localdns.sgmodule</div>
+            <div class="mono" style="font-size:11px;color:var(--text-2);word-break:break-all">${location.protocol}//${location.hostname}:${location.port || '9099'}/localdns.sgmodule</div>
             <div style="display:flex;gap:6px;margin-top:2px">
               <button type="button" class="button small primary" id="btn-mount-surge">一键安装至 Surge</button>
               <button type="button" class="button small" id="btn-copy-surge-url">复制链接</button>
@@ -2682,7 +2682,7 @@
               <strong style="font-size:13px;color:#F59E0B">🎈 Loon 插件 (.plugin)</strong>
               <span class="tn-pill mono" style="font-size:10.5px;color:var(--text-3)">本地动态编译</span>
             </div>
-            <div class="mono" style="font-size:11px;color:var(--text-2);word-break:break-all">http://127.0.0.1:${location.port || '9099'}/localdns.plugin</div>
+            <div class="mono" style="font-size:11px;color:var(--text-2);word-break:break-all">${location.protocol}//${location.hostname}:${location.port || '9099'}/localdns.plugin</div>
             <div style="display:flex;gap:6px;margin-top:2px">
               <button type="button" class="button small primary" id="btn-mount-loon">一键安装至 Loon</button>
               <button type="button" class="button small" id="btn-copy-loon-url">复制链接</button>
@@ -2694,7 +2694,7 @@
               <strong style="font-size:13px;color:#8B5CF6">🎯 Quantumult X 规则 (.conf)</strong>
               <span class="tn-pill mono" style="font-size:10.5px;color:var(--text-3)">本地动态编译</span>
             </div>
-            <div class="mono" style="font-size:11px;color:var(--text-2);word-break:break-all">http://127.0.0.1:${location.port || '9099'}/localdns.conf</div>
+            <div class="mono" style="font-size:11px;color:var(--text-2);word-break:break-all">${location.protocol}//${location.hostname}:${location.port || '9099'}/localdns.conf</div>
             <div style="display:flex;gap:6px;margin-top:2px">
               <button type="button" class="button small" id="btn-copy-qx-url">复制重写引用链接</button>
             </div>
@@ -2762,8 +2762,8 @@
     $('#mod-add').onclick=()=>openModuleModal(body);
     $('#btn-stream-test').onclick=()=>openStreamCleanTestModal();
 
-    // 客户端一键挂载与模块联动事件绑定
-    const getHostOrigin = () => `http://127.0.0.1:${location.port || '9099'}`;
+    // 客户端一键挂载与模块联动事件绑定 (自适应当前 HTTP 9099 / HTTPS 9443 双端口协议)
+    const getHostOrigin = () => `${location.protocol}//${location.hostname}:${location.port || '9099'}`;
     const copyToClipboard = (text, desc) => {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(() => toast(`${desc}已复制到剪贴板`)).catch(() => downloadText('module-url.txt', text));

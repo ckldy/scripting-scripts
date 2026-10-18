@@ -147,6 +147,15 @@ function LocalDnsApp() {
     }
   };
 
+  const copyHttpsProxyConfig = async () => {
+    const httpsPort = server.getHttpsPort();
+    const snippet = `HTTPS 代理服务器: 127.0.0.1\n端口: ${httpsPort}\n\nSurge 节点配置:\nLocalDNS-Proxy-TLS = https, 127.0.0.1, ${httpsPort}, skip-cert-verify=true\n\nLoon 节点配置:\nLocalDNS-Proxy-TLS = https, 127.0.0.1, ${httpsPort}, skip-cert-verify=true\n\n小火箭代理行:\nhttps://127.0.0.1:${httpsPort}?allowInsecure=1`;
+    if (typeof Pasteboard !== 'undefined' && Pasteboard.setString) {
+      await Pasteboard.setString(snippet);
+      setStatusMessage(`已复制 TLS 加密 HTTPS 代理配置：127.0.0.1:${httpsPort}！`);
+    }
+  };
+
   const handleToggleServer = async () => {
     if (isRunning) {
       server.stop();
@@ -715,27 +724,40 @@ function LocalDnsApp() {
             </Text>
           </VStack>
 
-          {/* 透明 HTTP 代理接管与视频流清洗 */}
+          {/* 透明代理接管与视频流清洗（9099 HTTP 与 9443 HTTPS 双端口同时生效） */}
           <VStack alignment="leading">
-            <Text bold font="headline">🎬 方案 4：透明 HTTP 代理与视频流清洗接管 (全代理工具 / Wi-Fi)</Text>
+            <Text bold font="headline">🎬 方案 4：透明代理与视频流清洗 (9099 与 9443 双端口完全对称生效)</Text>
             <Text font="caption" foregroundStyle="secondaryLabel">
-              端口 9099 已开启透明 HTTP 代理嗅探，直接接管 HTTP 流量并剥离视频切片与广告：
+              LocalDNS 采用双端口对称流水线，无论流量通过 9099 还是 9443 进出，去广告、切片剥离与重写全部同时生效：
             </Text>
             <Text font="caption">
-              1. Surge / Loon / 小火箭：添加本地 HTTP 节点 LocalDNS-Proxy = http, 127.0.0.1, {port}；
+              • 端口 9099 (明文 HTTP): 适用于本地极速直连，免证书校验；
             </Text>
             <Text font="caption">
-              2. 路由分流规则：将需要去广告的视频域名（如 *.googlevideo.com, *.bilibili.com 等）指向该代理；
+              • 端口 9443 (TLS 加密 HTTPS): 适用于 TLS 加密代理节点，保护本地传输；
+            </Text>
+            <Text font="caption">
+              1. Surge / Loon / 小火箭：添加本地 HTTP 节点 (9099) 或 HTTPS 节点 (9443)；
+            </Text>
+            <Text font="caption">
+              2. 路由分流规则：将需要去广告的视频域名（如 *.googlevideo.com, *.bilibili.com 等）指向该节点；
             </Text>
             <Text font="caption">
               3. iOS Wi-Fi 代理：当前 Wi-Fi 设置 ➔ 配置代理选择手动 ➔ 服务器 127.0.0.1，端口 {port}。
             </Text>
           </VStack>
 
-          <Button
-            title={`复制 HTTP 代理配置 (127.0.0.1:${port})`}
-            action={copyHttpProxyConfig}
-          />
+          <HStack>
+            <Button
+              title={`复制 HTTP 代理 (9099)`}
+              action={copyHttpProxyConfig}
+            />
+            <Spacer />
+            <Button
+              title={`复制 HTTPS 代理 (9443)`}
+              action={copyHttpsProxyConfig}
+            />
+          </HStack>
 
           {/* 方案 5：Surge / Loon 模块与 HTTPS MITM 挂载 (彻底去除 YouTube 视频广告) */}
           <VStack alignment="leading">

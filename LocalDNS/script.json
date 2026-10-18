@@ -2,9 +2,9 @@
   "name": "LocalDNS",
   "icon": "shield.lefthalf.filled",
   "color": "#6366f1",
-  "version": "1.4.7",
+  "version": "1.4.8",
   "author": "vcncv",
-  "description": "本地 DNS 与流清洗服务系统，支持本地动态编译并一键挂载 Surge 模块/Loon 插件/QX 重写配置、强化 YouTube 广告域名黑洞阻断与 15 条强力切片重写、纠正视频 CDN 寻址直连、支持 9099 端口透明 HTTP 代理嗅探、内置 B站与全网视频 SDK 桩代码、支持规则管理可视化/纯文本重写编辑与全分流动态交互推演。致敬上游开源仓库 yyhoworks/LocalDNS 与 R 大，由 vcncv 移植构建。",
+  "description": "本地 DNS 与流清洗服务系统，支持 9099 (HTTP) 与 9443 (HTTPS) 双端口全功能对称生效、支持本地动态编译并一键挂载 Surge 模块/Loon 插件/QX 重写配置、强化 YouTube 广告域名黑洞阻断与 15 条强力切片重写、纠正视频 CDN 寻址直连、支持透明 HTTP/HTTPS 代理嗅探、内置 B站与全网视频 SDK 桩代码、支持规则管理可视化/纯文本重写编辑与全分流动态交互推演。致敬上游开源仓库 yyhoworks/LocalDNS 与 R 大，由 vcncv 移植构建。",
   "remoteResource": {
     "url": "https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/LocalDNS.zip"
   }

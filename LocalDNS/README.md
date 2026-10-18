@@ -1,8 +1,8 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.4.7 (Build 20261018)`  
+> **当前版本**：`v1.4.8 (Build 20261018)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，实现 Surge/Loon/QX 模块一键动态编译挂载、YouTube 广告全面阻断与 15 条强力切片重写）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，实现 9099 (HTTP) 与 9443 (HTTPS) 双端口全功能对称生效、Surge/Loon/QX 模块一键动态编译挂载、YouTube 广告全面阻断与 15 条强力切片重写）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地 DNS 与应用层流清洗服务系统。
 
@@ -30,6 +30,12 @@
 - **多维度分流路由器 (`DiversionEngine`)**：涵盖名单管理（白名单/黑名单/灰名单/强制 RealIP/重定向 Rewrite/MITM 劫持）与在线分流（自定义 CN/Non-CN、Geosite CN/Non-CN），支持同组来源合并去重。
 
 ### 2. 跨平台模块引擎与应用层流清洗 (Surge / Loon / Quantumult X)
+- **9099 (HTTP) 与 9443 (HTTPS) 双端口全功能对称生效 (v1.4.8)**：
+  - **双端口对称共生架构**：本地 HTTP 9099 端口与 HTTPS 9443 端口底层共享同一套中间件流水线与规则引擎，支持全功能对等运作；
+  - **HTTP/HTTPS 代理双通道接管**：客户端既可使用免证书的明文 HTTP 代理节点（`LocalDNS-Proxy = http, 127.0.0.1, 9099`），也可使用带 TLS 加密的安全 HTTPS 代理节点（`LocalDNS-Proxy-TLS = https, 127.0.0.1, 9443, skip-cert-verify=true`）；
+  - **绝对 URL 自动嗅探增强**：全面支持 `http://`、`https://` 以及 `/https://...` 格式的代理请求解析，自动识别请求来源端口协议，无论是明文还是 TLS 密文均可无缝重定向、Mock、Header/Body 篡改与切片清洗；
+  - **双通道 DoH 与 Web 控制台**：`http://127.0.0.1:9099/dns-query` 与 `https://127.0.0.1:9443/dns-query` 完全对称生效，共享四级缓存池与 AdGuard 过滤状态；`http://127.0.0.1:9099/ui/` 与 `https://127.0.0.1:9443/ui/` 均可访问毛玻璃 Web 控制台；
+  - **动态模块链接自适应**：Web 控制台与原生仪表盘自适应当前访问端口与协议，一键调起安装至 Surge/Loon；
 - **Surge / Loon / QX 模块一键动态编译与客户端挂载 (v1.4.7)**：
   - **核心机制打通**：YouTube、B站等现代视频平台全面采用 HTTPS 加密传输，纯 DNS 只能拦截外链广告域名，无法解密并修改视频切片或播放器 JSON。必须由 Surge、Loon、Quantumult X 等客户端执行 HTTPS MITM 解密；
   - **本地动态编译端点**：提供 `/localdns.sgmodule`、`/localdns.plugin`、`/localdns.conf` 实时导出接口，将 LocalDNS 内存中所有激活的 MITM 主机名与重写规则编译为标准客户端配置；
