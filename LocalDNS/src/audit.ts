@@ -367,7 +367,7 @@ export class AuditManager {
 
     lines.push('# HELP localdns_info Information about LocalDNS version.');
     lines.push('# TYPE localdns_info gauge');
-    lines.push('localdns_info{version="FJG4Z"} 1');
+    lines.push('localdns_info{version="FJGAC"} 1');
 
     lines.push('# HELP localdns_runtime_info Information about runtime.');
     lines.push('# TYPE localdns_runtime_info gauge');

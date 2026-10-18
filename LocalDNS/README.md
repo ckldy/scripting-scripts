@@ -2,7 +2,7 @@
 
 > **当前版本**：`v1.5.1 (Build 20261018)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，实现原生零外挂纯净去广告闭环：深度集成 Scripting 系统级 VPN 隧道、彻底修复 Apple 原生加密 DNS 描述文件安装校验并内嵌安全根证书载荷、本地 MITM 切片流清洗引擎与 9099/9443 双端口对称代理）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.18.19` / 内核 `FJGAC`，实现原生零外挂纯净去广告闭环：深度集成 Scripting 系统级 VPN 隧道、彻底修复 Apple 原生加密 DNS 描述文件安装校验并内嵌安全根证书载荷、本地 MITM 切片流清洗引擎与 9099/9443 双端口对称代理）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地 DNS 与应用层流清洗服务系统。
 

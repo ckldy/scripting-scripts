@@ -33,9 +33,9 @@ async function runTests() {
   // 读取 version.json 校验
   const verStr = await FileManager.readAsString(Path.join(webDir, 'version.json'));
   const verData = JSON.parse(verStr);
-  assert(verData.uiVersion === '2026.10.17.2', `UI version matches 2026.10.17.2 (got: ${verData.uiVersion})`);
-  assert(verData.backendVersion === 'FJG4Z', `Backend version matches FJG4Z (got: ${verData.backendVersion})`);
-  assert(verData.releaseTag === 'fjg4z-ui-v2026.10.17.2', `Release tag matches (got: ${verData.releaseTag})`);
+  assert(verData.uiVersion === '2026.10.18.19', `UI version matches 2026.10.18.19 (got: ${verData.uiVersion})`);
+  assert(verData.backendVersion === 'FJGAC', `Backend version matches FJGAC (got: ${verData.backendVersion})`);
+  assert(verData.releaseTag === 'fjgac-ui-v2026.10.18.19', `Release tag matches (got: ${verData.releaseTag})`);
 
   // 检查 index.html 包含双皮肤及新资源引入
   const htmlStr = await FileManager.readAsString(Path.join(webDir, 'index.html'));
@@ -43,7 +43,7 @@ async function runTests() {
   assert(htmlStr.includes('assets/css/skin-claude.css'), 'index.html links skin-claude.css');
   assert(htmlStr.includes('assets/js/skin.js'), 'index.html links skin.js');
   assert(htmlStr.includes('assets/js/appearance.js'), 'index.html links appearance.js');
-  assert(htmlStr.includes('data-backend-version="FJG4Z"'), 'index.html has FJG4Z data attribute');
+  assert(htmlStr.includes('data-backend-version="FJGAC"'), 'index.html has FJGAC data attribute');
 
   // 检查 app.css 中防溢出弹性图例样式
   const cssStr = await FileManager.readAsString(Path.join(webDir, 'assets/css/app.css'));
@@ -111,7 +111,7 @@ async function runTests() {
     const resVer = await fetch(`${baseUrl}/ui/version.json`);
     assert(resVer.status === 200, `/ui/version.json returns 200 OK`);
     const verJson = await resVer.json();
-    assert(verJson.backendVersion === 'FJG4Z', `Static version.json returns FJG4Z`);
+    assert(verJson.backendVersion === 'FJGAC', `Static version.json returns FJGAC`);
 
     // 2.3 验证 /ui/assets/css/skin-claude.css 静态托管
     const resClaudeCss = await fetch(`${baseUrl}/ui/assets/css/skin-claude.css`);
@@ -123,16 +123,16 @@ async function runTests() {
     assert(resStatus.status === 200, `/api/v1/status returns 200 OK`);
     const statusJson = await resStatus.json();
     assert(statusJson.status === 'online', 'status is online');
-    assert(statusJson.version === 'FJG4Z', `version is FJG4Z (got: ${statusJson.version})`);
+    assert(statusJson.version === 'FJGAC', `version is FJGAC (got: ${statusJson.version})`);
     assert(typeof statusJson.rules === 'object' && statusJson.rules !== null, 'rules object is present');
     assert(typeof statusJson.stats === 'object' && statusJson.stats !== null, 'stats object is present');
     assert(Array.isArray(statusJson.upstream_stats), 'upstream_stats is an array');
 
-    // 2.5 验证 /metrics 包含 FJG4Z 版本指标
+    // 2.5 验证 /metrics 包含 FJGAC 版本指标
     const resMetrics = await fetch(`${baseUrl}/metrics`);
     assert(resMetrics.status === 200, `/metrics returns 200 OK`);
     const metricsText = await resMetrics.text();
-    assert(metricsText.includes('localdns_info{version="FJG4Z"} 1'), 'metrics includes localdns_info with FJG4Z');
+    assert(metricsText.includes('localdns_info{version="FJGAC"} 1'), 'metrics includes localdns_info with FJGAC');
     assert(metricsText.includes('process_cpu_seconds_total'), 'metrics includes CPU counter');
     assert(metricsText.includes('process_resident_memory_bytes'), 'metrics includes RSS memory metric');
 

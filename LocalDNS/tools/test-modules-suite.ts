@@ -239,7 +239,9 @@ https://video.example.com/segment2.ts
   const diversion = DiversionEngine.get();
   const store = Store.get();
 
-  // 8.1 默认模式 (switch2 !== 'A') 下，合法视频域名正常返回真实上游策略组 (foreign/domestic)，不返回未监听的 FakeIP
+  // 8.1 默认模式 (switch2 !== 'A', switch_mitm === 'A') 下，合法视频域名正常返回真实上游策略组 (foreign/domestic)，不返回未监听的 FakeIP
+  store.setSwitch('switch_mitm', 'A');
+  store.setSwitch('switch_rewrite', 'A');
   store.setSwitch('switch2', 'B');
   const routeDefaultStream = diversion.match('rr2---sn-4g5edn6e.googlevideo.com', '127.0.0.1');
   assert(routeDefaultStream.group === 'foreign', 'Default mode routes foreign video stream to foreign group');

@@ -13,7 +13,7 @@ async function fetchRuleWithFallback(url: string): Promise<string> {
   for (const u of candidateUrls) {
     try {
       const resp = await fetch(u, {
-        headers: { 'User-Agent': 'LocalDNS/FJG4Z' },
+        headers: { 'User-Agent': 'LocalDNS/FJGAC' },
         signal: AbortSignal.timeout(8000),
       });
       if (resp.ok) {

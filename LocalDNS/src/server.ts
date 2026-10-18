@@ -580,7 +580,7 @@ export class LocalDnsServer {
 
       return jsonResponse({
         status: 'online',
-        version: 'FJG4Z',
+        version: 'FJGAC',
         upstream_stats: upstreamStats,
         rules: {
           geosite_cn: fileCounts.geosite_cn || 0,
