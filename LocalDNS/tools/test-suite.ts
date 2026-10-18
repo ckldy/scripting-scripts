@@ -70,6 +70,9 @@ async function runTests() {
   assert(appJsStr.includes('openRewriteModal'), 'app.js implements openRewriteModal component');
   assert(appJsStr.includes('openRewriteTestModal'), 'app.js implements openRewriteTestModal component');
   assert(appJsStr.includes('openModuleModal'), 'app.js implements openModuleModal import modal');
+  assert(appJsStr.includes('btn-mount-surge'), 'app.js includes btn-mount-surge client link button');
+  assert(appJsStr.includes('btn-mount-loon'), 'app.js includes btn-mount-loon client link button');
+  assert(appJsStr.includes('btn-preview-compiled-module'), 'app.js includes btn-preview-compiled-module button');
   assert(appJsStr.includes('topo-dynamic-toolbar'), 'app.js includes topo-dynamic-toolbar HTML');
   assert(appJsStr.includes('runTopoTracer'), 'app.js implements runTopoTracer dynamic path reasoning');
   assert(appJsStr.includes('rewrite-filter-bar'), 'app.js includes rewrite-filter-bar multi-dimensional filter');
@@ -281,6 +284,22 @@ async function runTests() {
     const imaBody = await resImaProxy.text();
     assert(imaBody.includes('window.google={ima:'), 'Google IMA3 SDK mock stub code returned');
     assert(resImaProxy.headers.get('X-LocalDNS-Cleaned') === 'true', 'IMA SDK marked as cleaned');
+
+    // 2.12 验证动态编译模块导出端点 (/localdns.sgmodule, /localdns.plugin, /localdns.conf)
+    const resSurgeExport = await fetch(`${baseUrl}/localdns.sgmodule`);
+    assert(resSurgeExport.status === 200, `/localdns.sgmodule returns 200 OK`);
+    const surgeExportText = await resSurgeExport.text();
+    assert(surgeExportText.includes('#!name=LocalDNS') && surgeExportText.includes('[MITM]') && surgeExportText.includes('[URL Rewrite]'), 'Surge module export contains header, MITM and Rewrite sections');
+
+    const resLoonExport = await fetch(`${baseUrl}/localdns.plugin`);
+    assert(resLoonExport.status === 200, `/localdns.plugin returns 200 OK`);
+    const loonExportText = await resLoonExport.text();
+    assert(loonExportText.includes('#!name=LocalDNS') && loonExportText.includes('[Mitm]') && loonExportText.includes('[Rewrite]'), 'Loon plugin export contains header, Mitm and Rewrite sections');
+
+    const resQxExport = await fetch(`${baseUrl}/localdns.conf`);
+    assert(resQxExport.status === 200, `/localdns.conf returns 200 OK`);
+    const qxExportText = await resQxExport.text();
+    assert(qxExportText.includes('[rewrite_local]') && qxExportText.includes('[mitm]'), 'Quantumult X export contains rewrite_local and mitm sections');
   } catch (err: any) {
     console.error('API Test Error:', err);
     failed++;

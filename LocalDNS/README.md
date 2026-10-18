@@ -1,8 +1,8 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.4.6 (Build 20261018)`  
+> **当前版本**：`v1.4.7 (Build 20261018)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，强化 YouTube 广告域名阻断与分流 FakeIP 寻址优化）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.17.2` / 内核 `FJG4Z`，实现 Surge/Loon/QX 模块一键动态编译挂载、YouTube 广告全面阻断与 15 条强力切片重写）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地 DNS 与应用层流清洗服务系统。
 
@@ -30,7 +30,14 @@
 - **多维度分流路由器 (`DiversionEngine`)**：涵盖名单管理（白名单/黑名单/灰名单/强制 RealIP/重定向 Rewrite/MITM 劫持）与在线分流（自定义 CN/Non-CN、Geosite CN/Non-CN），支持同组来源合并去重。
 
 ### 2. 跨平台模块引擎与应用层流清洗 (Surge / Loon / Quantumult X)
-- **YouTube / Google 广告域名深度阻断与 CDN 分流寻址修复 (v1.4.6)**：
+- **Surge / Loon / QX 模块一键动态编译与客户端挂载 (v1.4.7)**：
+  - **核心机制打通**：YouTube、B站等现代视频平台全面采用 HTTPS 加密传输，纯 DNS 只能拦截外链广告域名，无法解密并修改视频切片或播放器 JSON。必须由 Surge、Loon、Quantumult X 等客户端执行 HTTPS MITM 解密；
+  - **本地动态编译端点**：提供 `/localdns.sgmodule`、`/localdns.plugin`、`/localdns.conf` 实时导出接口，将 LocalDNS 内存中所有激活的 MITM 主机名与重写规则编译为标准客户端配置；
+  - **双端一键挂载**：在 Web 控制台与 iOS 原生仪表盘提供「一键安装至 Surge」、「一键安装至 Loon」协议调起按键与直链复制，一秒完成客户端模块挂载；
+- **YouTube 15 条强力重写规则与流清洗强化**：
+  - 预置重写规则扩充至 15 条，全面阻断 `videoplayback?oad=1` 广告切片、拦截 `api/stats/ads`、`api/stats/atr`、`api/stats/playback`、`api/stats/watchtime` 与 `ptracking`，覆盖 `www`、`m` 及 `music.youtube.com`；
+  - 针对 YouTube 播放器 JSON 响应中的 `playerResponse` 嵌套结构进行递归剪枝，彻底抹除 `adPlacements`、`adBreakHeartbeatParams` 与 `adPlacementConfig`；
+- **YouTube / Google 广告域名深度阻断与 CDN 分流寻址修复**：
   - **广告与追踪域名强力黑洞化**：在内置 AdGuard 规则库中加入 `s.youtube.com`, `s2.youtube.com`, `ads.youtube.com`, `video-stats.l.google.com`, `pagead2.googlesyndication.com` 等 YouTube 专属广告与打点域名，确保 DNS 查询 100% 立即阻断并返回 `0.0.0.0`，从源头消灭前贴片广告请求；
   - **视频 CDN 分流逻辑纠正**：修正了 `diversion.ts` 中一刀切将 `googlevideo.com` 等视频流域名误劫持为 `198.18.0.x` FakeIP 的缺陷。在标准 DNS 模式下，合法视频流域名正常返回真实上游海外 CDN IP，保证客户端建立直连通道，避免因 FakeIP 未建连导致的播放器重试与广告降级回退；仅在用户显式开启 `switch2` 客户端 FakeIP 时按需分配；
   - **YouTube 模块规则与流清洗强化**：预置 9 条 YouTube 专属重写规则，全面阻断 `videoplayback?oad=1` 广告切片、拦截 `api/stats/ads` 与 `api/stats/atr`，并针对 YouTube 播放器 JSON 响应中的 `playerResponse` 嵌套结构进行递归剪枝，彻底抹除 `adPlacements` 与广告插槽；

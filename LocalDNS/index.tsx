@@ -44,7 +44,7 @@ declare namespace Safari {
   function openURL(url: string): Promise<void>;
 }
 
-const APP_VERSION = 'v1.4.6';
+const APP_VERSION = 'v1.4.7';
 const APP_BUILD = '20261018';
 const APP_AUTHOR = 'vcncv';
 const UPSTREAM_REPO = 'https://github.com/yyhoworks/LocalDNS';
@@ -235,6 +235,48 @@ function LocalDnsApp() {
     if (typeof Pasteboard !== 'undefined' && Pasteboard.setString) {
       await Pasteboard.setString(snippet);
       setStatusMessage(`已复制 Surge 专属 DoH 配置：doh-server = https://127.0.0.1:9443/dns-query！`);
+    }
+  };
+
+  const mountSurgeModule = async () => {
+    const modUrl = `http://127.0.0.1:${port}/localdns.sgmodule`;
+    const surgeScheme = `surge:///install-module?url=${encodeURIComponent(modUrl)}`;
+    if (typeof Safari !== 'undefined' && Safari.openURL) {
+      await Safari.openURL(surgeScheme);
+    }
+    setStatusMessage(`正在调起 Surge 安装模块: ${modUrl}`);
+  };
+
+  const copySurgeModuleUrl = async () => {
+    const modUrl = `http://127.0.0.1:${port}/localdns.sgmodule`;
+    if (typeof Pasteboard !== 'undefined' && Pasteboard.setString) {
+      await Pasteboard.setString(modUrl);
+      setStatusMessage(`已复制 Surge 模块编译链接: ${modUrl}`);
+    }
+  };
+
+  const mountLoonPlugin = async () => {
+    const pluginUrl = `http://127.0.0.1:${port}/localdns.plugin`;
+    const loonScheme = `loon://import?plugin=${encodeURIComponent(pluginUrl)}`;
+    if (typeof Safari !== 'undefined' && Safari.openURL) {
+      await Safari.openURL(loonScheme);
+    }
+    setStatusMessage(`正在调起 Loon 安装插件: ${pluginUrl}`);
+  };
+
+  const copyLoonPluginUrl = async () => {
+    const pluginUrl = `http://127.0.0.1:${port}/localdns.plugin`;
+    if (typeof Pasteboard !== 'undefined' && Pasteboard.setString) {
+      await Pasteboard.setString(pluginUrl);
+      setStatusMessage(`已复制 Loon 插件编译链接: ${pluginUrl}`);
+    }
+  };
+
+  const copyQxConfUrl = async () => {
+    const confUrl = `http://127.0.0.1:${port}/localdns.conf`;
+    if (typeof Pasteboard !== 'undefined' && Pasteboard.setString) {
+      await Pasteboard.setString(confUrl);
+      setStatusMessage(`已复制 Quantumult X 规则链接: ${confUrl}`);
     }
   };
 
@@ -525,6 +567,30 @@ function LocalDnsApp() {
               action={handleTestUniversalVideoSdk}
             />
           </HStack>
+
+          <HStack>
+            <Button
+              title="⚡️ 一键挂载 Surge 模块"
+              action={mountSurgeModule}
+            />
+            <Spacer />
+            <Button
+              title="🎈 一键安装 Loon 插件"
+              action={mountLoonPlugin}
+            />
+          </HStack>
+
+          <HStack>
+            <Button
+              title="复制 Surge 模块链接"
+              action={copySurgeModuleUrl}
+            />
+            <Spacer />
+            <Button
+              title="复制 QX 重写规则"
+              action={copyQxConfUrl}
+            />
+          </HStack>
         </Section>
 
         {/* 本地 DNS 实时解析排障 */}
@@ -670,6 +736,47 @@ function LocalDnsApp() {
             title={`复制 HTTP 代理配置 (127.0.0.1:${port})`}
             action={copyHttpProxyConfig}
           />
+
+          {/* 方案 5：Surge / Loon 模块与 HTTPS MITM 挂载 (彻底去除 YouTube 视频广告) */}
+          <VStack alignment="leading">
+            <Text bold font="headline">🎬 方案 5：Surge / Loon 模块挂载与 HTTPS MITM (YouTube 去广告终极解法)</Text>
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              YouTube 与主流 App 视频流采用 HTTPS 端到端加密，纯 DNS 只能拦截外链追踪。要在客户端彻底剥离视频切片 (SSAI) 与播放器内插广告，必须一键挂载 LocalDNS 动态编译模块：
+            </Text>
+            <Text font="caption">
+              1. 确保已安装并信任 CA 根证书（参考上方方案 1 步骤 1~3）；
+            </Text>
+            <Text font="caption">
+              2. 点击下方「安装到 Surge」或「安装到 Loon」，客户端将自动下载本地编译的模块；
+            </Text>
+            <Text font="caption">
+              3. 在 Surge/Loon 中启用该模块，勾选开启 MITM 解密，即可在 YouTube/B站中享受 100% 纯净无广告体验！
+            </Text>
+          </VStack>
+
+          <HStack>
+            <Button
+              title="一键安装到 Surge 模块"
+              action={mountSurgeModule}
+            />
+            <Spacer />
+            <Button
+              title="一键安装到 Loon 插件"
+              action={mountLoonPlugin}
+            />
+          </HStack>
+
+          <HStack>
+            <Button
+              title="复制 Surge 模块直链"
+              action={copySurgeModuleUrl}
+            />
+            <Spacer />
+            <Button
+              title="复制 QX 重写引用链接"
+              action={copyQxConfUrl}
+            />
+          </HStack>
         </Section>
 
         {/* 运维与规则更新 */}

@@ -6,7 +6,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 
 | 脚本 | 版本 | 说明 | 安装链接 |
 |---|---|---|---|
-| LocalDNS（本地 DNS 服务） | 1.4.6 | 本地 DNS 与应用层流清洗系统，强化 YouTube 广告域名阻断与分流 FakeIP 寻址优化（合法视频流直连海外 CDN，解决播放器回退问题）、支持 9099 端口标准透明 HTTP 代理嗅探接管、预置 B站全功能去广告与全网通用视频 SDK 桩代码模块（爱优腾芒全覆盖）、在“查询日志”实时追踪 HTTP 重写审计日志、在“规则管理”多维度筛选搜索与 HTTP 重写可视化/纯文本深度编辑、单条启闭控制、在线推演测试，在“功能开关”独立控制 MITM 流量接管与 HTTP 重写引擎（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
+| LocalDNS（本地 DNS 服务） | 1.4.7 | 本地 DNS 与应用层流清洗系统，支持本地动态编译并一键挂载 Surge 模块/Loon 插件/QX 重写配置，强化 YouTube 广告域名黑洞阻断与 15 条强力切片重写、纠正视频 CDN 寻址直连（避免 FakeIP 误劫持导致播放器回退）、支持 9099 端口标准透明 HTTP 代理嗅探接管、预置 B站全功能去广告与全网通用视频 SDK 桩代码模块（爱优腾芒全覆盖）、在“查询日志”实时追踪 HTTP 重写审计日志、在“规则管理”多维度筛选搜索与 HTTP 重写可视化/纯文本深度编辑（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
 | 台风路径 | 2.3.1 | 实时台风路径、多机构预报与气象图层；主程序刷新后会同步重载用户小组件，大号组件地图缓存批处理仅重载一次 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F台风路径.zip%22%5D) |
 | 黃豆短劇 | 1.2.0 | 浏览、搜索与收藏黃豆短劇内容，支持播放历史、剧集播放、上下滑切集与进度条 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D) |
 | NetRadio（网络收音机） | 1.0.1 | 全球 1000+ 公开网络电台（按 36 个国家/地区归类），黑胶唱机舞台、电平示波器、主题调色板与 iOS 原生后台/锁屏播控（基于 net-redio 移植，作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D) |
@@ -21,12 +21,18 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 ## 🌟 脚本功能详解与直链
 
 ### 🛡️ LocalDNS (本地 DNS 服务与流清洗管理系统)
-- **版本**：`1.4.6` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
+- **版本**：`1.4.7` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
 - **特性**：
-  - **YouTube / Google 广告域名深度阻断与 CDN 分流寻址修复 (v1.4.6)**：
+  - **Surge / Loon / QX 模块一键动态编译与客户端挂载 (v1.4.7)**：
+    - **核心机制打通**：YouTube、B站等现代视频平台全面采用 HTTPS 加密传输，纯 DNS 只能拦截外链广告域名，无法解密并修改视频切片或播放器 JSON。必须由 Surge、Loon、Quantumult X 等客户端执行 HTTPS MITM 解密；
+    - **本地动态编译端点**：提供 `/localdns.sgmodule`、`/localdns.plugin`、`/localdns.conf` 实时导出接口，将 LocalDNS 内存中所有激活的 MITM 主机名与重写规则编译为标准客户端配置；
+    - **双端一键挂载**：在 Web 控制台与 iOS 原生仪表盘提供「一键安装至 Surge」、「一键安装至 Loon」协议调起按键与直链复制，一秒完成客户端模块挂载；
+  - **YouTube 15 条强力重写规则与流清洗强化**：
+    - 预置重写规则扩充至 15 条，全面阻断 `videoplayback?oad=1` 广告切片、拦截 `api/stats/ads`、`api/stats/atr`、`api/stats/playback`、`api/stats/watchtime` 与 `ptracking`，覆盖 `www`、`m` 及 `music.youtube.com`；
+    - 针对 YouTube 播放器 JSON 响应中的 `playerResponse` 嵌套结构进行递归剪枝，彻底抹除 `adPlacements`、`adBreakHeartbeatParams` 与 `adPlacementConfig`；
+  - **YouTube / Google 广告域名深度阻断与 CDN 分流寻址修复**：
     - **广告与追踪域名强力黑洞化**：在内置 AdGuard 规则库中加入 `s.youtube.com`, `s2.youtube.com`, `ads.youtube.com`, `video-stats.l.google.com`, `pagead2.googlesyndication.com` 等 YouTube 专属广告与打点域名，确保 DNS 查询 100% 立即阻断并返回 `0.0.0.0`，从源头消灭前贴片广告请求；
     - **视频 CDN 分流逻辑纠正**：修正了 `diversion.ts` 中一刀切将 `googlevideo.com` 等视频流域名误劫持为 `198.18.0.x` FakeIP 的缺陷。在标准 DNS 模式下，合法视频流域名正常返回真实上游海外 CDN IP，保证客户端建立直连通道，避免因 FakeIP 未建连导致的播放器重试与广告降级回退；仅在用户显式开启 `switch2` 客户端 FakeIP 时按需分配；
-    - **YouTube 模块规则与流清洗强化**：预置 9 条 YouTube 专属重写规则，全面阻断 `videoplayback?oad=1` 广告切片、拦截 `api/stats/ads` 与 `api/stats/atr`，并针对 YouTube 播放器 JSON 响应中的 `playerResponse` 嵌套结构进行递归剪枝，彻底抹除 `adPlacements` 与广告插槽；
   - **9099 端口标准透明 HTTP 代理接管**：HTTP 9099 端口兼具 Web 控制台、普通 DoH 与透明 HTTP 代理服务；自动嗅探请求绝对 URL 或通过 Host 头部精准接管，直接交由 `ProxyHandler` 流水线重写、Mock 响应与切片清洗，无缝对接 Surge/Loon/小火箭本地节点与 iOS Wi-Fi 代理；
   - **开箱即用的全网主流视频去广告规则库**：
     - **Bilibili 纯净视频与开屏秒开 (`preset_bilibili`)**：拦截开屏广告（`/x/v2/splash` 204 秒开）、信息流推广卡片（`/x/v2/feed/index` 剔除）、视频播放中插推荐（`/x/v2/ad/*` 阻断）与搜索广场推广；

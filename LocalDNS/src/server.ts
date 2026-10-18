@@ -366,6 +366,17 @@ export class LocalDnsServer {
         });
       }
 
+      // Direct module export endpoints for client one-tap import
+      if ((path === '/localdns.sgmodule' || path === '/surge.sgmodule') && method === 'GET') {
+        return textResponse(ModuleManager.get().exportAsSurgeModule(), 200, 'text/plain; charset=utf-8');
+      }
+      if ((path === '/localdns.plugin' || path === '/loon.plugin') && method === 'GET') {
+        return textResponse(ModuleManager.get().exportAsLoonPlugin(), 200, 'text/plain; charset=utf-8');
+      }
+      if ((path === '/localdns.conf' || path === '/qx.conf' || path === '/quantumultx.conf') && method === 'GET') {
+        return textResponse(ModuleManager.get().exportAsQuantumultXConf(), 200, 'text/plain; charset=utf-8');
+      }
+
       // Redirect root to /ui/
       if (path === '/' || path === '/ui') {
         return HttpResponse.movedTemporarily('/ui/');
@@ -701,6 +712,24 @@ $httpClient.get({
 });
 `;
       return textResponse(scriptContent, 200, 'application/javascript; charset=utf-8');
+    }
+
+    // 13.1 /api/v1/export/surge.sgmodule (Surge 模块实时编译导出)
+    if ((cleanPath === '/api/v1/export/surge.sgmodule' || cleanPath === '/plugins/surge/module') && method === 'GET') {
+      const moduleContent = ModuleManager.get().exportAsSurgeModule();
+      return textResponse(moduleContent, 200, 'text/plain; charset=utf-8');
+    }
+
+    // 13.2 /api/v1/export/loon.plugin (Loon 插件实时编译导出)
+    if ((cleanPath === '/api/v1/export/loon.plugin' || cleanPath === '/plugins/loon/plugin') && method === 'GET') {
+      const pluginContent = ModuleManager.get().exportAsLoonPlugin();
+      return textResponse(pluginContent, 200, 'text/plain; charset=utf-8');
+    }
+
+    // 13.3 /api/v1/export/quantumultx.conf (Quantumult X 重写规则实时编译导出)
+    if ((cleanPath === '/api/v1/export/quantumultx.conf' || cleanPath === '/plugins/quantumultx/conf') && method === 'GET') {
+      const confContent = ModuleManager.get().exportAsQuantumultXConf();
+      return textResponse(confContent, 200, 'text/plain; charset=utf-8');
     }
 
     // 14. /api/v1/modules (跨平台模块引擎管理与流清洗接口)

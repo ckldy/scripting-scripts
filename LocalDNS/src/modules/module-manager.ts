@@ -105,10 +105,10 @@ export class ModuleManager {
       needSave = true;
     }
 
-    // 自愈升级 YouTube 纯净去广告模块至最强完整版规则
+    // 自愈升级 YouTube 纯净去广告模块至最强完整版规则 (15条规则)
     const ytIdx = this.modules.findIndex((m) => m.id === 'preset_youtube');
     if (ytIdx !== -1) {
-      if (this.modules[ytIdx].rewrites.length < 9 || !this.modules[ytIdx].mitmHosts.includes('m.youtube.com')) {
+      if (this.modules[ytIdx].rewrites.length < 15 || !this.modules[ytIdx].mitmHosts.includes('music.youtube.com')) {
         const mYt = ModuleParser.parse(this.getYouTubeModuleRaw(), 'preset_youtube');
         mYt.enabled = this.modules[ytIdx].enabled;
         this.modules[ytIdx] = mYt;
@@ -163,21 +163,27 @@ hostname = imasdk.googleapis.com, *.iqiyi.com, *.qiyi.com, adstats.tencentmusic.
     return `#!name=YouTube 纯净去广告与流净化
 #!desc=屏蔽 YouTube 贴片广告、中插广告、信息流推广与后台跟踪
 [MITM]
-hostname = *.googlevideo.com, www.youtube.com, youtubei.googleapis.com, m.youtube.com, *.youtube.com
+hostname = *.googlevideo.com, www.youtube.com, youtubei.googleapis.com, m.youtube.com, music.youtube.com, *.youtube.com
 
 [URL Rewrite]
-^https?:\\/\\/[\\w-]+\\.googlevideo\\.com\\/videoplayback\\?.*(&adformat=|\\/ad\\/|&oad=|[?&]ad_v=) reject-200
+^https?:\\/\\/[\\w-]+\\.googlevideo\\.com\\/videoplayback\\?.*(&adformat=|\\/ad\\/|&oad=|[?&]ad_v=|&ctier=L) reject-200
 ^https?:\\/\\/[\\w-]+\\.googlevideo\\.com\\/initplayback\\?.*(&adformat=|\\/ad\\/) reject-200
-^https?:\\/\\/(www|m)\\.youtube\\.com\\/youtubei\\/v1\\/player\\/ad_break reject-dict
+^https?:\\/\\/(www|m|music)\\.youtube\\.com\\/youtubei\\/v1\\/player\\/ad_break reject-dict
 ^https?:\\/\\/youtubei\\.googleapis\\.com\\/youtubei\\/v1\\/player\\/ad_break reject-dict
+^https?:\\/\\/(www|m|music)\\.youtube\\.com\\/youtubei\\/v1\\/get_midroll_info reject-dict
+^https?:\\/\\/youtubei\\.googleapis\\.com\\/youtubei\\/v1\\/get_midroll_info reject-dict
 ^https?:\\/\\/youtubei\\.googleapis\\.com\\/youtubei\\/v1\\/log_event reject-200
-^https?:\\/\\/(www|m)\\.youtube\\.com\\/api\\/stats\\/ads reject-200
-^https?:\\/\\/(www|m)\\.youtube\\.com\\/api\\/stats\\/atr reject-200
-^https?:\\/\\/(www|m)\\.youtube\\.com\\/api\\/stats\\/qoe\\?.*(&adformat=|\\/ad\\/) reject-200
+^https?:\\/\\/(www|m|music)\\.youtube\\.com\\/api\\/stats\\/ads reject-200
+^https?:\\/\\/(www|m|music)\\.youtube\\.com\\/api\\/stats\\/atr reject-200
+^https?:\\/\\/(www|m|music)\\.youtube\\.com\\/api\\/stats\\/playback reject-200
+^https?:\\/\\/(www|m|music)\\.youtube\\.com\\/api\\/stats\\/watchtime reject-200
+^https?:\\/\\/(www|m|music)\\.youtube\\.com\\/api\\/stats\\/qoe\\?.*(&adformat=|\\/ad\\/) reject-200
+^https?:\\/\\/(www|m|music)\\.youtube\\.com\\/pagead\\/ reject-200
+^https?:\\/\\/(www|m|music)\\.youtube\\.com\\/ptracking reject-200
 ^https?:\\/\\/s\\.youtube\\.com\\/api\\/stats\\/.* reject-200
 
 [Script]
-youtube-player = type=http-response,pattern=^https?:\\/\\/(www|m)\\.youtube\\.com\\/youtubei\\/v1\\/player,script-path=https://raw.githubusercontent.com/Maasea/sgmodule/master/Script/Youtube/youtube.js,requires-body=true
+youtube-player = type=http-response,pattern=^https?:\\/\\/(www|m|music)\\.youtube\\.com\\/youtubei\\/v1\\/player,script-path=https://raw.githubusercontent.com/Maasea/sgmodule/master/Script/Youtube/youtube.js,requires-body=true
 `;
   }
 
@@ -620,5 +626,188 @@ hostname = *.ttvnw.net, *.twitch.tv
 
   public recordStreamClean(): void {
     this.stats.cleanedStreams++;
+  }
+
+  // ================= 跨平台配置导出接口 (Surge / Loon / QX 联动) =================
+
+  /**
+   * 将当前所有已启用的模块、MITM 主机与重写规则编译导出为标准 Surge 模块 (.sgmodule)
+   */
+  public exportAsSurgeModule(): string {
+    const lines: string[] = [
+      '#!name=LocalDNS 视频去广告与流清洗增强模块',
+      '#!desc=由 LocalDNS 自动编译输出，无缝联动 Surge 进行全局应用层 HTTPS MITM 解密、YouTube/B站/爱优腾视频切片去广告与流清洗',
+      '#!category=LocalDNS',
+      '',
+    ];
+
+    const mitmHosts = new Set<string>();
+    for (const mod of this.modules) {
+      if (!mod.enabled) continue;
+      for (const h of mod.mitmHosts) mitmHosts.add(h.trim());
+    }
+    if (mitmHosts.size > 0) {
+      lines.push('[MITM]');
+      lines.push(`hostname = %APPEND% ${Array.from(mitmHosts).join(', ')}`);
+      lines.push('');
+    }
+
+    const rewrites: string[] = [];
+    for (const mod of this.modules) {
+      if (!mod.enabled) continue;
+      for (const r of mod.rewrites) {
+        if (r.enabled === false) continue;
+        if (r.action === 'redirect') {
+          rewrites.push(`${r.pattern} 302 ${r.target || ''}`);
+        } else if (r.action === 'mock') {
+          rewrites.push(`${r.pattern} mock ${r.target || '200'} ${r.extra || ''}`);
+        } else if (r.action === 'header-replace') {
+          rewrites.push(`${r.pattern} header-replace ${r.target || ''} ${r.extra || ''}`);
+        } else if (r.action === 'header-del') {
+          rewrites.push(`${r.pattern} header-del ${r.target || ''}`);
+        } else if (r.action === 'body-replace') {
+          rewrites.push(`${r.pattern} response-body ${r.target || ''} ${r.extra || ''}`);
+        } else {
+          rewrites.push(`${r.pattern} ${r.action}`);
+        }
+      }
+    }
+    if (rewrites.length > 0) {
+      lines.push('[URL Rewrite]');
+      lines.push(...rewrites);
+      lines.push('');
+    }
+
+    const scripts: string[] = [];
+    for (const mod of this.modules) {
+      if (!mod.enabled) continue;
+      for (const sc of mod.scripts) {
+        const bodyMode = sc.requiresBody ? ',requires-body=true' : '';
+        const timeout = sc.timeout ? `,timeout=${sc.timeout}` : '';
+        scripts.push(`${sc.name} = type=${sc.type},pattern=${sc.pattern},script-path=${sc.scriptPath}${bodyMode}${timeout}`);
+      }
+    }
+    if (scripts.length > 0) {
+      lines.push('[Script]');
+      lines.push(...scripts);
+      lines.push('');
+    }
+
+    return lines.join('\n') + '\n';
+  }
+
+  /**
+   * 将当前所有已启用的模块、MITM 主机与重写规则编译导出为标准 Loon 插件 (.plugin)
+   */
+  public exportAsLoonPlugin(): string {
+    const lines: string[] = [
+      '#!name=LocalDNS 视频去广告与流清洗插件',
+      '#!desc=由 LocalDNS 自动编译输出，无缝联动 Loon 进行全局应用层 HTTPS MITM 解密、YouTube/B站/爱优腾视频切片去广告与流清洗',
+      '',
+    ];
+
+    const mitmHosts = new Set<string>();
+    for (const mod of this.modules) {
+      if (!mod.enabled) continue;
+      for (const h of mod.mitmHosts) mitmHosts.add(h.trim());
+    }
+    if (mitmHosts.size > 0) {
+      lines.push('[Mitm]');
+      lines.push(`hostname = ${Array.from(mitmHosts).join(', ')}`);
+      lines.push('');
+    }
+
+    const rewrites: string[] = [];
+    for (const mod of this.modules) {
+      if (!mod.enabled) continue;
+      for (const r of mod.rewrites) {
+        if (r.enabled === false) continue;
+        if (r.action === 'redirect') {
+          rewrites.push(`${r.pattern} 302 ${r.target || ''}`);
+        } else if (r.action === 'mock') {
+          rewrites.push(`${r.pattern} mock ${r.target || '200'} ${r.extra || ''}`);
+        } else if (r.action === 'header-replace') {
+          rewrites.push(`${r.pattern} header-replace ${r.target || ''} ${r.extra || ''}`);
+        } else if (r.action === 'header-del') {
+          rewrites.push(`${r.pattern} header-del ${r.target || ''}`);
+        } else if (r.action === 'body-replace') {
+          rewrites.push(`${r.pattern} response-body ${r.target || ''} ${r.extra || ''}`);
+        } else {
+          rewrites.push(`${r.pattern} ${r.action}`);
+        }
+      }
+    }
+    if (rewrites.length > 0) {
+      lines.push('[Rewrite]');
+      lines.push(...rewrites);
+      lines.push('');
+    }
+
+    const scripts: string[] = [];
+    for (const mod of this.modules) {
+      if (!mod.enabled) continue;
+      for (const sc of mod.scripts) {
+        const bodyMode = sc.requiresBody ? ', requires-body=true' : '';
+        const timeout = sc.timeout ? `, timeout=${sc.timeout}` : '';
+        scripts.push(`${sc.type} ${sc.pattern} script-path=${sc.scriptPath}, tag=${sc.name}${bodyMode}${timeout}`);
+      }
+    }
+    if (scripts.length > 0) {
+      lines.push('[Script]');
+      lines.push(...scripts);
+      lines.push('');
+    }
+
+    return lines.join('\n') + '\n';
+  }
+
+  /**
+   * 将当前所有已启用的模块、MITM 主机与重写规则编译导出为标准 Quantumult X 配置文件
+   */
+  public exportAsQuantumultXConf(): string {
+    const lines: string[] = [
+      '# LocalDNS 视频去广告与流清洗 Quantumult X 规则',
+      '# 由 LocalDNS 自动编译输出，无缝联动 Quantumult X 进行应用层重写与去广告',
+      '',
+    ];
+
+    const rewrites: string[] = [];
+    for (const mod of this.modules) {
+      if (!mod.enabled) continue;
+      for (const r of mod.rewrites) {
+        if (r.enabled === false) continue;
+        if (r.action === 'redirect') {
+          rewrites.push(`${r.pattern} url 302 ${r.target || ''}`);
+        } else if (r.action.startsWith('reject')) {
+          rewrites.push(`${r.pattern} url ${r.action}`);
+        } else if (r.action === 'body-replace') {
+          rewrites.push(`${r.pattern} url response-body ${r.target || ''} ${r.extra || ''}`);
+        } else if (r.action === 'mock') {
+          rewrites.push(`${r.pattern} url echo-data ${r.extra || ''}`);
+        }
+      }
+      for (const sc of mod.scripts) {
+        const verb = sc.type === 'http-request' ? 'script-request-body' : 'script-response-body';
+        rewrites.push(`${sc.pattern} url ${verb} ${sc.scriptPath}`);
+      }
+    }
+    if (rewrites.length > 0) {
+      lines.push('[rewrite_local]');
+      lines.push(...rewrites);
+      lines.push('');
+    }
+
+    const mitmHosts = new Set<string>();
+    for (const mod of this.modules) {
+      if (!mod.enabled) continue;
+      for (const h of mod.mitmHosts) mitmHosts.add(h.trim());
+    }
+    if (mitmHosts.size > 0) {
+      lines.push('[mitm]');
+      lines.push(`hostname = ${Array.from(mitmHosts).join(', ')}`);
+      lines.push('');
+    }
+
+    return lines.join('\n') + '\n';
   }
 }

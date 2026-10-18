@@ -72,6 +72,10 @@ export class StreamCleaner {
             'adSlots',
             'adPlacementRenderer',
             'adLayoutLoggingData',
+            'adPlacementConfig',
+            'adBreakHeartbeatParams',
+            'paidContentOverlayRenderer',
+            'instreamAdPlayerOverlayRenderer',
           ];
           for (const k of adKeys) {
             if (pObj[k] !== undefined) {
@@ -90,6 +94,10 @@ export class StreamCleaner {
             }
             if (pObj.playbackTracking.atrUrl) {
               delete pObj.playbackTracking.atrUrl;
+              changed = true;
+            }
+            if (pObj.playbackTracking.videostatsWatchtimeUrl) {
+              delete pObj.playbackTracking.videostatsWatchtimeUrl;
               changed = true;
             }
           }
@@ -115,6 +123,11 @@ export class StreamCleaner {
         'adPlacementRenderer',
         'adSlotRenderer',
         'promotedSparklesWebRenderer',
+        'promotedVideoRenderer',
+        'compactPromotedVideoRenderer',
+        'promotedSparklesTextSearchRenderer',
+        'adBreakHeartbeatParams',
+        'adPlacementConfig',
       ];
 
       const recursivePrune = (node: any) => {

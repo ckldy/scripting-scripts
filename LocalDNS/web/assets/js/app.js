@@ -2649,7 +2649,61 @@
       </div>
     `;
 
-    body.innerHTML=card('跨平台模块与流清洗 (Surge / Loon / QX)', headerMarkup + tableMarkup, {
+    const clientMountCardHtml = `
+      <div class="glass-card" style="margin-bottom:16px;padding:16px;background:linear-gradient(135deg,rgba(59,130,246,0.08),rgba(139,92,246,0.06));border:1px solid rgba(59,130,246,0.22);border-radius:calc(12px * var(--radius-scale))">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="tn-pill" style="color:#3B82F6;background:rgba(59,130,246,0.15);font-weight:700">客户端联动核心</span>
+              <strong style="font-size:15px;color:var(--text-1)">将模块一键挂载至 Surge / Loon / Quantumult X</strong>
+            </div>
+            <p style="font-size:12px;color:var(--text-2);margin-top:4px;line-height:1.5">
+              ⚠️ <strong>去广告生效原理</strong>：YouTube 与主流视频流采用端到端 HTTPS 加密，纯 DNS 只能屏蔽广告外链域名。要彻底去除视频切片广告（SSAI）与播放器中插，必须在代理客户端中安装本服务动态编译的模块并开启 MITM 解密！
+            </p>
+          </div>
+          <button type="button" class="button small" id="btn-preview-compiled-module">${icon('search')}预览动态编译模块</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
+          <div style="padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border-glass);border-radius:8px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong style="font-size:13px;color:#3B82F6">⚡️ Surge 模块 (.sgmodule)</strong>
+              <span class="tn-pill mono" style="font-size:10.5px;color:var(--text-3)">本地动态编译</span>
+            </div>
+            <div class="mono" style="font-size:11px;color:var(--text-2);word-break:break-all">http://127.0.0.1:${location.port || '9099'}/localdns.sgmodule</div>
+            <div style="display:flex;gap:6px;margin-top:2px">
+              <button type="button" class="button small primary" id="btn-mount-surge">一键安装至 Surge</button>
+              <button type="button" class="button small" id="btn-copy-surge-url">复制链接</button>
+            </div>
+          </div>
+
+          <div style="padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border-glass);border-radius:8px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong style="font-size:13px;color:#F59E0B">🎈 Loon 插件 (.plugin)</strong>
+              <span class="tn-pill mono" style="font-size:10.5px;color:var(--text-3)">本地动态编译</span>
+            </div>
+            <div class="mono" style="font-size:11px;color:var(--text-2);word-break:break-all">http://127.0.0.1:${location.port || '9099'}/localdns.plugin</div>
+            <div style="display:flex;gap:6px;margin-top:2px">
+              <button type="button" class="button small primary" id="btn-mount-loon">一键安装至 Loon</button>
+              <button type="button" class="button small" id="btn-copy-loon-url">复制链接</button>
+            </div>
+          </div>
+
+          <div style="padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border-glass);border-radius:8px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong style="font-size:13px;color:#8B5CF6">🎯 Quantumult X 规则 (.conf)</strong>
+              <span class="tn-pill mono" style="font-size:10.5px;color:var(--text-3)">本地动态编译</span>
+            </div>
+            <div class="mono" style="font-size:11px;color:var(--text-2);word-break:break-all">http://127.0.0.1:${location.port || '9099'}/localdns.conf</div>
+            <div style="display:flex;gap:6px;margin-top:2px">
+              <button type="button" class="button small" id="btn-copy-qx-url">复制重写引用链接</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    body.innerHTML=card('跨平台模块与流清洗 (Surge / Loon / QX)', clientMountCardHtml + headerMarkup + tableMarkup, {
       iconName:'rules',
       actions:`
         <button class="button" id="btn-stream-test">${icon('spark')}流清洗测试</button>
@@ -2707,6 +2761,86 @@
 
     $('#mod-add').onclick=()=>openModuleModal(body);
     $('#btn-stream-test').onclick=()=>openStreamCleanTestModal();
+
+    // 客户端一键挂载与模块联动事件绑定
+    const getHostOrigin = () => `http://127.0.0.1:${location.port || '9099'}`;
+    const copyToClipboard = (text, desc) => {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => toast(`${desc}已复制到剪贴板`)).catch(() => downloadText('module-url.txt', text));
+      } else {
+        downloadText('module-url.txt', text);
+      }
+    };
+
+    $('#btn-mount-surge')?.addEventListener('click', () => {
+      const modUrl = `${getHostOrigin()}/localdns.sgmodule`;
+      const surgeScheme = `surge:///install-module?url=${encodeURIComponent(modUrl)}`;
+      window.location.href = surgeScheme;
+      toast('正在调起 Surge 安装模块...');
+    });
+    $('#btn-copy-surge-url')?.addEventListener('click', () => {
+      copyToClipboard(`${getHostOrigin()}/localdns.sgmodule`, 'Surge 模块链接');
+    });
+
+    $('#btn-mount-loon')?.addEventListener('click', () => {
+      const pluginUrl = `${getHostOrigin()}/localdns.plugin`;
+      const loonScheme = `loon://import?plugin=${encodeURIComponent(pluginUrl)}`;
+      window.location.href = loonScheme;
+      toast('正在调起 Loon 安装插件...');
+    });
+    $('#btn-copy-loon-url')?.addEventListener('click', () => {
+      copyToClipboard(`${getHostOrigin()}/localdns.plugin`, 'Loon 插件链接');
+    });
+
+    $('#btn-copy-qx-url')?.addEventListener('click', () => {
+      copyToClipboard(`${getHostOrigin()}/localdns.conf`, 'Quantumult X 配置链接');
+    });
+
+    $('#btn-preview-compiled-module')?.addEventListener('click', async () => {
+      toast('正在加载动态编译模块...');
+      try {
+        const [surgeText, loonText, qxText] = await Promise.all([
+          api.request('/localdns.sgmodule'),
+          api.request('/localdns.plugin'),
+          api.request('/localdns.conf')
+        ]);
+
+        const html = `
+          <div class="stack" style="max-height:65vh;overflow-y:auto">
+            <div class="seg-group" id="preview-module-tabs" style="margin-bottom:10px">
+              <button type="button" class="seg-item active" data-prev-tab="surge">Surge 模块 (.sgmodule)</button>
+              <button type="button" class="seg-item" data-prev-tab="loon">Loon 插件 (.plugin)</button>
+              <button type="button" class="seg-item" data-prev-tab="qx">Quantumult X (.conf)</button>
+            </div>
+            <textarea id="preview-module-textarea" class="rule-textarea mono" style="height:320px;font-size:11.5px" readonly>${esc(surgeText)}</textarea>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+              <span id="preview-module-hint" style="font-size:12px;color:var(--text-3)">包含已激活的全部 MITM 通配主机与重写规则</span>
+              <button type="button" class="button small primary" id="btn-copy-preview-text">复制全部内容</button>
+            </div>
+          </div>
+        `;
+        modalOpen('本地实时动态编译模块预览', '由已激活的全部模块与自定义重写汇聚生成', html, null, false);
+
+        let curText = surgeText;
+        $$('[data-prev-tab]').forEach(btn => {
+          btn.onclick = () => {
+            $$('[data-prev-tab]').forEach(b => b.classList.toggle('active', b === btn));
+            const t = btn.dataset.prevTab;
+            if (t === 'surge') curText = surgeText;
+            else if (t === 'loon') curText = loonText;
+            else curText = qxText;
+            $('#preview-module-textarea').value = curText;
+          };
+        });
+
+        $('#btn-copy-preview-text').onclick = () => {
+          copyToClipboard(curText, '模块内容');
+        };
+      } catch(e) {
+        toast('加载失败', 'error', e.message);
+      }
+    });
+
     $('#mod-update-all').onclick=async()=>{
       const btn=$('#mod-update-all');
       btn.disabled=true;
