@@ -6,7 +6,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 
 | 脚本 | 版本 | 说明 | 安装链接 |
 |---|---|---|---|
-| LocalDNS（本地 DNS 服务） | 1.5.2 | 本地 DNS 与原生流清洗系统，全面对齐上游 FJGAC / UI 2026.10.18.19 最新清单工作台与协同架构：支持服务器持久化界面身份 (名称/Logo) 与代理面板设置、内置名单工作台备份与历史恢复服务 (保留每名单 20 份备份)、集成 7 天流量吞吐采样时序接口、深度集成 Scripting 原生系统级 VPN 隧道一键全局接管、Apple 官方原生加密 DNS (DoH) 描述文件合规驱动、9099 与 9443 双端口对称代理、强化 15 条 YouTube 切片阻断与全网视频 SDK 桩代码（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
+| LocalDNS（本地 DNS 服务） | 1.6.0 | 本地 DNS 与安全服务系统，v1.6.0 彻底瘦身去伪存真，砍掉虚假 L7 代理与伪切片清洗，回归纯粹极致的 DNS 核心：RFC 1035/3596 二进制 DNS wire 编解码、开箱即用 18.5 万条 AdGuard 广告与隐私追踪域名拦截 (返回 0.0.0.0)、四级内存缓存 (TTL 动态衰减与过期自愈响应)、Happy Eyeballs 多上游并发竞速解析、对齐上游 FJGAC / UI 2026.10.18.19 清单工作台 (支持名单备份与 7 天流量时序)、提供安全 DoH 与合规 Apple 原生加密 DNS 描述文件（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
 | 台风路径 | 2.3.1 | 实时台风路径、多机构预报与气象图层；主程序刷新后会同步重载用户小组件，大号组件地图缓存批处理仅重载一次 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F台风路径.zip%22%5D) |
 | 黃豆短劇 | 1.2.0 | 浏览、搜索与收藏黃豆短劇内容，支持播放历史、剧集播放、上下滑切集与进度条 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D) |
 | NetRadio（网络收音机） | 1.0.1 | 全球 1000+ 公开网络电台（按 36 个国家/地区归类），黑胶唱机舞台、电平示波器、主题调色板与 iOS 原生后台/锁屏播控（基于 net-redio 移植，作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D) |
@@ -20,24 +20,18 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 
 ## 🌟 脚本功能详解与直链
 
-### 🛡️ LocalDNS (本地 DNS 服务与流清洗管理系统)
-- **版本**：`1.5.2` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
+### 🛡️ LocalDNS (本地 DNS 服务与安全管理系统)
+- **版本**：`1.6.0` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
 - **特性**：
-  - **上游 FJGAC / UI 2026.10.18.19 清单工作台与配置协同架构 (v1.5.2 重大完善)**：
-    - **合入最新清单工作台**：搜索、类型、分组、逐条启停、拖动、批量操作、撤销与草稿隔离；彻底解决编辑框放弃修改分支与未保存状态丢失问题；
-    - **服务器持久化身份设置与代理面板 (`/api/proxy-config/interface/*`)**：支持跨设备持久保存自定义名称、Logo 与站点图标；顶栏紧凑代理入口支持一键打开外部代理面板；
-    - **名单工作台历史备份服务 (`/api/proxy-config/rule-backups`)**：保存前重新读取名单并在服务端建立历史快照（每份名单最多保留 20 份），支持一键调出历史快照安全载入草稿并核对生效；
-    - **7 天流量吞吐量采样时序服务 (`/api/proxy-config/traffic`)**：服务端持续记录并持久化保存 QPS 时序采样，支持 1小时至 7天多跨度平滑可视化；
-  - **原生零外挂纯净去广告闭环 (v1.5.1 重大升级)**：
-    - **彻底推倒外部软件依赖**：直接在 LocalDNS 原生闭环实现全自动去广告，无需在手机上额外运行 Surge、Loon、小火箭等第三方外挂软件；
-    - **Scripting 原生系统级 VPN 隧道**：深度调用 Scripting 原生 `VPN` API（`VPN.getState()`, `VPN.start()`, `VPN.stop()`），在 iOS 原生仪表盘与 Web 控制台提供一键开关。连接后全手机网络流量直接由系统内核级虚拟网卡流经本地，切片清洗与域名过滤由 LocalDNS 内部直接执行；
-    - **Apple 官方原生加密 DNS 描述文件修复与根证书内嵌 (`/localdns.mobileconfig`)**：纠正此前因 `ServerURL` 协议与裸 IP 地址触发的 iOS 描述文件安装校验报错；合入 `com.apple.security.root` 安全载荷一并下发 `LocalDNS Root CA`，实现“证书信任 + 内核级 DoH”一次性顺畅安装，后台零额外耗电、免开任何代理工具，全局阻断 18.5 万条广告；
-    - **本地原生模块直接执行中心**：LocalDNS 原生加载并执行 Surge 模块、Loon 插件与 QX 重写规则，直接在本地中间件与 `ProxyHandler` 流水线中生效，外部客户端仅作为可选导出备用；
-  - **9099 (HTTP) 与 9443 (HTTPS) 双端口全功能对称生效 (v1.4.8)**：
-    - **双端口对称共生架构**：本地 HTTP 9099 端口与 HTTPS 9443 端口底层共享同一套中间件流水线与规则引擎，支持全功能对等运作；
-    - **HTTP/HTTPS 代理双通道接管**：客户端既可使用免证书的明文 HTTP 代理节点（`LocalDNS-Proxy = http, 127.0.0.1, 9099`），也可使用带 TLS 加密的安全 HTTPS 代理节点（`LocalDNS-Proxy-TLS = https, 127.0.0.1, 9443, skip-cert-verify=true`）；
-    - **绝对 URL 自动嗅探增强**：全面支持 `http://`、`https://` 以及 `/https://...` 格式的代理请求解析，自动识别请求来源端口协议，无论是明文还是 TLS 密文均可无缝重定向、Mock、Header/Body 篡改与切片清洗；
-    - **双通道 DoH 与 Web 控制台**：`http://127.0.0.1:9099/dns-query` 与 `https://127.0.0.1:9443/dns-query` 完全对称生效，共享四级缓存池与 AdGuard 过滤状态；`http://127.0.0.1:9099/ui/` 与 `https://127.0.0.1:9443/ui/` 均可访问毛玻璃 Web 控制台；
+  - **v1.6.0 彻底瘦身·去伪存真·回归纯粹 DNS 核心**：
+    - **推倒不切实际的伪 L7 代理**：砍掉无法在 DNS 网络层生效的虚假 HTTP 代理嗅探、伪切片清洗与模拟沙箱，专注打造全网最快、最稳、最纯净的本地 DNS 基础设施；
+    - **18.5 万条 AdGuard 广告与隐私追踪域名实时黑洞拦截**：开箱即用 185,122 条过滤规则，常见移动广告（百度移动、腾讯广点通、穿山甲、Google 双击广告等）在 DNS 层面 100% 立即黑洞化阻断并返回 `0.0.0.0`；
+    - **RFC 1035 / 3596 二进制 DNS Wire 高速编解码**：纯 TypeScript 原生解析 A、AAAA、CNAME、PTR、SOA、TXT、HTTPS (SVCB) 报文；
+    - **四级内存缓存池 (`CacheManager`)**：核心缓存、国内、国外、国外 ECS 缓存池，支持 TTL 动态衰减与过期缓存自愈回退；
+    - **Happy Eyeballs 并发竞速解析**：多上游节点并发查询与最快采纳，非国内组 350ms 未返回自动拉起国内组竞速双发；
+    - **对齐上游 FJGAC / UI 2026.10.18.19 清单工作台**：合入最新清单工作台修复，支持规则草稿隔离、服务端名单历史备份（保留每名单 20 份快照）、界面身份持久化与 7 天时序流量采样；
+    - **Apple 官方原生加密 DNS 描述文件 (`/localdns.mobileconfig`)**：遵循 iOS 14+ 官方标准，内嵌安全根证书与 127.0.0.1 本地回环自引导，系统内核级驱动，零外挂、零耗电；
+    - **Surge / 小火箭安全 DoH 接管**：支持 `https://127.0.0.1:9443/dns-query` (TLS 加密) 与 `http://127.0.0.1:9099/dns-query` (免证书)。
     - **动态模块链接自适应**：Web 控制台与原生仪表盘自适应当前访问端口与协议，一键调起安装至 Surge/Loon；
   - **Surge / Loon / QX 模块一键动态编译与客户端挂载 (v1.4.7)**：
     - **核心机制打通**：YouTube、B站等现代视频平台全面采用 HTTPS 加密传输，纯 DNS 只能拦截外链广告域名，无法解密并修改视频切片或播放器 JSON。必须由 Surge、Loon、Quantumult X 等客户端执行 HTTPS MITM 解密；

@@ -54,8 +54,6 @@ export class Store {
       switch4: 'A',  // 过期缓存 (开)
       switch2: 'B',  // 指定 Client FakeIP (关)
       switch12: 'B', // 指定 Client RealIP (关)
-      switch_mitm: 'A', // MITM 中间人解密与 FakeIP 接管 (开)
-      switch_rewrite: 'A', // HTTP/HTTPS 重写引擎 (开)
     });
 
     this.rules = this.loadOrDefault('localdns_rules', {
@@ -149,14 +147,6 @@ export class Store {
     }
     if (this.switches.switch7 !== 'A') {
       this.switches.switch7 = 'A';
-      this.persist('localdns_switches', this.switches);
-    }
-    if (!this.switches.switch_mitm) {
-      this.switches.switch_mitm = 'A';
-      this.persist('localdns_switches', this.switches);
-    }
-    if (!this.switches.switch_rewrite) {
-      this.switches.switch_rewrite = 'A';
       this.persist('localdns_switches', this.switches);
     }
   }

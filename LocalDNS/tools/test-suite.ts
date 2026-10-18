@@ -1,5 +1,9 @@
 import { Path, Script } from 'scripting';
 import { LocalDnsServer } from '../src/server';
+import { DnsResolver } from '../src/resolver';
+import { parseDnsPacket, serializeDnsPacket } from '../src/dns-packet';
+import { AdGuardEngine } from '../src/adguard';
+import type { DnsPacket } from '../src/types';
 
 async function runTests() {
   console.log('=== [LocalDNS] Starting Full Upgrade Verification Test Suite ===');
@@ -60,25 +64,11 @@ async function runTests() {
   assert(appJsStr.includes('safe(()=>api.stats()'), 'app.js includes safe() wrapper for api.stats');
   assert(appJsStr.includes('国外默认') && appJsStr.includes('国内直连'), 'app.js includes Chinese legend labels');
 
-  // 检查规则管理模块导入、HTTP重写与动态视图
-  assert(appJsStr.includes('data-rule-tab="modules"'), 'app.js includes modules tab button in rules management');
-  assert(appJsStr.includes('data-rule-tab="rewrites"'), 'app.js includes rewrites tab button in rules management');
-  assert(appJsStr.includes('data-log-tab="rewrite"'), 'app.js includes rewrite log tab in query logs');
-  assert(appJsStr.includes('renderModules'), 'app.js implements renderModules component');
-  assert(appJsStr.includes('renderRewrites'), 'app.js implements renderRewrites component');
-  assert(appJsStr.includes('renderHttpRewriteLogs'), 'app.js implements renderHttpRewriteLogs component');
-  assert(appJsStr.includes('openRewriteModal'), 'app.js implements openRewriteModal component');
-  assert(appJsStr.includes('openRewriteTestModal'), 'app.js implements openRewriteTestModal component');
-  assert(appJsStr.includes('openModuleModal'), 'app.js implements openModuleModal import modal');
-  assert(appJsStr.includes('btn-mount-surge'), 'app.js includes btn-mount-surge client link button');
-  assert(appJsStr.includes('btn-mount-loon'), 'app.js includes btn-mount-loon client link button');
-  assert(appJsStr.includes('btn-native-vpn-toggle'), 'app.js includes btn-native-vpn-toggle native VPN button');
-  assert(appJsStr.includes('btn-download-mobileconfig'), 'app.js includes btn-download-mobileconfig Apple DNS button');
-  assert(appJsStr.includes('btn-preview-compiled-module'), 'app.js includes btn-preview-compiled-module button');
+  // 检查原生闭环入口与拓扑动态推演组件
+  assert(appJsStr.includes('btn-ov-vpn-toggle'), 'app.js includes btn-ov-vpn-toggle native VPN button');
+  assert(appJsStr.includes('btn-ov-install-mobileconfig'), 'app.js includes btn-ov-install-mobileconfig Apple DNS button');
   assert(appJsStr.includes('topo-dynamic-toolbar'), 'app.js includes topo-dynamic-toolbar HTML');
   assert(appJsStr.includes('runTopoTracer'), 'app.js implements runTopoTracer dynamic path reasoning');
-  assert(appJsStr.includes('rewrite-filter-bar'), 'app.js includes rewrite-filter-bar multi-dimensional filter');
-  assert(appJsStr.includes('switch_mitm') && appJsStr.includes('switch_rewrite'), 'app.js switchProfiles includes switch_mitm and switch_rewrite');
 
   // 检查 app.css 中动态视图工具栏与重写样式
   assert(cssStr.includes('.topo-dynamic-toolbar'), 'app.css includes .topo-dynamic-toolbar styles');
@@ -139,176 +129,77 @@ async function runTests() {
     // 2.6 验证根路径重定向到 /ui/
     const resRoot = await fetch(`${baseUrl}/`);
     assert(resRoot.status === 200 && (resRoot.url.includes('/ui') || resRoot.redirected), `Root / properly resolves/redirects to /ui/ (status: ${resRoot.status}, url: ${resRoot.url})`);
-    // 2.7 验证 /api/v1/modules 模块 API
-    const resModules = await fetch(`${baseUrl}/api/v1/modules`);
-    assert(resModules.status === 200, `/api/v1/modules returns 200 OK`);
-    const modData = await resModules.json();
-    assert(modData.success === true, 'modules api returns success true');
-    assert(Array.isArray(modData.modules), 'modules list is an array');
-    assert(modData.stats && typeof modData.stats.totalModules === 'number', 'modules stats present');
+    // 2.7 验证 AdGuard 18.5 万条广告过滤规则库开箱即用状态
+    const ruleCount = AdGuardEngine.get().getRuleCount();
+    assert(ruleCount > 100000, `AdGuard engine has over 100,000 rules active (got: ${ruleCount.toLocaleString()})`);
 
-    // 2.8 验证 switch_mitm 与 switch_rewrite 功能开关接口
-    const resMitm = await fetch(`${baseUrl}/plugins/switch_mitm/show`);
-    assert(resMitm.status === 200, `/plugins/switch_mitm/show returns 200 OK`);
-    const valMitm = (await resMitm.text()).trim();
-    assert(valMitm === 'A' || valMitm === 'B', `switch_mitm value is valid (got ${valMitm})`);
+    // 2.8 验证 DNS 核心与 AdGuard 广告域名真实黑洞化拦截 (返回 0.0.0.0)
+    const resolver = DnsResolver.get();
 
-    const resRewrite = await fetch(`${baseUrl}/plugins/switch_rewrite/show`);
-    assert(resRewrite.status === 200, `/plugins/switch_rewrite/show returns 200 OK`);
-    const valRewrite = (await resRewrite.text()).trim();
-    assert(valRewrite === 'A' || valRewrite === 'B', `switch_rewrite value is valid (got ${valRewrite})`);
+    // 构造测试 DNS wire 报文函数
+    const makeDnsQuery = (qname: string): Uint8Array => {
+      const pkt: DnsPacket = {
+        id: Math.floor(Math.random() * 65535),
+        flags: 0x0100,
+        qr: false,
+        opcode: 0,
+        aa: false,
+        tc: false,
+        rd: true,
+        ra: false,
+        rcode: 0,
+        rcodeName: 'NOERROR',
+        questions: [{ name: qname, type: 1, typeName: 'A', class: 1 }],
+        answers: [],
+        authorities: [],
+        additionals: [],
+      };
+      return serializeDnsPacket(pkt);
+    };
 
-    // 验证开关切换持久化
-    const postMitm = await fetch(`${baseUrl}/plugins/switch_mitm/post`, {
+    // 验证百度移动广告拦截
+    const resBaiduAd = await resolver.resolve(makeDnsQuery('mobads.baidu.com'), '127.0.0.1');
+    const parsedBaiduAd = parseDnsPacket(resBaiduAd);
+    assert(parsedBaiduAd.answers.length > 0 && String(parsedBaiduAd.answers[0].data) === '0.0.0.0', 'mobads.baidu.com resolved to 0.0.0.0 (AdGuard blocked)');
+
+    // 验证腾讯广点通广告拦截
+    const resGdtAd = await resolver.resolve(makeDnsQuery('pgdt.gtimg.cn'), '127.0.0.1');
+    const parsedGdtAd = parseDnsPacket(resGdtAd);
+    assert(parsedGdtAd.answers.length > 0 && String(parsedGdtAd.answers[0].data) === '0.0.0.0', 'pgdt.gtimg.cn resolved to 0.0.0.0 (AdGuard blocked)');
+
+    // 验证 YouTube 广告打点拦截
+    const resYtAd = await resolver.resolve(makeDnsQuery('s.youtube.com'), '127.0.0.1');
+    const parsedYtAd = parseDnsPacket(resYtAd);
+    assert(parsedYtAd.answers.length > 0 && String(parsedYtAd.answers[0].data) === '0.0.0.0', 's.youtube.com resolved to 0.0.0.0 (AdGuard blocked)');
+
+    // 验证 Google 双击广告拦截
+    const resDblAd = await resolver.resolve(makeDnsQuery('pagead2.googlesyndication.com'), '127.0.0.1');
+    const parsedDblAd = parseDnsPacket(resDblAd);
+    assert(parsedDblAd.answers.length > 0 && String(parsedDblAd.answers[0].data) === '0.0.0.0', 'pagead2.googlesyndication.com resolved to 0.0.0.0 (AdGuard blocked)');
+
+    // 验证正常国内域名正常解析到合法 IP
+    const resNormal = await resolver.resolve(makeDnsQuery('baidu.com'), '127.0.0.1');
+    const parsedNormal = parseDnsPacket(resNormal);
+    assert(parsedNormal.answers.length > 0 && String(parsedNormal.answers[0].data) !== '0.0.0.0', 'baidu.com resolved to genuine non-blocked IP');
+
+    // 2.9 验证 DoH 二进制 Wire 报文 POST 端点 (/dns-query)
+    const dohPostQuery = makeDnsQuery('mobads.baidu.com');
+    const resDohPost = await fetch(`${baseUrl}/dns-query`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: 'B' }),
+      headers: { 'Content-Type': 'application/dns-message' },
+      body: dohPostQuery,
     });
-    assert(postMitm.status === 200, `POST /plugins/switch_mitm/post returns 200 OK`);
-    const getMitmB = await (await fetch(`${baseUrl}/plugins/switch_mitm/show`)).text();
-    assert(getMitmB.trim() === 'B', `switch_mitm toggled to B`);
+    assert(resDohPost.status === 200, `POST /dns-query returns 200 OK`);
+    assert(resDohPost.headers.get('Content-Type')?.includes('application/dns-message'), 'DoH POST Content-Type is application/dns-message');
+    const dohPostBytes = new Uint8Array(await resDohPost.arrayBuffer());
+    const parsedDohPost = parseDnsPacket(dohPostBytes);
+    assert(parsedDohPost.answers[0]?.data === '0.0.0.0', 'DoH POST returned 0.0.0.0 blocked answer');
 
-    // 恢复开关为 A
-    await fetch(`${baseUrl}/plugins/switch_mitm/post`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: 'A' }),
-    });
-    const getMitmA = await (await fetch(`${baseUrl}/plugins/switch_mitm/show`)).text();
-    assert(getMitmA.trim() === 'A', `switch_mitm restored to A`);
-
-    // 2.9 验证 /api/v1/rewrites 全套 CRUD 与测试接口
-    const resGetRw = await fetch(`${baseUrl}/api/v1/rewrites`);
-    assert(resGetRw.status === 200, `GET /api/v1/rewrites returns 200 OK`);
-    const rwData = await resGetRw.json();
-    assert(rwData.success === true, 'rewrites api returns success true');
-    assert(Array.isArray(rwData.rewrites), 'rewrites list is an array');
-    assert(typeof rwData.rawText === 'string', 'rawText export is string');
-
-    // 添加单条自定义重写规则
-    const resAddRw = await fetch(`${baseUrl}/api/v1/rewrites`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: '测试自定义重写',
-        pattern: '^https?:\\/\\/api\\.testsuite\\.com\\/mock-unit',
-        action: 'mock',
-        target: '200',
-        extra: '{"unitTest":true}',
-        enabled: true,
-        note: '自动化测试生成'
-      }),
-    });
-    assert(resAddRw.status === 200, `POST /api/v1/rewrites returns 200 OK`);
-    const addedRw = await resAddRw.json();
-    assert(addedRw.success === true && addedRw.rewrite && addedRw.rewrite.id, 'Created rewrite has id');
-    const newRwId = addedRw.rewrite.id;
-
-    // 验证在线重写推演测试接口
-    const resSimRw = await fetch(`${baseUrl}/api/v1/rewrites/test`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        url: 'https://api.testsuite.com/mock-unit',
-        method: 'GET'
-      }),
-    });
-    assert(resSimRw.status === 200, `POST /api/v1/rewrites/test returns 200 OK`);
-    const simData = await resSimRw.json();
-    assert(simData.matched === true, 'Test simulation matched newly created rewrite rule');
-    assert(simData.simulation.status === 200, 'Test simulation returned status 200');
-    assert(simData.simulation.bodySnippet.includes('unitTest'), 'Simulation body includes mock payload');
-
-    // 切换单条规则状态
-    const resToggleRw = await fetch(`${baseUrl}/api/v1/rewrites/${encodeURIComponent(newRwId)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: false }),
-    });
-    assert(resToggleRw.status === 200, `PUT /api/v1/rewrites/:id returns 200 OK`);
-    const toggledRw = await resToggleRw.json();
-    assert(toggledRw.rewrite.enabled === false, 'Rewrite enabled toggled to false');
-
-    // 删除单条规则
-    const resDelRw = await fetch(`${baseUrl}/api/v1/rewrites/${encodeURIComponent(newRwId)}`, {
-      method: 'DELETE',
-    });
-    assert(resDelRw.status === 200, `DELETE /api/v1/rewrites/:id returns 200 OK`);
-
-    // 验证纯文本批量保存
-    const resTextRw = await fetch(`${baseUrl}/api/v1/rewrites/text`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: '^https?:\\/\\/api\\.testsuite\\.com\\/batch-text mock 204\n^https?:\\/\\/api\\.testsuite\\.com\\/u\\/(.+) 302 https://new.com/$1'
-      }),
-    });
-    assert(resTextRw.status === 200, `POST /api/v1/rewrites/text returns 200 OK`);
-    const textSaved = await resTextRw.json();
-    assert(textSaved.count === 2, 'Batch text parsed 2 rewrite rules');
-
-    // 2.10 验证 HTTP 重写与流清洗实时审计日志接口
-    const resRwLogs = await fetch(`${baseUrl}/api/v1/rewrites/logs?page=1&limit=20`);
-    assert(resRwLogs.status === 200, `GET /api/v1/rewrites/logs returns 200 OK`);
-    const rwLogsData = await resRwLogs.json();
-    assert(rwLogsData.success === true, 'rewrites logs api returns success true');
-    assert(Array.isArray(rwLogsData.list), 'rewrites logs list is an array');
-    assert(typeof rwLogsData.total === 'number', 'rewrites logs total is a number');
-    assert(rwLogsData.stats && typeof rwLogsData.stats.totalRequests === 'number', 'rewrites logs stats present');
-
-    // 验证重写统计接口
-    const resRwStats = await fetch(`${baseUrl}/api/v1/rewrites/stats`);
-    assert(resRwStats.status === 200, `GET /api/v1/rewrites/stats returns 200 OK`);
-    const rwStatsData = await resRwStats.json();
-    assert(rwStatsData.success === true && typeof rwStatsData.stats.totalRequests === 'number', 'rewrites stats returns valid data');
-
-    // 验证清空重写日志接口
-    const resRwClear = await fetch(`${baseUrl}/api/v1/rewrites/logs/clear`, { method: 'POST' });
-    assert(resRwClear.status === 200, `POST /api/v1/rewrites/logs/clear returns 200 OK`);
-    const resRwLogsAfter = await (await fetch(`${baseUrl}/api/v1/rewrites/logs`)).json();
-    assert(resRwLogsAfter.total === 0, 'rewrites logs cleared to 0');
-
-    // 2.11 验证透明 HTTP/HTTPS 代理与绝对 URL 自动嗅探 (9099 与 9443 双端口对称生效)
-    const resBiliProxy = await fetch(`${baseUrl}/x/v2/splash`, {
-      method: 'GET',
-      headers: { Host: 'api.bilibili.com' },
-    });
-    assert(resBiliProxy.status === 204, `Transparent HTTP proxy intercepts Bilibili splash ad with 204 (got ${resBiliProxy.status})`);
-    assert(resBiliProxy.headers.get('X-LocalDNS-Proxy')?.startsWith('transparent'), 'X-LocalDNS-Proxy header is transparent');
-    assert(resBiliProxy.headers.get('X-LocalDNS-Cleaned') === 'true', 'X-LocalDNS-Cleaned header is true');
-
-    // 验证以绝对 HTTPS 路径发起的代理请求 (如通过 HTTPS 端口或客户端代理连接发起)
-    const resBiliAbsHttps = await fetch(`${baseUrl}/https://api.bilibili.com/x/v2/splash`, {
-      method: 'GET',
-    });
-    assert(resBiliAbsHttps.status === 204, `Absolute HTTPS proxy URL intercepts Bilibili splash ad with 204 (got ${resBiliAbsHttps.status})`);
-    assert(resBiliAbsHttps.headers.get('X-LocalDNS-Cleaned') === 'true', 'Absolute HTTPS URL proxy marked as cleaned');
-
-    // 验证全网通用视频 SDK 桩代码透明代理拦截
-    const resImaProxy = await fetch(`${baseUrl}/js/sdkloader/ima3.js`, {
-      method: 'GET',
-      headers: { Host: 'imasdk.googleapis.com' },
-    });
-    assert(resImaProxy.status === 200, `Transparent HTTP proxy mocks Google IMA3 SDK with 200 (got ${resImaProxy.status})`);
-    const imaBody = await resImaProxy.text();
-    assert(imaBody.includes('window.google={ima:'), 'Google IMA3 SDK mock stub code returned');
-    assert(resImaProxy.headers.get('X-LocalDNS-Cleaned') === 'true', 'IMA SDK marked as cleaned');
-
-    // 2.12 验证动态编译模块导出端点 (/localdns.sgmodule, /localdns.plugin, /localdns.conf)
-    const resSurgeExport = await fetch(`${baseUrl}/localdns.sgmodule`);
-    assert(resSurgeExport.status === 200, `/localdns.sgmodule returns 200 OK`);
-    const surgeExportText = await resSurgeExport.text();
-    assert(surgeExportText.includes('#!name=LocalDNS') && surgeExportText.includes('[MITM]') && surgeExportText.includes('[URL Rewrite]'), 'Surge module export contains header, MITM and Rewrite sections');
-
-    const resLoonExport = await fetch(`${baseUrl}/localdns.plugin`);
-    assert(resLoonExport.status === 200, `/localdns.plugin returns 200 OK`);
-    const loonExportText = await resLoonExport.text();
-    assert(loonExportText.includes('#!name=LocalDNS') && loonExportText.includes('[Mitm]') && loonExportText.includes('[Rewrite]'), 'Loon plugin export contains header, Mitm and Rewrite sections');
-
-    const resQxExport = await fetch(`${baseUrl}/localdns.conf`);
-    assert(resQxExport.status === 200, `/localdns.conf returns 200 OK`);
-    const qxExportText = await resQxExport.text();
-    assert(qxExportText.includes('[rewrite_local]') && qxExportText.includes('[mitm]'), 'Quantumult X export contains rewrite_local and mitm sections');
+    // 2.10 验证 DoH GET 端点 (/dns-query?dns=...)
+    let b64Dns = btoa(String.fromCharCode(...dohPostQuery)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const resDohGet = await fetch(`${baseUrl}/dns-query?dns=${b64Dns}`);
+    assert(resDohGet.status === 200, `GET /dns-query?dns=... returns 200 OK`);
+    assert(resDohGet.headers.get('Content-Type')?.includes('application/dns-message'), 'DoH GET Content-Type is application/dns-message');
 
     // 2.13 验证系统级原生 VPN 控制接口与 Apple 原生加密 DNS 描述文件
     const resVpn = await fetch(`${baseUrl}/api/v1/system/vpn`);

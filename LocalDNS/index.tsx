@@ -25,9 +25,6 @@ import { AdGuardEngine } from './src/adguard';
 import { DiversionEngine } from './src/diversion';
 import { DnsResolver, cleanDomain } from './src/resolver';
 import { parseDnsPacket, serializeDnsPacket } from './src/dns-packet';
-import { ModuleManager } from './src/modules/module-manager';
-import { FakeIpPool } from './src/mitm/fakeip';
-import { StreamCleaner } from './src/stream/cleaner';
 import type { DnsPacket } from './src/types';
 
 // WebViewController global declaration for TypeScript
@@ -44,7 +41,7 @@ declare namespace Safari {
   function openURL(url: string): Promise<void>;
 }
 
-const APP_VERSION = 'v1.5.2';
+const APP_VERSION = 'v1.6.0';
 const APP_BUILD = '20261018';
 const APP_AUTHOR = 'vcncv';
 const UPSTREAM_REPO = 'https://github.com/yyhoworks/LocalDNS';
@@ -74,8 +71,6 @@ function LocalDnsApp() {
 
   // Stats state
   const [stats, setStats] = useState(AuditManager.get().getStats());
-  const [moduleStats, setModuleStats] = useState(ModuleManager.get().getStats());
-  const [fakeipStats, setFakeipStats] = useState(FakeIpPool.get().getStats());
   const [lastRefreshed, setLastRefreshed] = useState<string>(
     new Date().toLocaleTimeString('zh-CN', { hour12: false })
   );
@@ -87,8 +82,6 @@ function LocalDnsApp() {
   const [switchLazyCache, setSwitchLazyCache] = useState<boolean>(initialSwitches.switch4 === 'A');
   const [switchIpv6Block, setSwitchIpv6Block] = useState<boolean>(initialSwitches.switch6 === 'A');
   const [switchReqBlock, setSwitchReqBlock] = useState<boolean>(initialSwitches.switch1 === 'A');
-  const [switchMitm, setSwitchMitm] = useState<boolean>(initialSwitches.switch_mitm !== 'B');
-  const [switchRewrite, setSwitchRewrite] = useState<boolean>(initialSwitches.switch_rewrite !== 'B');
 
   // DNS Tester state
   const [testDomain, setTestDomain] = useState<string>('baidu.com');
@@ -100,8 +93,6 @@ function LocalDnsApp() {
 
   const refreshStats = () => {
     setStats(AuditManager.get().getStats());
-    setModuleStats(ModuleManager.get().getStats());
-    setFakeipStats(FakeIpPool.get().getStats());
     setLastRefreshed(new Date().toLocaleTimeString('zh-CN', { hour12: false }));
     refreshVpnState();
   };
@@ -150,64 +141,6 @@ function LocalDnsApp() {
     if (typeof Safari !== 'undefined' && Safari.openURL) {
       await Safari.openURL(profileUrl);
       setStatusMessage('正在下载 Apple 官方原生加密 DNS 描述文件（已合入 LocalDNS 根证书与内核级 DoH）。请前往 iOS「设置」➔「已下载描述文件」安装！');
-    }
-  };
-
-  const handleTestYoutubeStreamAd = () => {
-    const url = 'https://rr1---sn-4g5edn6e.googlevideo.com/videoplayback?id=123&adformat=1';
-    const hit = ModuleManager.get().matchRewrite(url);
-    if (hit) {
-      setStatusMessage(`🎬 YouTube 视频流切片阻断测试: 命中 [${hit.rule.pattern}] ➔ 动作: ${hit.action} (成功消除前贴/中插切片)`);
-    } else {
-      setStatusMessage('未命中 YouTube 阻断规则');
-    }
-    refreshStats();
-  };
-
-  const handleTestTwitchM3u8Clean = () => {
-    const dirty = `#EXTM3U\n#EXT-X-DATERANGE:ID="stitched-ad-123",PLANNED-DURATION=15.0\n#EXTINF:6.0,\nhttps://video.com/seg1.ts\n#EXT-X-TWITCH-PREFETCH:https://video.com/pref.ts\n#EXTINF:6.0,\nhttps://video.com/ad_segment.ts\n#EXT-X-DISCONTINUITY\n#EXTINF:6.0,\nhttps://video.com/seg2.ts`;
-    const cleaned = StreamCleaner.cleanM3U8(dirty, 'https://usher.ttvnw.net/test.m3u8');
-    const strippedAd = !cleaned.includes('stitched-ad') && !cleaned.includes('ad_segment.ts');
-    setStatusMessage(`📺 Twitch M3U8 流清洗测试: ${strippedAd ? '成功剥离 SSAI 广告切片与预取行！' : '清洗未变动'}`);
-    refreshStats();
-  };
-
-  const handleTestBilibiliAd = () => {
-    const url = 'https://api.bilibili.com/x/v2/splash';
-    const hit = ModuleManager.get().matchRewrite(url);
-    if (hit) {
-      setStatusMessage(`⚡️ 哔哩哔哩开屏去广告测试: 命中 [${hit.rule.pattern}] ➔ 动作: ${hit.action} (秒开无广告)`);
-    } else {
-      setStatusMessage('未命中 B站 去广告规则');
-    }
-    refreshStats();
-  };
-
-  const handleTestUniversalVideoSdk = () => {
-    const url = 'https://imasdk.googleapis.com/js/sdkloader/ima3.js';
-    const hit = ModuleManager.get().matchRewrite(url);
-    if (hit) {
-      setStatusMessage(`🛡️ 全网通用视频SDK桩测试: 命中 [${hit.rule.pattern}] ➔ 动作: ${hit.action} (本地 Mock 播放器广告桩)`);
-    } else {
-      setStatusMessage('未命中 Google IMA 桩规则');
-    }
-    refreshStats();
-  };
-
-  const copyHttpProxyConfig = async () => {
-    const snippet = `HTTP 代理服务器: 127.0.0.1\n端口: ${port}\n\nSurge 节点配置:\nLocalDNS-Proxy = http, 127.0.0.1, ${port}\n\nLoon 节点配置:\nLocalDNS-Proxy = http, 127.0.0.1, ${port}\n\n小火箭代理行:\nhttp://127.0.0.1:${port}`;
-    if (typeof Pasteboard !== 'undefined' && Pasteboard.setString) {
-      await Pasteboard.setString(snippet);
-      setStatusMessage(`已复制透明 HTTP 代理配置：127.0.0.1:${port}！`);
-    }
-  };
-
-  const copyHttpsProxyConfig = async () => {
-    const httpsPort = server.getHttpsPort();
-    const snippet = `HTTPS 代理服务器: 127.0.0.1\n端口: ${httpsPort}\n\nSurge 节点配置:\nLocalDNS-Proxy-TLS = https, 127.0.0.1, ${httpsPort}, skip-cert-verify=true\n\nLoon 节点配置:\nLocalDNS-Proxy-TLS = https, 127.0.0.1, ${httpsPort}, skip-cert-verify=true\n\n小火箭代理行:\nhttps://127.0.0.1:${httpsPort}?allowInsecure=1`;
-    if (typeof Pasteboard !== 'undefined' && Pasteboard.setString) {
-      await Pasteboard.setString(snippet);
-      setStatusMessage(`已复制 TLS 加密 HTTPS 代理配置：127.0.0.1:${httpsPort}！`);
     }
   };
 
@@ -299,48 +232,6 @@ function LocalDnsApp() {
     if (typeof Pasteboard !== 'undefined' && Pasteboard.setString) {
       await Pasteboard.setString(snippet);
       setStatusMessage(`已复制 Surge 专属 DoH 配置：doh-server = https://127.0.0.1:9443/dns-query！`);
-    }
-  };
-
-  const mountSurgeModule = async () => {
-    const modUrl = `http://127.0.0.1:${port}/localdns.sgmodule`;
-    const surgeScheme = `surge:///install-module?url=${encodeURIComponent(modUrl)}`;
-    if (typeof Safari !== 'undefined' && Safari.openURL) {
-      await Safari.openURL(surgeScheme);
-    }
-    setStatusMessage(`正在调起 Surge 安装模块: ${modUrl}`);
-  };
-
-  const copySurgeModuleUrl = async () => {
-    const modUrl = `http://127.0.0.1:${port}/localdns.sgmodule`;
-    if (typeof Pasteboard !== 'undefined' && Pasteboard.setString) {
-      await Pasteboard.setString(modUrl);
-      setStatusMessage(`已复制 Surge 模块编译链接: ${modUrl}`);
-    }
-  };
-
-  const mountLoonPlugin = async () => {
-    const pluginUrl = `http://127.0.0.1:${port}/localdns.plugin`;
-    const loonScheme = `loon://import?plugin=${encodeURIComponent(pluginUrl)}`;
-    if (typeof Safari !== 'undefined' && Safari.openURL) {
-      await Safari.openURL(loonScheme);
-    }
-    setStatusMessage(`正在调起 Loon 安装插件: ${pluginUrl}`);
-  };
-
-  const copyLoonPluginUrl = async () => {
-    const pluginUrl = `http://127.0.0.1:${port}/localdns.plugin`;
-    if (typeof Pasteboard !== 'undefined' && Pasteboard.setString) {
-      await Pasteboard.setString(pluginUrl);
-      setStatusMessage(`已复制 Loon 插件编译链接: ${pluginUrl}`);
-    }
-  };
-
-  const copyQxConfUrl = async () => {
-    const confUrl = `http://127.0.0.1:${port}/localdns.conf`;
-    if (typeof Pasteboard !== 'undefined' && Pasteboard.setString) {
-      await Pasteboard.setString(confUrl);
-      setStatusMessage(`已复制 Quantumult X 规则链接: ${confUrl}`);
     }
   };
 
@@ -612,102 +503,6 @@ function LocalDnsApp() {
             value={switchReqBlock}
             onChanged={(val) => handleSwitchChange('switch1', val, setSwitchReqBlock)}
           />
-
-          <Toggle
-            title="MITM 流量接管 (FakeIP 虚拟映射)"
-            value={switchMitm}
-            onChanged={(val) => handleSwitchChange('switch_mitm', val, setSwitchMitm)}
-          />
-
-          <Toggle
-            title="HTTP 重写引擎 (Redirect / Reject / Header / Body)"
-            value={switchRewrite}
-            onChanged={(val) => handleSwitchChange('switch_rewrite', val, setSwitchRewrite)}
-          />
-        </Section>
-
-        {/* 跨平台模块与流清洗 (Surge/Loon/QX) */}
-        <Section
-          header={<Text>跨平台模块与视频流清洗 (Surge/Loon/QX)</Text>}
-          footer={<Text>支持无缝载入 Surge (.sgmodule)、Loon (.plugin) 与 Quantumult X 规则，通过 FakeIP 截获流量并剥离 HLS M3U8 切片与播放器 JSON 广告。</Text>}
-        >
-          <HStack>
-            <Text>模块状态</Text>
-            <Spacer />
-            <Text bold>{moduleStats.activeModules} / {moduleStats.totalModules} 个已激活</Text>
-          </HStack>
-
-          <HStack>
-            <Text>MITM 域名监听</Text>
-            <Spacer />
-            <Text bold>{moduleStats.totalMitmHosts} 个通配主机</Text>
-          </HStack>
-
-          <HStack>
-            <Text>重写规则 / 脚本</Text>
-            <Spacer />
-            <Text>{moduleStats.totalRewrites} 条 / {moduleStats.totalScripts} 个</Text>
-          </HStack>
-
-          <HStack>
-            <Text>流清洗命中 / 静态阻断</Text>
-            <Spacer />
-            <Text bold foregroundStyle="systemGreen">{moduleStats.cleanedStreams} 次 / {moduleStats.hitRewrites} 次</Text>
-          </HStack>
-
-          <HStack>
-            <Text>FakeIP 池占用 (198.18.0.0/15)</Text>
-            <Spacer />
-            <Text>{fakeipStats.allocated} 个已分配</Text>
-          </HStack>
-
-          <HStack>
-            <Button
-              title="测试: YouTube 视频流切片阻断"
-              action={handleTestYoutubeStreamAd}
-            />
-            <Spacer />
-            <Button
-              title="测试: Twitch M3U8 清单清洗"
-              action={handleTestTwitchM3u8Clean}
-            />
-          </HStack>
-
-          <HStack>
-            <Button
-              title="测试: 哔哩哔哩开屏/中插去广告"
-              action={handleTestBilibiliAd}
-            />
-            <Spacer />
-            <Button
-              title="测试: 全网通用视频SDK桩 (IMA3)"
-              action={handleTestUniversalVideoSdk}
-            />
-          </HStack>
-
-          <HStack>
-            <Button
-              title="⚡️ 一键挂载 Surge 模块"
-              action={mountSurgeModule}
-            />
-            <Spacer />
-            <Button
-              title="🎈 一键安装 Loon 插件"
-              action={mountLoonPlugin}
-            />
-          </HStack>
-
-          <HStack>
-            <Button
-              title="复制 Surge 模块链接"
-              action={copySurgeModuleUrl}
-            />
-            <Spacer />
-            <Button
-              title="复制 QX 重写规则"
-              action={copyQxConfUrl}
-            />
-          </HStack>
         </Section>
 
         {/* 本地 DNS 实时解析排障 */}
@@ -809,46 +604,20 @@ function LocalDnsApp() {
             action={installAppleDnsProfile}
           />
 
-          {/* 方案 3：本机 Wi-Fi / 局域网透明代理 */}
+          {/* 方案 3：Surge 专属安全 DoH 接管 */}
           <VStack alignment="leading">
-            <Text bold font="headline">🎬 方案 3：本机 Wi-Fi / 局域网透明代理 (9099 HTTP / 9443 HTTPS)</Text>
+            <Text bold font="headline">⚡️ 方案 3：Surge 专属安全 DoH (稳定极速推荐)</Text>
             <Text font="caption" foregroundStyle="secondaryLabel">
-              无需任何第三方软件，利用 iOS 系统的 Wi-Fi 代理功能直接将流量导入 LocalDNS 流水线：
+              标准安全 DoH 接口：https://127.0.0.1:9443/dns-query，全手机 App DNS 毫秒级防污染解析与广告拦截：
             </Text>
             <Text font="caption">
-              1. 打开 iPhone「设置」➔「无线局域网」➔ 点击当前 Wi-Fi 右侧的 ⓘ 按钮；
+              1. 确保已安装并信任 CA 根证书（下方按钮一键安装）；
             </Text>
             <Text font="caption">
-              2. 滑到最底部「配置代理」选择「手动」，服务器填 127.0.0.1，端口填 9099；
+              2. 点击下方「复制 Surge DoH 配置」，粘贴至 Surge 配置文件文本模式的 [General] 节点；
             </Text>
             <Text font="caption">
-              3. 局域网其他设备（电脑/电视盒子）也可将代理服务器设置为当前 iPhone 的局域网 IP，共享去广告！
-            </Text>
-          </VStack>
-
-          <HStack>
-            <Button
-              title={`复制 HTTP 代理 (9099)`}
-              action={copyHttpProxyConfig}
-            />
-            <Spacer />
-            <Button
-              title={`复制 HTTPS 代理 (9443)`}
-              action={copyHttpsProxyConfig}
-            />
-          </HStack>
-
-          {/* 方案 4：高级备用选项：第三方外部代理客户端导出 */}
-          <VStack alignment="leading">
-            <Text bold font="headline">⚙️ 方案 4：高级备用选项：外部客户端模块同步 (可选)</Text>
-            <Text font="caption" foregroundStyle="secondaryLabel">
-              如果您已有使用 Surge、Loon 或 Quantumult X 的习惯，LocalDNS 支持将本地模块规则一键导出给外部工具：
-            </Text>
-            <Text font="caption">
-              1. Surge DoH：https://127.0.0.1:9443/dns-query（需安装下方 CA 证书）；
-            </Text>
-            <Text font="caption">
-              2. 模块一键安装：点击下方按钮可调起 Surge/Loon 自动订阅本地编译的规则。
+              3. 开启 Surge，全设备 DNS 查询瞬间由本地 18.5 万条 AdGuard 广告规则直接黑洞化！
             </Text>
           </VStack>
 
@@ -864,29 +633,44 @@ function LocalDnsApp() {
             />
           </HStack>
 
-          <HStack>
-            <Button
-              title="一键安装到 Surge 模块"
-              action={mountSurgeModule}
-            />
-            <Spacer />
-            <Button
-              title="一键安装到 Loon 插件"
-              action={mountLoonPlugin}
-            />
-          </HStack>
+          {/* 方案 4：Shadowrocket (小火箭·免证书全局接管) */}
+          <VStack alignment="leading">
+            <Text bold font="headline">📱 方案 4：Shadowrocket (小火箭·免证书极速接管)</Text>
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              小火箭原生支持明文 HTTP DoH，无需安装和信任任何证书，只需 3 步：
+            </Text>
+            <Text font="caption">
+              1. 点击下方「复制通用 DoH 地址」，获得 http://127.0.0.1:9099/dns-query；
+            </Text>
+            <Text font="caption">
+              2. 打开小火箭 ➔ 底部「设置」➔「DNS」➔「DNS 覆写」，粘贴该地址并保存；
+            </Text>
+            <Text font="caption">
+              3. 返回小火箭首页开启开关，即可瞬间接管全手机所有 App 的 DNS 流量！
+            </Text>
+          </VStack>
 
-          <HStack>
-            <Button
-              title="复制 Surge 模块直链"
-              action={copySurgeModuleUrl}
-            />
-            <Spacer />
-            <Button
-              title="复制 QX 重写引用链接"
-              action={copyQxConfUrl}
-            />
-          </HStack>
+          <Button
+            title="复制通用 DoH 地址 (http://127.0.0.1:9099/dns-query)"
+            action={copyDohUrl}
+          />
+
+          {/* 方案 5：电脑 / 局域网设备接入 (家庭 DNS 防火墙) */}
+          <VStack alignment="leading">
+            <Text bold font="headline">💻 方案 5：电脑 / 局域网设备接入 (家庭 DNS 防火墙)</Text>
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              让局域网内的 Mac、Windows PC 或电视盒子通过当前手机进行过滤与加速：
+            </Text>
+            <Text font="caption">
+              1. 确保手机与电脑处于同一个 Wi-Fi 网络，查看当前 iPhone 的局域网 IP；
+            </Text>
+            <Text font="caption">
+              2. 在电脑的 Chrome/Edge 浏览器 ➔「设置」➔「安全」➔ 开启「使用安全 DNS」；
+            </Text>
+            <Text font="caption">
+              3. 选择「自定义」，填入 http://当前手机IP:{port}/dns-query 即可全局生效！
+            </Text>
+          </VStack>
         </Section>
 
         {/* 运维与规则更新 */}

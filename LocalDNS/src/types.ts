@@ -73,39 +73,6 @@ export interface AuditStats {
   tracked_domains: number;
 }
 
-export interface HttpRewriteAuditEntry {
-  id: string;
-  time: string;
-  timestamp: number;
-  url: string;
-  method: string;
-  host: string;
-  clientIp: string;
-  client_alias?: string;
-  ruleId?: string;
-  ruleName?: string;
-  rulePattern?: string;
-  action: string;
-  target?: string;
-  extra?: string;
-  status: number;
-  durationMs: number;
-  intercepted: boolean;
-  cleanAction?: string;
-}
-
-export interface HttpRewriteStats {
-  totalRequests: number;
-  interceptedRequests: number;
-  redirectCount: number;
-  mockCount: number;
-  headerModifyCount: number;
-  bodyReplaceCount: number;
-  rejectCount: number;
-  streamCleanCount: number;
-  averageDurationMs: number;
-}
-
 export interface CacheEntry {
   packet: DnsPacket;
   rawBytes: Uint8Array;
@@ -125,14 +92,12 @@ export interface CachePoolMetrics {
 export interface SwitchStates {
   switch1: 'A' | 'B';  // 请求屏蔽 (对无解析结果屏蔽)
   switch5: 'A' | 'B';  // 类型屏蔽 (屏蔽 SOA、PTR、HTTPS 等)
-  switch7: 'A' | 'B';  // 广告屏蔽 (启用 AdGuard 在线规则)
+  switch7: 'A' | 'B';  // 广告屏蔽 (启用 AdGuard 广告规则)
   switch6: 'A' | 'B';  // IPv6 屏蔽 (屏蔽 AAAA)
   switch13: 'A' | 'B'; // 核心缓存 (启用最终结果缓存)
   switch4: 'A' | 'B';  // 过期缓存 (允许过期响应)
   switch2: 'A' | 'B';  // 指定 Client FakeIP
   switch12: 'A' | 'B'; // 指定 Client RealIP
-  switch_mitm: 'A' | 'B'; // MITM 中间人解密与 FakeIP 接管
-  switch_rewrite: 'A' | 'B'; // HTTP/HTTPS 重写引擎 (Redirect/Reject/Header/Body)
 }
 
 export interface AdGuardRuleSource {

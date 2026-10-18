@@ -1,4 +1,4 @@
-import type { CacheEntry, CachePoolMetrics, DnsPacket } from './types';
+import type { CacheEntry, CachePoolMetrics, DnsPacket, DnsRecord } from './types';
 import { serializeDnsPacket } from './dns-packet';
 
 export class CachePool {
@@ -26,7 +26,7 @@ export class CachePool {
       const remainingSeconds = Math.max(1, Math.floor((entry.expiresAt - now) / 1000));
       const adjustedPacket: DnsPacket = {
         ...entry.packet,
-        answers: entry.packet.answers.map(ans => ({ ...ans, ttl: remainingSeconds })),
+        answers: entry.packet.answers.map((ans: DnsRecord) => ({ ...ans, ttl: remainingSeconds })),
       };
       return {
         packet: adjustedPacket,
@@ -39,7 +39,7 @@ export class CachePool {
       this.lazyHits++;
       const adjustedPacket: DnsPacket = {
         ...entry.packet,
-        answers: entry.packet.answers.map(ans => ({ ...ans, ttl: 5 })), // Minimal TTL for stale hit
+        answers: entry.packet.answers.map((ans: DnsRecord) => ({ ...ans, ttl: 5 })), // Minimal TTL for stale hit
       };
       return {
         packet: adjustedPacket,
@@ -103,7 +103,7 @@ export class CachePool {
         domain,
         type: Number(typeStr),
         ttl: rem,
-        answers: entry.packet.answers.map(a => String(a.data)),
+        answers: entry.packet.answers.map((a: DnsRecord) => String(a.data)),
       });
     }
     return result;

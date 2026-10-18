@@ -1,7 +1,5 @@
 import { Store } from './store';
 import { AdGuardEngine } from './adguard';
-import { ModuleManager } from './modules/module-manager';
-import { FakeIpPool } from './mitm/fakeip';
 import type { UpstreamGroup, DiversionSource } from './types';
 
 export interface RouteResult {
@@ -159,21 +157,7 @@ export class DiversionEngine {
       return { group: 'blocked', domainSet: 'adguard' };
     }
 
-    // 4. Module MITM Host check (L7 Stream Cleaning, governed by switch_mitm)
-    // 关键机制优化：
-    // 正常视频流域名（如 *.googlevideo.com, www.youtube.com, api.bilibili.com）在 DNS 层面必须解析到
-    // 真实的上游 CDN/服务 IP，确保客户端与代理工具（Surge/Loon/透明代理）能正常建连与传输正片；
-    // 只有在用户显式开启 Client FakeIP 模式 (switch2 === 'A') 时才返回保留地址池 FakeIP。
-    if (switches.switch_mitm === 'A' && ModuleManager.get().isMitmHost(d)) {
-      if (switches.switch2 === 'A') {
-        const fakeIp = FakeIpPool.get().allocate(d);
-        return { group: 'rewrite', domainSet: 'mitm_fakeip', rewriteIp: fakeIp };
-      }
-      const isCn = d.endsWith('.cn') || d.includes('bilibili') || d.includes('iqiyi') || d.includes('youku') || d.includes('mgtv');
-      return { group: isCn ? 'domestic' : 'foreign', domainSet: 'mitm_stream' };
-    }
-
-    // 5. Local Whitelist (Checked after ad blocking)
+    // 4. Local Whitelist (Checked after ad blocking)
     if (this.matchSet(d, this.whitelist)) {
       return { group: 'domestic', domainSet: 'whitelist' };
     }
