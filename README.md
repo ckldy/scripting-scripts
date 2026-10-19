@@ -11,6 +11,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 | 黃豆短劇 | 1.2.0 | 浏览、搜索与收藏黃豆短劇内容，支持播放历史、剧集播放、上下滑切集与进度条 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D) |
 | NetRadio（网络收音机） | 1.0.1 | 全球 1000+ 公开网络电台（按 36 个国家/地区归类），黑胶唱机舞台、电平示波器、主题调色板与 iOS 原生后台/锁屏播控（基于 net-redio 移植，作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D) |
 | 音乐大合集 | 1.0.0 | 多源聚合音乐播放器，支持 QQ/网易/酷狗/酷我/咪咕音源，经典与沉浸播放页窗口自适应、纯净无下划线歌词、多样式进度条与后台保活播放（作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F%E9%9F%B3%E4%B9%90%E5%A4%A7%E5%90%88%E9%9B%86.zip%22%5D) |
+| ZakoProxy（AI 代理中转） | 1.0.0 | 基于 ckldy/ZakoProxyCLI 深度移植的自托管 AI API 中转代理。支持 OpenAI Chat、Anthropic Messages 与 Responses 多协议，内置 36 款针对性模型 Prompt 预设与 Astra 通用执行策略，多账号优先级故障转移与熔断冷却，本地 AES-256-GCM 凭据加密与 SQLite WAL 持久化存储，带原生 iOS 仪表盘控制台（作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FZakoProxy.zip%22%5D) |
 
 ## 📥 安装方法
 
@@ -19,6 +20,19 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 3. 确认导入即可，脚本出现在 Scripting 首页。
 
 ## 🌟 脚本功能详解与直链
+
+### 🛡️ ZakoProxy (自托管 AI API 代理中转与提示词策略系统)
+- **版本**：`1.0.0` ｜ **作者**：`vcncv`（基于 `ckldy/ZakoProxyCLI` 深度移植）
+- **特性**：
+  - **全协议原生中转与流式转发**：支持 OpenAI Chat Completions (`/v1/chat/completions`)、Anthropic Messages (`/v1/messages`)、Responses (`/v1/responses`) 与 Compact，支持 SSE 流式实时响应、多轮对话与工具调用。
+  - **36 款针对性 Prompt 预设与 Astra 通用执行策略**：内置 Claude (14款)、DeepSeek (6款含汉霜/DSH purge)、Gemini (7款)、GPT 5.6/6 (3款)、Kimi (4款破限)、GLM/Grok (2款) 等专属预设；提供自适应 Astra 任务执行与延续机制的默认兜底策略。
+  - **高可用故障转移与熔断冷却**：多账号按优先级排序自动准入调度；遇到上游异常或 `401/403/408/429/5xx` 时保持原请求并自动重试下一个可用账号；连续失败自动触发冷却熔断。
+  - **请求模型别名映射**：支持自定义模型别名（如将客户端请求的 `chat-main` 动态映射到真实上游的 `gpt-4o`）。
+  - **本地安全加密与持久化**：SQLite WAL 模式存储配置与请求日志；独有 `master.key` 驱动 Web Crypto AES-256-GCM 本地加密保存所有上游 API Key；对外 Key 仅保留 SHA-256 哈希并在日志中严格脱敏。
+  - **原生 iOS 交互控制台**：SwiftUI 风格卡片式仪表盘，实时呈现近 7 天总请求数、成功率、进出/缓存 Tokens、平均延迟与 Cyber 特征命中统计；支持后台保活与最小化运行。
+- **安装链接**：[网页一键安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FZakoProxy.zip%22%5D)
+- **App 直链**：`scripting://import_scripts?urls=https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/ZakoProxy.zip`
+
 
 ### 🛡️ LocalDNS (本地 DNS 服务与安全管理系统)
 - **版本**：`1.6.0` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）

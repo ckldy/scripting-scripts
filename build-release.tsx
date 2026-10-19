@@ -10,8 +10,11 @@ async function build() {
 
   const items = await FileManager.readDirectory(root) // 实际返回文件名 string 数组
   const scriptDirs: string[] = []
+  const onlyTarget = (Script.queryParameters as any)?.only || (Script.queryParameters as any)?.script
+
   for (const name of items) {
     if (name.startsWith(".") || name === "dist" || name === "node_modules") continue
+    if (onlyTarget && name !== onlyTarget) continue
     const maybeDir = root + "/" + name
     if (await FileManager.exists(maybeDir + "/script.json")) scriptDirs.push(maybeDir)
   }
