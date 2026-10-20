@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark-glass">
+<head>
+  <base href="/ui/" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>ZakoProxy · 流光毛玻璃控制台</title>
+  <link rel="icon" type="image/png" href="assets/img/logo.png" />
+  <link rel="stylesheet" href="assets/css/glass.css" />
+  <script src="assets/js/chart.umd.min.js"></script>
+  <script defer src="assets/js/app.js"></script>
+</head>
+<body>
+
+  <!-- 动态流光背景层与减光层 -->
+  <div class="wallpaper-layer" id="wallpaper-layer" data-preset="cosmos"></div>
+  <div class="wallpaper-dimmer" id="wallpaper-dimmer"></div>
+
+  <!-- 轻量 Toast 提示容器 -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <div class="app-container">
+    <!-- 顶部晶透导航栏 -->
+    <header class="top-navbar">
+      <div class="brand-section">
+        <div class="brand-logo-wrap">
+          <img src="assets/img/logo.png" alt="ZakoProxy" />
+        </div>
+        <div class="brand-meta">
+          <span class="brand-title">ZakoProxy</span>
+          <span class="brand-pill">v1.0.0</span>
+        </div>
+        <div class="server-pulse-badge" id="server-status-badge">
+          <span class="pulse-dot"></span>
+          <span id="server-status-text">初始化中...</span>
+        </div>
+      </div>
+
+      <div class="nav-center-search">
+        <div class="search-input-wrap">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input type="text" id="global-search-input" class="search-input" placeholder="全局搜索模型、账号、密钥或日志..." />
+        </div>
+      </div>
+
+      <div class="nav-right-actions">
+        <button type="button" class="glass-action-btn" id="btn-refresh-global" title="立即刷新数据">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          <span>刷新</span>
+        </button>
+        <button type="button" class="glass-action-btn" id="theme-toggle-btn" title="切换深色/浅色毛玻璃">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <span>主题</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- 主布局：侧边栏 + 内容区 -->
+    <div class="main-layout">
+      <!-- 桌面端侧边栏 -->
+      <aside class="sidebar">
+        <div class="sidebar-heading">控制中心</div>
+        <a class="nav-link active" data-tab="dashboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          <span>仪表盘概览</span>
+        </a>
+        <a class="nav-link" data-tab="accounts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          <span>上游账号</span>
+        </a>
+        <a class="nav-link" data-tab="keys">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21 2-2 2m-1.5 1.5L16 7l-2-2m-1.5 1.5L11 8l-2-2m-1.5 1.5L6 9l-2-2M2 22l6.5-6.5a6 6 0 1 0-4-4L2 22z"/></svg>
+          <span>API 密钥</span>
+        </a>
+        <a class="nav-link" data-tab="groups">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          <span>分组与策略</span>
+        </a>
+
+        <div class="sidebar-heading" style="margin-top:14px;">运维与监控</div>
+        <a class="nav-link" data-tab="logs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          <span>审计日志</span>
+        </a>
+        <a class="nav-link" data-tab="settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>系统设置</span>
+        </a>
+      </aside>
+
+      <!-- 主视图容器 -->
+      <main class="content-area">
+        <!-- 1. 仪表盘概览 Tab -->
+        <div class="tab-pane active" id="tab-dashboard">
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-top">
+                <span class="metric-label">近 7 天总请求</span>
+                <div class="metric-icon-wrap">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                </div>
+              </div>
+              <div class="metric-value" id="metric-requests">-</div>
+              <div class="metric-sub">全协议请求总量</div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-top">
+                <span class="metric-label">请求成功率</span>
+                <div class="metric-icon-wrap" style="background:rgba(16,185,129,0.12);color:var(--success);">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                </div>
+              </div>
+              <div class="metric-value" id="metric-success-rate" style="color:var(--success);">-</div>
+              <div class="metric-sub">HTTP 2xx 占比</div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-top">
+                <span class="metric-label">Prompt 输入 Tokens</span>
+                <div class="metric-icon-wrap">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+                </div>
+              </div>
+              <div class="metric-value" id="metric-input-tokens">-</div>
+              <div class="metric-sub">包含策略注入开销</div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-top">
+                <span class="metric-label">Completion 输出 Tokens</span>
+                <div class="metric-icon-wrap" style="background:rgba(139,92,246,0.12);color:var(--accent);">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+                </div>
+              </div>
+              <div class="metric-value" id="metric-output-tokens">-</div>
+              <div class="metric-sub">模型生成内容规模</div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-top">
+                <span class="metric-label">缓存节省 Tokens</span>
+                <div class="metric-icon-wrap" style="background:rgba(16,185,129,0.12);color:var(--success);">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                </div>
+              </div>
+              <div class="metric-value" id="metric-cached-tokens">-</div>
+              <div class="metric-sub" id="metric-cache-ratio">缓存命中 0%</div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-top">
+                <span class="metric-label">平均响应延迟</span>
+                <div class="metric-icon-wrap">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </div>
+              </div>
+              <div class="metric-value" id="metric-avg-latency">-</div>
+              <div class="metric-sub">全链路往返用时</div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-top">
+                <span class="metric-label">Cyber 特征命中</span>
+                <div class="metric-icon-wrap" style="background:rgba(236,72,153,0.15);color:var(--cyber);">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+                </div>
+              </div>
+              <div class="metric-value" id="metric-cyber-count" style="color:var(--cyber);">-</div>
+              <div class="metric-sub">破限与深度策略激活</div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-top">
+                <span class="metric-label">服务运行时长</span>
+                <div class="metric-icon-wrap">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 8 14"/></svg>
+                </div>
+              </div>
+              <div class="metric-value" id="metric-uptime" style="font-size:20px;">-</div>
+              <div class="metric-sub">原生 HttpServer 引擎</div>
+            </div>
+          </div>
+
+          <!-- 24小时吞吐趋势双轴图 -->
+          <div class="glass-card chart-container-card">
+            <div class="glass-card-header">
+              <div class="glass-card-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+                <span>24 小时吞吐与 Token 消耗趋势</span>
+              </div>
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="trend-chart-canvas"></canvas>
+            </div>
+          </div>
+
+          <!-- 上游账号健康状态监控雷达 -->
+          <div class="glass-card">
+            <div class="glass-card-header">
+              <div class="glass-card-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h5l2-8 5 16 2-8h6"/></svg>
+                <span>上游账号实时健康度与并发监控</span>
+              </div>
+            </div>
+            <div id="account-radar-list">
+              <div style="text-align:center;padding:20px;color:var(--text-3);">加载中...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 上游账号 Tab -->
+        <div class="tab-pane" id="tab-accounts">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+            <div>
+              <h2 style="font-size:18px;font-weight:700;">上游账号工作台</h2>
+              <p style="font-size:12px;color:var(--text-3);margin-top:2px;">管理多上游 API 渠道、优先级自适应故障转移与并发限流</p>
+            </div>
+            <button type="button" class="btn btn-primary" id="btn-add-account">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <span>新增上游账号</span>
+            </button>
+          </div>
+          <div class="account-cards-grid" id="accounts-grid">
+            <div style="text-align:center;padding:40px;color:var(--text-3);grid-column:1/-1;">正在加载上游账号...</div>
+          </div>
+        </div>
+
+        <!-- 3. API Keys Tab -->
+        <div class="tab-pane" id="tab-keys">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+            <div>
+              <h2 style="font-size:18px;font-weight:700;">客户端 API 密钥</h2>
+              <p style="font-size:12px;color:var(--text-3);margin-top:2px;">本地仅存 SHA-256 安全哈希，提供客户端鉴权与分组隔离</p>
+            </div>
+            <button type="button" class="btn btn-primary" id="btn-add-key">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <span>创建新密钥</span>
+            </button>
+          </div>
+          <div class="table-container">
+            <table class="glass-table">
+              <thead>
+                <tr>
+                  <th>密钥名称</th>
+                  <th>绑定分组</th>
+                  <th>前缀指纹</th>
+                  <th>创建时间</th>
+                  <th>启用状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="keys-table-body">
+                <tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text-3);">正在加载密钥...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 4. 分组与策略 Tab -->
+        <div class="tab-pane" id="tab-groups">
+          <div style="margin-bottom:20px;">
+            <h2 style="font-size:18px;font-weight:700;">分组管理与 Prompt 专属策略库</h2>
+            <p style="font-size:12px;color:var(--text-3);margin-top:2px;">内置 36 款专属模型提示词策略（Claude、DeepSeek 汉霜/DSH、Gemini、GPT、Kimi破限等）</p>
+          </div>
+
+          <div id="groups-list-container">
+            <div style="text-align:center;padding:30px;color:var(--text-3);">加载中...</div>
+          </div>
+
+          <div class="glass-card" style="margin-top:24px;">
+            <div class="glass-card-header">
+              <div class="glass-card-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+                <span>36 款内置 Prompt 专属策略库速查</span>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));gap:12px;" id="profiles-catalog-grid">
+              <div style="text-align:center;padding:30px;color:var(--text-3);grid-column:1/-1;">正在加载策略库...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. 审计日志 Tab -->
+        <div class="tab-pane" id="tab-logs">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+            <div>
+              <h2 style="font-size:18px;font-weight:700;">审计请求日志</h2>
+              <p style="font-size:12px;color:var(--text-3);margin-top:2px;">详细追踪每次转发的 Token 构成、延迟、协议与错误链路</p>
+            </div>
+            <button type="button" class="btn btn-danger btn-sm" id="btn-clear-logs">清空全部日志</button>
+          </div>
+
+          <!-- 筛选工具条 -->
+          <div class="glass-card" style="padding:12px 16px;margin-bottom:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+            <div style="flex:1;min-width:160px;">
+              <input type="text" id="log-filter-model" class="form-input" style="height:32px;font-size:12px;" placeholder="按模型名搜索 (如 gpt-4o, claude)..." />
+            </div>
+            <div style="width:120px;">
+              <select id="log-filter-status" class="form-select" style="height:32px;font-size:12px;">
+                <option value="">全部状态码</option>
+                <option value="200">200 OK</option>
+                <option value="400">400 Bad Request</option>
+                <option value="401">401 Auth Error</option>
+                <option value="429">429 Rate Limit</option>
+                <option value="500">500 Server Error</option>
+              </select>
+            </div>
+            <div style="width:120px;">
+              <select id="log-filter-proto" class="form-select" style="height:32px;font-size:12px;">
+                <option value="">全部协议</option>
+                <option value="chat">chat (OpenAI)</option>
+                <option value="anthropic">anthropic</option>
+                <option value="responses">responses</option>
+              </select>
+            </div>
+            <div style="width:120px;">
+              <select id="log-filter-cyber" class="form-select" style="height:32px;font-size:12px;">
+                <option value="">Cyber 特征</option>
+                <option value="true">仅 Cyber</option>
+                <option value="false">非 Cyber</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- 日志表格 -->
+          <div class="table-container">
+            <table class="glass-table">
+              <thead>
+                <tr>
+                  <th>请求时间</th>
+                  <th>模型</th>
+                  <th>协议</th>
+                  <th>状态</th>
+                  <th>耗时</th>
+                  <th>总 Tokens</th>
+                  <th>Cyber 特征</th>
+                </tr>
+              </thead>
+              <tbody id="logs-table-body">
+                <tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text-3);">正在加载日志...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 分页器 -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px;">
+            <span style="font-size:12px;color:var(--text-3);" id="logs-total-records">共 0 条</span>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-logs-prev">上一页</button>
+              <span style="font-size:12px;font-family:var(--font-mono);color:var(--text-2);" id="logs-current-page">第 1 页</span>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-logs-next">下一页</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 6. 系统设置 Tab -->
+        <div class="tab-pane" id="tab-settings">
+          <div style="margin-bottom:20px;">
+            <h2 style="font-size:18px;font-weight:700;">系统与界面设置</h2>
+            <p style="font-size:12px;color:var(--text-3);margin-top:2px;">调整代理网络层参数与毛玻璃流光外观</p>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:20px;">
+            <!-- 运行时参数表单 -->
+            <div class="glass-card">
+              <div class="glass-card-header">
+                <div class="glass-card-title">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                  <span>网络与容灾参数</span>
+                </div>
+              </div>
+              <form id="form-settings">
+                <div class="form-group">
+                  <label class="form-label">最大重试次数 (Max Retries)</label>
+                  <input type="number" id="setting-max-retries" class="form-input" min="0" max="10" />
+                  <span class="form-hint">遇到 401/403/408/429/5xx 状态码自动尝试下一个上游</span>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">连续失败熔断阈值</label>
+                  <input type="number" id="setting-failure-threshold" class="form-input" min="1" max="10" />
+                  <span class="form-hint">连续失败达到该次数后立即将该账号置入冷却隔离</span>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">熔断冷却秒数 (Cooldown Seconds)</label>
+                  <input type="number" id="setting-cooldown" class="form-input" min="5" max="3600" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">请求单次超时时间 (秒)</label>
+                  <input type="number" id="setting-timeout" class="form-input" min="10" max="600" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">日志保留天数 (Retention Days)</label>
+                  <input type="number" id="setting-retention" class="form-input" min="1" max="90" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">服务监听端口 (Port)</label>
+                  <input type="number" id="setting-port" class="form-input" min="1024" max="65535" />
+                  <span class="form-hint">修改端口需重启服务生效</span>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%;margin-top:10px;">保存网络配置</button>
+              </form>
+            </div>
+
+            <!-- 外观与毛玻璃调色盘 -->
+            <div class="glass-card">
+              <div class="glass-card-header">
+                <div class="glass-card-title">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m9.17 14.83-4.24 4.24"/></svg>
+                  <span>流光毛玻璃外观系统</span>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">流光背景预设 (Wallpaper Preset)</label>
+                <select id="setting-wallpaper-select" class="form-select">
+                  <option value="cosmos">Cosmos 宇宙金蓝流光</option>
+                  <option value="aurora">Aurora 碧蓝极光</option>
+                  <option value="emerald">Emerald 翡翠清透</option>
+                  <option value="obsidian">Obsidian 黑曜石暗夜</option>
+                </select>
+                <span class="form-hint">四款对齐 LocalDNS 原生毛玻璃质感预设</span>
+              </div>
+              <div class="form-group">
+                <div style="display:flex;justify-content:space-between;">
+                  <label class="form-label">毛玻璃不透明度 (Glass Alpha)</label>
+                  <span id="val-alpha" style="font-family:var(--font-mono);font-size:12px;color:var(--primary);">65%</span>
+                </div>
+                <input type="range" id="setting-alpha-range" min="0.3" max="0.95" step="0.05" style="width:100%;margin-top:6px;" />
+              </div>
+              <div class="form-group">
+                <div style="display:flex;justify-content:space-between;">
+                  <label class="form-label">背景模糊度 (Blur Filter)</label>
+                  <span id="val-blur" style="font-family:var(--font-mono);font-size:12px;color:var(--primary);">24px</span>
+                </div>
+                <input type="range" id="setting-blur-range" min="8" max="48" step="2" style="width:100%;margin-top:6px;" />
+              </div>
+              <div style="padding:14px;border-radius:12px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);margin-top:20px;">
+                <div style="font-weight:600;font-size:12px;color:var(--primary);margin-bottom:4px;">iOS 原生全屏体验提示</div>
+                <div style="font-size:11px;color:var(--text-2);line-height:1.5;">
+                  该控制台已针对 Scripting App 的 WebViewController 全屏呈现进行了视口适配 (viewport-fit=cover) 与高刷新率硬件加速渲染。
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- 移动端底部晶透 TabBar -->
+    <nav class="mobile-tabbar">
+      <button type="button" class="mobile-tab-btn active" data-tab="dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        <span>概览</span>
+      </button>
+      <button type="button" class="mobile-tab-btn" data-tab="accounts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+        <span>账号</span>
+      </button>
+      <button type="button" class="mobile-tab-btn" data-tab="keys">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21 2-2 2m-1.5 1.5L16 7l-2-2m-1.5 1.5L11 8l-2-2m-1.5 1.5L6 9l-2-2M2 22l6.5-6.5a6 6 0 1 0-4-4L2 22z"/></svg>
+        <span>密钥</span>
+      </button>
+      <button type="button" class="mobile-tab-btn" data-tab="logs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span>日志</span>
+      </button>
+      <button type="button" class="mobile-tab-btn" data-tab="settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>设置</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- 模态框 1：新建 / 编辑上游账号 -->
+  <div class="modal-overlay" id="modal-account">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-account-title">新增上游账号</h3>
+        <button type="button" class="modal-close-btn" id="btn-cancel-account">✕</button>
+      </div>
+      <form id="form-account">
+        <input type="hidden" id="acc-id" />
+        <div class="form-group">
+          <label class="form-label">账号名称 *</label>
+          <input type="text" id="acc-name" class="form-input" required placeholder="如：SiliconFlow Primary" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">上游 API 地址 (Endpoint) *</label>
+          <input type="url" id="acc-endpoint" class="form-input" required placeholder="https://api.siliconflow.cn/v1" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">API 密钥 (API Key)</label>
+          <input type="password" id="acc-key" class="form-input" placeholder="留空或输入新 Key，保存后自动 AES-256 加密" />
+          <span class="form-hint">本地 master.key 加密存储，永远不在网络与日志中明文暴露</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;">
+          <div class="form-group">
+            <label class="form-label">优先级 (越小越先)</label>
+            <input type="number" id="acc-priority" class="form-input" value="10" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">并发上限 (0不限)</label>
+            <input type="number" id="acc-concurrency" class="form-input" value="0" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">RPM 配额 (0不限)</label>
+            <input type="number" id="acc-rpm" class="form-input" value="0" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">支持协议</label>
+          <div style="display:flex;gap:16px;margin-top:4px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" class="acc-proto-check" value="chat" checked />
+              <span>chat (OpenAI)</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" class="acc-proto-check" value="responses" checked />
+              <span>responses</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" class="acc-proto-check" value="anthropic" />
+              <span>anthropic</span>
+            </label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">支持模型列表 (逗号分隔)</label>
+          <textarea id="acc-models" class="form-textarea" placeholder="gpt-4o, gpt-4o-mini, claude-3-5-sonnet"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">代理地址 (可选 Proxy URL)</label>
+          <input type="text" id="acc-proxy" class="form-input" placeholder="http://127.0.0.1:7890" />
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-primary">保存账号</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 模态框 2：创建客户端 API Key -->
+  <div class="modal-overlay" id="modal-create-key">
+    <div class="modal-card" style="max-width:440px;">
+      <div class="modal-header">
+        <h3 class="modal-title">创建新 API Key</h3>
+        <button type="button" class="modal-close-btn" id="btn-cancel-key">✕</button>
+      </div>
+      <form id="form-create-key">
+        <div class="form-group">
+          <label class="form-label">密钥名称 / 用途说明 *</label>
+          <input type="text" id="new-key-name" class="form-input" required placeholder="如：NextChat-iOS, Cursor" />
+          <span class="form-hint">创建后将生成 sk- 格式安全密钥</span>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-primary">生成并获取密钥</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 模态框 3：一次性展示完整 API Key 弹窗 -->
+  <div class="modal-overlay" id="modal-key-secret">
+    <div class="modal-card" style="max-width:480px;">
+      <div class="modal-header">
+        <h3 class="modal-title" style="color:var(--success);">🔑 新 API Key 已成功生成！</h3>
+      </div>
+      <div style="font-size:13px;color:var(--text-2);margin-bottom:12px;line-height:1.5;">
+        请立即复制并妥善保存此密钥。为了安全保障，<b style="color:var(--danger);">该密钥仅展示此一次</b>，系统本地仅持久化其 SHA-256 哈希值。
+      </div>
+      <div class="form-group">
+        <input type="text" id="secret-key-display" class="form-input" readonly style="font-family:var(--font-mono);font-size:12px;color:var(--primary);" />
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" id="btn-copy-secret-key">复制完整密钥</button>
+        <button type="button" class="btn btn-secondary" id="btn-close-secret-modal">我已妥善保存，关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态框 4：查看 Prompt 策略详情抽屉 -->
+  <div class="modal-overlay" id="modal-profile-detail">
+    <div class="modal-card" style="max-width:680px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="profile-detail-title">策略详情</h3>
+        <button type="button" class="modal-close-btn" id="btn-close-profile-modal">✕</button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">匹配模型列表</label>
+        <pre id="profile-detail-models" style="padding:10px;border-radius:10px;background:rgba(0,0,0,0.3);font-family:var(--font-mono);font-size:11px;color:var(--text-2);max-height:100px;overflow-y:auto;"></pre>
+      </div>
+      <div class="form-group">
+        <label class="form-label">完整注入 System Instruction 指令</label>
+        <textarea id="profile-detail-prompt" class="form-textarea" readonly style="min-height:280px;font-size:11px;line-height:1.45;"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态框 5：单条审计日志详细分解 -->
+  <div class="modal-overlay" id="modal-log-detail">
+    <div class="modal-card" style="max-width:540px;">
+      <div class="modal-header">
+        <h3 class="modal-title">审计请求详情</h3>
+        <button type="button" class="modal-close-btn" id="btn-close-log-modal">✕</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+        <div><span style="color:var(--text-3);font-size:11px;">模型 / 协议</span><div id="log-detail-model" style="font-weight:600;font-size:13px;"></div></div>
+        <div><span style="color:var(--text-3);font-size:11px;">请求时间</span><div id="log-detail-time" style="font-weight:600;font-size:13px;"></div></div>
+        <div><span style="color:var(--text-3);font-size:11px;">转发路径</span><div id="log-detail-path" style="font-family:var(--font-mono);font-size:12px;"></div></div>
+        <div><span style="color:var(--text-3);font-size:11px;">最终响应状态</span><div id="log-detail-status" style="font-weight:600;font-size:13px;"></div></div>
+      </div>
+      <div class="account-stats-row" style="margin-bottom:14px;">
+        <div class="account-stat-col">
+          <span class="account-stat-val" id="log-detail-latency">-</span>
+          <span class="account-stat-lbl">往返耗时</span>
+        </div>
+        <div class="account-stat-col">
+          <span class="account-stat-val" id="log-detail-tokens-in">-</span>
+          <span class="account-stat-lbl">输入 Tokens</span>
+        </div>
+        <div class="account-stat-col">
+          <span class="account-stat-val" id="log-detail-tokens-out">-</span>
+          <span class="account-stat-lbl">输出 Tokens</span>
+        </div>
+        <div class="account-stat-col">
+          <span class="account-stat-val" id="log-detail-tokens-cache" style="color:var(--success);">-</span>
+          <span class="account-stat-lbl">缓存节省</span>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">错误或重试信息</label>
+        <pre id="log-detail-error" style="padding:10px;border-radius:10px;background:rgba(0,0,0,0.3);font-family:var(--font-mono);font-size:11px;color:var(--danger);white-space:pre-wrap;word-break:break-all;"></pre>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

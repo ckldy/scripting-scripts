@@ -2,19 +2,19 @@
   "name": "ZakoProxy",
   "icon": "shield.lefthalf.filled",
   "color": "rgba(255, 45, 85, 1)",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "runInApp": true,
   "author": {
     "name": "vcncv"
   },
-  "description": "ZakoAI Proxy for Scripting: Self-hosted Responses, Chat Completions, and Anthropic Messages API Relay with 36 built-in prompt profiles, Astra general execution strategy, multi-account failover, and native iOS console.",
+  "description": "ZakoAI Proxy for Scripting: Self-hosted Responses, Chat Completions, and Anthropic Messages API Relay with Liquid Glass WebUI, 36 built-in prompt profiles, Astra general execution strategy, multi-account failover, and native iOS console.",
   "localizedNames": {
     "zh": "ZakoProxy（AI 代理中转）",
     "en": "ZakoProxy"
   },
   "localizedDescriptions": {
-    "zh": "基于 ckldy/ZakoProxyCLI 深度移植的自托管 AI API 中转代理。原生运行于 Scripting，支持 OpenAI / Claude / Responses 多协议、36 款针对性提示词预设与 Astra 通用执行策略、多账号优先级故障转移与熔断、AES-256 本地加密存储及原生 iOS 控制台。",
-    "en": "Self-hosted Responses, Chat Completions, and Anthropic Messages API Relay for Scripting with built-in prompt profiles and native console."
+    "zh": "基于 ckldy/ZakoProxyCLI 深度移植的自托管 AI API 中转代理。原生运行于 Scripting，具备 LocalDNS 风格的流光毛玻璃 Web 控制台（支持全屏 WebViewController/Safari/局域网）、OpenAI / Claude / Responses 多协议、36 款针对性提示词预设与 Astra 通用执行策略、多账号优先级故障转移与熔断、AES-256 本地加密存储及原生 iOS 控制台。",
+    "en": "Self-hosted Responses, Chat Completions, and Anthropic Messages API Relay for Scripting with Liquid Glass WebUI, built-in prompt profiles, failover, and native console."
   },
   "remoteResource": {
     "url": "https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/ZakoProxy.zip"

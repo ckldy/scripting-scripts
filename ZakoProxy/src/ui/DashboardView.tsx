@@ -18,6 +18,17 @@ import { KeysView } from "./KeysView"
 import { LogsView } from "./LogsView"
 import { SettingsView } from "./SettingsView"
 
+declare class WebViewController {
+  constructor(options?: { ephemeral?: boolean })
+  loadURL(url: string): Promise<boolean>
+  present(options?: { fullscreen?: boolean; navigationTitle?: string }): Promise<void>
+  dispose(): void
+}
+
+declare namespace Safari {
+  function openURL(url: string): Promise<void>
+}
+
 interface DashboardViewProps {
   store: Store
   server: ZakoServer
@@ -134,6 +145,61 @@ export function DashboardView({ store, server, onDismiss }: DashboardViewProps) 
     })
   }
 
+  const ensureServerRunning = async (): Promise<number | null> => {
+    if (!server.isRunning) {
+      const cfg = await store.getConfig()
+      const port = cfg.settings?.port || 1990
+      const res = server.start(port)
+      if (res.success) {
+        setServerRunning(true)
+        setServerPort(res.port || port)
+        return res.port || port
+      } else {
+        await Dialog.alert({
+          title: "启动失败",
+          message: res.error || "无法自动启动本地服务",
+        })
+        return null
+      }
+    }
+    return server.activePort || serverPort
+  }
+
+  const handleOpenGlassConsole = async () => {
+    const port = await ensureServerRunning()
+    if (!port) return
+    const webView = new WebViewController()
+    try {
+      await webView.loadURL(`http://127.0.0.1:${port}/ui/`)
+      await webView.present({
+        fullscreen: true,
+        navigationTitle: "ZakoProxy 流光毛玻璃控制台",
+      })
+    } finally {
+      webView.dispose()
+      loadData()
+    }
+  }
+
+  const handleOpenInSafari = async () => {
+    const port = await ensureServerRunning()
+    if (!port) return
+    if (typeof Safari !== "undefined" && Safari.openURL) {
+      await Safari.openURL(`http://127.0.0.1:${port}/ui/`)
+    }
+  }
+
+  const handleCopyWebUiUrl = async () => {
+    const port = await ensureServerRunning()
+    if (!port) return
+    const url = `http://127.0.0.1:${port}/ui/`
+    await Pasteboard.setString(url)
+    await Dialog.alert({
+      title: "已复制 Web 控制台地址",
+      message: `${url}\n\n您可以在 Safari 或局域网其他设备中直接访问。`,
+    })
+  }
+
   // 子视图路由呈现
   if (subView === "keys") {
     return (
@@ -226,6 +292,31 @@ export function DashboardView({ store, server, onDismiss }: DashboardViewProps) 
             <Text>http://127.0.0.1:{serverPort}/v1</Text>
           </VStack>
           <Button title="复制地址" action={handleCopyBaseUrl} />
+        </HStack>
+      </Section>
+
+      {/* 2. 流光毛玻璃 Web 控制台入口 (对齐 LocalDNS) */}
+      <Section
+        header={<Text>流光毛玻璃 Web 控制台</Text>}
+        footer={<Text>参考 LocalDNS 视觉架构设计，提供深浅双模流光毛玻璃、实时吞吐双轴图表与上游健康雷达。</Text>}
+      >
+        <HStack>
+          <VStack alignment="leading" spacing={2}>
+            <Text attributedString="**✨ 打开全屏毛玻璃控制台**" />
+            <Text>内置原生全屏 WebViewController 晶透呈现</Text>
+          </VStack>
+          <Button title="进入控制台" action={handleOpenGlassConsole} />
+        </HStack>
+
+        <HStack>
+          <VStack alignment="leading" spacing={2}>
+            <Text attributedString="**🌐 Safari / 局域网访问**" />
+            <Text>http://127.0.0.1:{serverPort}/ui/</Text>
+          </VStack>
+          <HStack spacing={6}>
+            <Button title="在浏览器打开" action={handleOpenInSafari} />
+            <Button title="复制" action={handleCopyWebUiUrl} />
+          </HStack>
         </HStack>
       </Section>
 
