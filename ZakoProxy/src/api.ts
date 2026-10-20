@@ -21,6 +21,13 @@ export const SECURITY_HEADERS: Record<string, string> = {
     "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
 }
 
+/**
+ * 跨域可读的响应头：浏览器的 CORS 默认只放开 6 个“安全头”，
+ * 不显式 Expose 的话，前端 fetch 读不到 X-Zako-* 策略诊断头，
+ * 用户就无法判断本次请求到底命中了哪条预设。
+ */
+export const EXPOSE_HEADERS = "X-Zako-Strategy, X-Zako-Profile, X-Zako-Matched-Model, X-Zako-Score, X-Zako-Injected, X-Zako-Version"
+
 export function jsonResponse(data: any, status: number = 200): HttpResponse {
   const jsonStr = JSON.stringify(data)
   return HttpResponse.raw(status, status === 200 ? "OK" : "Error", {

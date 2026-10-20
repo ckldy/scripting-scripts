@@ -1344,6 +1344,16 @@
     } else if (item.strategy_type === 'default') {
       stratText = '<span style="color:#facc15;">🛡️ Astra 通用自适应执行策略 (默认保底)</span>';
     }
+    // 注入通道可见性：v1.4.3 起 chat 协议同时写 system + user 两条通道
+    if (Array.isArray(item.injected_to) && item.injected_to.length > 0 && item.injected_to[0] !== 'none') {
+      const labelMap = { system: 'system', user: 'user' };
+      const chips = item.injected_to
+        .map((c) => `<code style="background:rgba(96,165,250,.18);color:#93c5fd;padding:1px 6px;border-radius:5px;">${labelMap[c] || escapeHtml(c)}</code>`)
+        .join(' + ');
+      stratText += ` <span style="color:var(--text-3);font-size:12px;">→ 已写入 ${chips}</span>`;
+    } else if (item.strategy_type && item.strategy_type !== 'none') {
+      stratText += ' <span style="color:#f87171;font-size:12px;">⚠️ 已匹配但未写入任何通道</span>';
+    }
     const stratEl = document.getElementById('log-detail-strategy');
     if (stratEl) stratEl.innerHTML = stratText;
 
@@ -1437,7 +1447,7 @@
       setTimeout(async () => {
         try {
           await loadSystem();
-          showToast(`服务已就绪 (v${state.system?.version || '1.4.1'})`, 'success');
+          showToast(`服务已就绪 (v${state.system?.version || '1.4.3'})`, 'success');
         } catch {
           showToast('服务重启中，请稍候刷新页面...', 'warning');
         } finally {

@@ -1,6 +1,6 @@
 # ZakoProxy for Scripting
 
-> **当前版本**：`v1.4.1`  
+> **当前版本**：`v1.4.3`  
 > **作者**：`vcncv`  
 > **来源架构**：基于 [ckldy/ZakoProxyCLI](https://github.com/ckldy/ZakoProxyCLI) 核心移植，视觉界面参考 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS) 流光毛玻璃架构深度定制。
 
@@ -41,7 +41,7 @@
 
 ---
 
-### 3. 内置 36 款针对性 Prompt 预设与分层多维智能匹配引擎 (v1.4.0 注入机制修复)
+### 3. 内置 36 款针对性 Prompt 预设与分层多维智能匹配引擎 (v1.4.3 双通道注入)
 - **通道修饰后缀解构与 Base Model 提取**：
   - 针对实际中转站与多渠道常见的多样化修饰后缀（如 `-high`, `-low`, `-medium`, `-tiered`, `-extra`, `-thinking`, `-preview`, `-latest`, `-agent`, `-image`, `-chat` 等），自动解构并提取出对应的 **Base Model**（如 `openai/gemini-3.8-flash-high` 自动解构出 `gemini-3.8-flash`）；
   - 自动剥离日期后缀（如 `-20241022`, `-0731`）与微版本号（如 `-v1`, `-v2`）。
@@ -50,13 +50,17 @@
   - 基础模型精确匹配赋予 850 高分，杜绝了绑定的某一子型号策略无脑劫持同家族其他互斥模型的严重隐患；
   - 未绑定精确策略的同家族模型平滑回退至 Astra 通用兜底，杜绝误注入。
 - **全透明请求日志审计**：
-  - 每次请求调用均在 SQLite 审计日志与前端展示中记录策略决策明细（`strategy_type`: 自定义/预设/兜底/无，`profile_name`, `matched_model`）；
-  - Web 控制台审计日志表格与详情抽屉、iOS 原生日志列表均可秒级查看注入了哪款 Prompt、命中哪个特征。
+  - 每次请求调用均在 SQLite 审计日志与前端展示中记录策略决策明细（`strategy_type`: 自定义/预设/兜底/无，`profile_name`, `matched_model`, `injected_to`）；
+  - **v1.4.3 新增 `injected_to`**：记录本次实际写入的协议通道（如 `system,user`），Web 控制台审计详情会直接标明「已写入 system + user」，并把「已匹配但未写入任何通道」单独标记为异常，便于一眼定位“策略看着命中却没生效”的问题；
+  - Web 控制台审计日志表格与详情抽屉、iOS 原生日志列表均可秒级查看注入了哪款 Prompt、命中哪个特征、写进了哪条通道。
 - **全协议多形态请求体安全合并与防重入**：
-  - **Anthropic 协议**：若客户端已有 `system`（无论是字符串还是 ContentBlock 数组），均安全前置合并并防止重复追加；
-  - **OpenAI Chat 协议**：**关键修复**——将预设注入到**最后一条 `user` 消息**内容首部（带高优先级分隔标记与幂等去重）。因为许多上游适配层（尤其 Gemini 逆向类）会丢弃 `system` 角色，而 `user` 内容必定转发，从而确保预设真正送达并被模型采纳；若不存在 user 消息才退回 system 首条；
+  - **Anthropic 协议**：若客户端已有 `system`（无论是字符串还是 ContentBlock 数组），均安全追加合并并防止重复追加；
+  - **OpenAI Chat 协议（v1.4.3 双通道注入）**：**同时写入 `system` 与最后一条 `user` 两条通道** ——
+    - `system` 通道：尊重 system 角色的上游（OpenAI 系、正规中转网关）拿到最高优先级；客户端原文保留在前，策略块追加在后；没有 system 时新建一条置顶；
+    - `user` 通道：注入到**最后一条 `user` 消息**内容首部（recency 最高）。Gemini 逆向类适配层即使丢弃 `system` 角色，预设仍能送达并被采纳；
+    - 两条通道各自幂等（首尾标记同时命中才算已注入），互不重复叠加；
   - **Responses / Compact 协议**：安全合并至 `instructions` / `instruction` 字段。
-- **逐请求策略可见性 (v1.4.0 新增)**：代理响应头新增 `X-Zako-Strategy` / `X-Zako-Profile` / `X-Zako-Matched-Model` / `X-Zako-Version`，任意客户端或抓包工具均可即时确认本次请求实际生效的预设策略与版本。
+- **逐请求策略可见性 (v1.4.3 增强)**：代理响应头新增 `X-Zako-Strategy` / `X-Zako-Profile` / `X-Zako-Matched-Model` / `X-Zako-Score` / `X-Zako-Injected` / `X-Zako-Version`，且统一下发 `Access-Control-Expose-Headers`，**浏览器端跨域调用也能读到这些诊断头**（此前被 CORS 默认策略屏蔽）。`X-Zako-Injected` 形如 `system,user`，直观显示本次写入了哪几条通道。
 - **36 款针对性模型 Profile 矩阵**：
   - **Claude (14款)**：`claude-opus-5-5`, `claude-sonnet-4-6`, `claude-haiku-4-5` 等
   - **DeepSeek (6款)**：包含汉霜 (Hanshuang) 与 DSH purge API 适配器完整集成
@@ -72,7 +76,7 @@
 - **多端一键交互**：
   - Web 控制台：侧边栏内核状态底栏、设置页网络表单均提供晶透的「热重启服务」一键按钮；
   - iOS 原生控制台：仪表盘服务控制栏直接提供「重启」按钮，修改端口后提示一键重启生效；
-- **全系统版本自省统一**：`/api/system`、`/health`、页面 UI（顶栏品牌徽标、侧栏内核状态、设置页「关于与版本信息」卡片、浏览器标题）统一展示动态自省版本号 `v1.4.1`。
+- **全系统版本自省统一**：`/api/system`、`/health`、页面 UI（顶栏品牌徽标、侧栏内核状态、设置页「关于与版本信息」卡片、浏览器标题）统一展示动态自省版本号 `v1.4.3`。
 
 ---
 
@@ -162,7 +166,7 @@ ZakoProxy 内置了前后端解耦的 RESTful 架构，共提供 20 个轻量级
 
 ```
 ZakoProxy/
-├── script.json         # 脚本元数据描述符 (v1.4.1)
+├── script.json         # 脚本元数据描述符 (v1.4.3)
 ├── index.tsx           # 脚本主入口、SwiftUI 原生仪表盘与 WebViewController 挂载
 ├── test-webui-e2e.ts   # 25 项全链路自动化端到端测试用例
 ├── README.md           # 项目使用与配置文档

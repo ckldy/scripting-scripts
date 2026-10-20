@@ -110,6 +110,67 @@ export function resolveActualModel(account: Account, requested: string): string 
   return null
 }
 
+export const STRATEGY_MARKER = "【ZakoProxy 预设策略 · 已生效 · 最高优先级】"
+export const STRATEGY_END_MARKER = "【ZakoProxy 预设策略 · 结束】"
+
+/** 判断一段文本是否已包含完整的策略块（首尾标记同时出现才算，避免半截注入被误判） */
+export function hasStrategyBlock(text: any): boolean {
+  return (
+    typeof text === "string" &&
+    text.includes(STRATEGY_MARKER) &&
+    text.includes(STRATEGY_END_MARKER)
+  )
+}
+
+/** 把策略块合并进一段消息内容（string / 内容块数组 / 空值），就地修改并保持幂等 */
+function mergeIntoContent(container: any, field: string, block: string, position: "prepend" | "append"): void {
+  const cur = container[field]
+  if (typeof cur === "string") {
+    if (!hasStrategyBlock(cur)) {
+      container[field] = position === "prepend" ? `${block}\n\n${cur}` : `${cur}\n\n${block}`
+    }
+    return
+  }
+  if (Array.isArray(cur)) {
+    const alreadyHas = cur.some(
+      (part: any) => typeof part === "object" && part?.text && hasStrategyBlock(part.text)
+    )
+    if (!alreadyHas) {
+      const part = { type: "text", text: block }
+      container[field] = position === "prepend" ? [part, ...cur] : [...cur, part]
+    }
+    return
+  }
+  container[field] = block
+}
+
+/** system 通道：优先追加到客户端已有的 system/developer 消息，没有则新建一条置顶。返回是否写入 */
+function injectIntoChatSystem(messages: any[], block: string): boolean {
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    if (msg && (msg.role === "system" || msg.role === "developer")) {
+      const before = JSON.stringify(msg.content)
+      mergeIntoContent(msg, "content", block, "append")
+      return JSON.stringify(msg.content) !== before
+    }
+  }
+  messages.unshift({ role: "system", content: block })
+  return true
+}
+
+/** user 通道：注入到最后一条 user 消息（当前轮次 recency 最高，且 user 内容必定被转发）。返回是否写入 */
+function injectIntoLastUser(messages: any[], block: string): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (msg && msg.role === "user") {
+      const before = JSON.stringify(msg.content)
+      mergeIntoContent(msg, "content", block, "prepend")
+      return JSON.stringify(msg.content) !== before
+    }
+  }
+  return false
+}
+
 export function applyPromptStrategy(
   protocol: string,
   body: any,
@@ -124,71 +185,39 @@ export function applyPromptStrategy(
   }
 
   const cleanInstruction = instruction.trim()
-  const STRATEGY_MARKER = "【ZakoProxy 预设策略 · 已生效 · 最高优先级】"
-  const strategyBlock = `${STRATEGY_MARKER}\n${cleanInstruction}\n【ZakoProxy 预设策略 · 结束】`
-  const hasBlock = (t: any): boolean => typeof t === "string" && t.includes(STRATEGY_MARKER)
+  const strategyBlock = `${STRATEGY_MARKER}\n${cleanInstruction}\n${STRATEGY_END_MARKER}`
 
   if (protocol === "anthropic") {
     // Anthropic 原生 system 字段最权威，追加注入并保持幂等
+    const before = JSON.stringify(body.system ?? null)
     if (!body.system || (typeof body.system === "string" && body.system.trim() === "")) {
       body.system = strategyBlock
     } else if (typeof body.system === "string") {
-      if (!hasBlock(body.system)) body.system = `${body.system}\n\n${strategyBlock}`
+      if (!hasStrategyBlock(body.system)) body.system = `${body.system}\n\n${strategyBlock}`
     } else if (Array.isArray(body.system)) {
       const alreadyHas = body.system.some(
-        (part: any) => typeof part === "object" && part?.text && hasBlock(part.text)
+        (part: any) => typeof part === "object" && part?.text && hasStrategyBlock(part.text)
       )
       if (!alreadyHas) body.system = [...body.system, { type: "text", text: strategyBlock }]
     }
+    match.injected_to = JSON.stringify(body.system ?? null) !== before ? ["system"] : ["none"]
   } else if (protocol === "chat") {
     if (!Array.isArray(body.messages)) body.messages = []
-    // 关键修复：把预设注入到最后一条 user 消息。
-    // 许多上游适配层（尤其 Gemini 逆向类）会丢弃 system 角色，但 user 内容必定转发；
-    // 放在当前用户轮次也拥有最高 recency，确保预设真正送达并被采纳。
-    let targetIdx = -1
-    for (let i = body.messages.length - 1; i >= 0; i--) {
-      if (body.messages[i] && body.messages[i].role === "user") {
-        targetIdx = i
-        break
-      }
-    }
-    if (targetIdx >= 0) {
-      const msg = body.messages[targetIdx]
-      if (typeof msg.content === "string") {
-        if (!hasBlock(msg.content)) msg.content = `${strategyBlock}\n\n${msg.content}`
-      } else if (Array.isArray(msg.content)) {
-        const alreadyHas = msg.content.some(
-          (part: any) => typeof part === "object" && part?.text && hasBlock(part.text)
-        )
-        if (!alreadyHas) msg.content = [{ type: "text", text: strategyBlock }, ...msg.content]
-      } else {
-        msg.content = strategyBlock
-      }
-    } else {
-      // 没有 user 消息时退回 system / 首条消息
-      const firstMsg = body.messages[0]
-      if (firstMsg && (firstMsg.role === "system" || firstMsg.role === "developer")) {
-        if (typeof firstMsg.content === "string") {
-          if (!hasBlock(firstMsg.content)) firstMsg.content = `${firstMsg.content}\n\n${strategyBlock}`
-        } else if (Array.isArray(firstMsg.content)) {
-          const alreadyHas = firstMsg.content.some(
-            (part: any) => typeof part === "object" && part?.text && hasBlock(part.text)
-          )
-          if (!alreadyHas) firstMsg.content = [...firstMsg.content, { type: "text", text: strategyBlock }]
-        } else {
-          firstMsg.content = strategyBlock
-        }
-      } else {
-        body.messages.unshift({ role: "system", content: strategyBlock })
-      }
-    }
+    // 双通道注入（v1.4.3）：
+    //  - system 通道：尊重 system 角色的上游（OpenAI 系 / 中转网关）拿到最高优先级；
+    //  - user 通道：Gemini 逆向等会丢弃 system 角色的适配层仍能收到预设（user 内容必转发）。
+    // 两条通道各自幂等，互不重复计数。
+    const channels: string[] = []
+    if (injectIntoChatSystem(body.messages, strategyBlock)) channels.push("system")
+    if (injectIntoLastUser(body.messages, strategyBlock)) channels.push("user")
+    match.injected_to = channels.length > 0 ? channels : ["none"]
   } else {
     // responses / compact：注入到 instructions / instruction 字段
     const field =
       body.instructions !== undefined ? "instructions" : body.instruction !== undefined ? "instruction" : "instructions"
     const cur = body[field]
     if (typeof cur === "string" && cur.trim()) {
-      if (!hasBlock(cur)) body[field] = `${cur}\n\n${strategyBlock}`
+      if (!hasStrategyBlock(cur)) body[field] = `${cur}\n\n${strategyBlock}`
     } else {
       body[field] = strategyBlock
     }
@@ -480,6 +509,9 @@ export class ProxyEngine {
         returnHeaders["X-Zako-Strategy"] = matchResult.strategy_type
         if (matchResult.profile_name) returnHeaders["X-Zako-Profile"] = encodeURIComponent(matchResult.profile_name)
         if (matchResult.matched_model) returnHeaders["X-Zako-Matched-Model"] = encodeURIComponent(matchResult.matched_model)
+        if (typeof matchResult.score === "number") returnHeaders["X-Zako-Score"] = String(matchResult.score)
+        const injected = matchResult.injected_to
+        if (injected && injected.length > 0) returnHeaders["X-Zako-Injected"] = injected.join(",")
       }
       returnHeaders["X-Zako-Version"] = APP_VERSION
 
@@ -503,6 +535,7 @@ export class ProxyEngine {
         profile_id: matchResult.profile_id,
         profile_name: matchResult.profile_name,
         matched_model: matchResult.matched_model,
+        injected_to: matchResult.injected_to,
       }
       await this.store.log(logEntry, config.settings.retention_days)
 

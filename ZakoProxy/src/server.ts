@@ -1,5 +1,5 @@
 import { Path, Script } from "scripting"
-import { SECURITY_HEADERS, handleApiRoute } from "./api"
+import { EXPOSE_HEADERS, SECURITY_HEADERS, handleApiRoute } from "./api"
 import { ProxyEngine } from "./proxy"
 import { APP_VERSION } from "./version"
 import type { Store } from "./store"
@@ -56,7 +56,8 @@ export class ZakoServer {
               ? {
                   "Access-Control-Allow-Origin": "*",
                   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
-                  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key",
+                  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key, anthropic-version, anthropic-beta",
+                  "Access-Control-Expose-Headers": EXPOSE_HEADERS,
                   "Access-Control-Max-Age": "86400",
                 }
               : {},
@@ -239,8 +240,13 @@ export class ZakoServer {
       }
 
       const res = await this.engine.forward(protocol, req.headers, bodyObj)
+      // 代理响应也必须显式 Expose X-Zako-*，否则浏览器侧读不到策略诊断头
       return HttpResponse.raw(res.status, "OK", {
-        headers: res.headers,
+        headers: {
+          ...res.headers,
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Expose-Headers": EXPOSE_HEADERS,
+        },
         body: Data.fromRawString(res.body, "utf-8") || undefined,
       })
     } catch (err: any) {
@@ -259,6 +265,8 @@ export class ZakoServer {
     })
     const headers: Record<string, string> = {
       "Content-Type": "application/json; charset=utf-8",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Expose-Headers": EXPOSE_HEADERS,
       ...(err?.headers || {}),
     }
 

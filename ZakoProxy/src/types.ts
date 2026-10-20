@@ -79,6 +79,8 @@ export interface RequestLog {
   profile_id?: string
   profile_name?: string
   matched_model?: string
+  /** 本次实际写入的协议通道，如 ["system","user"] */
+  injected_to?: string[]
 }
 
 export interface StrategyMatchResult {
@@ -88,6 +90,8 @@ export interface StrategyMatchResult {
   profile_name?: string
   matched_model?: string
   score?: number
+  /** 本次实际写入的协议通道，如 ["system", "user"]，用于 X-Zako-Injected 诊断头 */
+  injected_to?: string[]
 }
 
 export interface AccountRuntime {

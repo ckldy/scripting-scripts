@@ -16,13 +16,13 @@ import {
   scoreProfileMatch,
   stripChannelPrefix,
 } from "./src/profiles"
-import { applyPromptStrategy, errorSummary, redactSecrets } from "./src/proxy"
+import { applyPromptStrategy, errorSummary, hasStrategyBlock, redactSecrets } from "./src/proxy"
 import type { Group } from "./src/types"
 
 declare function fetch(input: any, init?: any): Promise<any>
 
 async function runPromptStrategyE2ETest() {
-  console.log("=== 开始 ZakoProxy 预设 Prompt 策略全链路与 E2E 验证 (v1.4.1) ===")
+  console.log("=== 开始 ZakoProxy 预设 Prompt 策略全链路与 E2E 验证 (v1.4.3) ===")
 
   let allPassed = true
   const assert = (condition: boolean, msg: string) => {
@@ -191,7 +191,9 @@ async function runPromptStrategyE2ETest() {
   assert(anthropicRes.strategy_type === "profile", "Anthropic 注入返回 strategy_type 为 profile")
   assert(anthropicBody.system.includes(claudeProfile.instruction.trim()), "Anthropic system 正确注入 Claude 提示词")
 
-  // OpenAI Chat 协议：关键修复——注入到最后一条 user 消息（规避上游适配层丢弃 system）
+  // OpenAI Chat 协议：双通道注入（v1.4.3）
+  //  - system：尊重 system 的上游拿最高优先级
+  //  - user：丢弃 system 的适配层仍能收到
   const chatBody: any = {
     model: "gemini-3.8-flash-high",
     messages: [
@@ -207,14 +209,63 @@ async function runPromptStrategyE2ETest() {
     "Chat 协议将预设注入到最后一条 user 消息内容中"
   )
   assert(
-    chatBody.messages[0].role === "system" && !chatBody.messages[0].content.includes(gemini38Profile.instruction.trim()),
-    "Chat 协议保留客户端 system 消息不被污染"
+    chatBody.messages[0].role === "system" &&
+      String(chatBody.messages[0].content).startsWith("You are a coding assistant.") &&
+      String(chatBody.messages[0].content).includes(gemini38Profile.instruction.trim()),
+    "Chat 协议同时在 system 消息末尾追加预设（客户端原文保留在前）"
+  )
+  assert(
+    Array.isArray(chatRes.injected_to) &&
+      chatRes.injected_to.includes("system") &&
+      chatRes.injected_to.includes("user"),
+    "Chat 协议上报双通道注入（system + user）"
   )
 
-  // 幂等性：重复注入不叠加
+  // 幂等性：重复注入不叠加（两条通道都不变）
   applyPromptStrategy("chat", chatBody, testGroupGemini38Only, "gemini-3.8-flash-high")
   const occ = (String(chatBody.messages[chatBody.messages.length - 1].content).match(/【ZakoProxy 预设策略 · 已生效/g) || []).length
-  assert(occ === 1, "Chat 协议重复注入具备幂等性（仅注入一次）")
+  const sysOcc = (String(chatBody.messages[0].content).match(/【ZakoProxy 预设策略 · 已生效/g) || []).length
+  assert(occ === 1, "Chat 协议重复注入具备幂等性（user 通道仅注入一次）")
+  assert(sysOcc === 1, "Chat 协议重复注入具备幂等性（system 通道仅注入一次）")
+
+  // 无 system 消息时：新建一条置顶 system + 注入末条 user
+  const chatNoSystem: any = {
+    model: "gemini-3.8-flash-high",
+    messages: [{ role: "user", content: "hi" }],
+  }
+  const noSysRes = applyPromptStrategy("chat", chatNoSystem, testGroupGemini38Only, "gemini-3.8-flash-high")
+  assert(
+    chatNoSystem.messages.length === 2 &&
+      chatNoSystem.messages[0].role === "system" &&
+      hasStrategyBlock(chatNoSystem.messages[0].content),
+    "Chat 协议无 system 时新建置顶 system 策略消息"
+  )
+  assert(
+    noSysRes.injected_to!.length === 2 &&
+      hasStrategyBlock(chatNoSystem.messages[1].content),
+    "Chat 协议无 system 时仍保留 user 通道注入"
+  )
+
+  // 内容块数组形式：两条通道都要能正确追加/前置，且幂等
+  const blockBody: any = {
+    model: "gemini-3.8-flash-high",
+    messages: [
+      { role: "system", content: [{ type: "text", text: "sys base" }] },
+      { role: "user", content: [{ type: "text", text: "question" }] },
+    ],
+  }
+  applyPromptStrategy("chat", blockBody, testGroupGemini38Only, "gemini-3.8-flash-high")
+  applyPromptStrategy("chat", blockBody, testGroupGemini38Only, "gemini-3.8-flash-high")
+  assert(
+    blockBody.messages[0].content.length === 2 &&
+      blockBody.messages[0].content[0].text === "sys base",
+    "Chat 内容块 system：策略块追加在末尾且不重复"
+  )
+  assert(
+    blockBody.messages[1].content.length === 2 &&
+      blockBody.messages[1].content[1].text === "question",
+    "Chat 内容块 user：策略块前置且不重复"
+  )
 
   // ==========================================
   // 4. RESTful API、审计日志与 Web 控制台测试
@@ -265,6 +316,30 @@ async function runPromptStrategyE2ETest() {
     assert(
       profileDetail.id === sampleProfileId && profileDetail.instruction && profileDetail.instruction.length > 50,
       "成功获取完整 Profile 提示词正文与模型匹配列表"
+    )
+
+    // 4.1 CORS 预检必须暴露 X-Zako-* 诊断头（否则浏览器端读不到策略命中信息）
+    const rPreflight = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://localhost:5173",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type,authorization",
+      },
+    })
+    const preflightExpose = String(rPreflight.headers.get("access-control-expose-headers") || "")
+    assert(
+      preflightExpose.includes("X-Zako-Strategy") && preflightExpose.includes("X-Zako-Injected"),
+      "预检响应显式 Expose X-Zako-Strategy / X-Zako-Injected"
+    )
+    assert(
+      String(rPreflight.headers.get("access-control-allow-headers") || "").toLowerCase().includes("anthropic-version"),
+      "预检允许 Anthropic 原生头部（anthropic-version / anthropic-beta）"
+    )
+    const rApiPreflight = await fetch(`${baseUrl}/api/system`, { method: "OPTIONS" })
+    assert(
+      !String(rApiPreflight.headers.get("access-control-allow-origin") || "").includes("*"),
+      "管理 API 预检不向第三方网页开放跨域"
     )
 
     // 5. POST /api/groups 创建带策略分组
