@@ -332,13 +332,65 @@ export const PROFILES: Profile[] = [
 
 const FAMILIES = ["gpt-5.6", "gpt-6.1", "gpt-6", "claude", "grok", "gemini", "deepseek", "glm", "kimi"] as const
 
+export function normalizeModelName(raw: string): string {
+  if (!raw) return ""
+  let clean = raw.toLowerCase().trim()
+  if (clean.includes("/")) {
+    clean = clean.split("/").pop() || clean
+  }
+  return clean
+}
+
 export function modelFamily(model: string): string | null {
+  const norm = normalizeModelName(model)
+  if (!norm) return null
+
+  if (norm.startsWith("gpt-5.6")) return "gpt-5.6"
+  if (norm.startsWith("gpt-6.1")) return "gpt-6.1"
+  if (norm.startsWith("gpt-6")) return "gpt-6"
+  if (norm.startsWith("gpt-") || norm.startsWith("chatgpt-") || norm.startsWith("o1-") || norm.startsWith("o3-")) return "gpt"
+  if (norm.includes("claude")) return "claude"
+  if (norm.includes("deepseek") || norm.includes("hanshuang") || norm.includes("dsh")) return "deepseek"
+  if (norm.includes("gemini")) return "gemini"
+  if (norm.includes("kimi") || norm.includes("moonshot")) return "kimi"
+  if (norm.includes("glm") || norm.includes("chatglm")) return "glm"
+  if (norm.includes("grok")) return "grok"
+
   for (const fam of FAMILIES) {
-    if (model === fam || (model.startsWith(fam) && model.slice(fam.length).startsWith("-"))) {
+    if (norm === fam || (norm.startsWith(fam) && norm.slice(fam.length).startsWith("-"))) {
       return fam
     }
   }
   return null
+}
+
+export function matchProfileForModel(profile: Profile, model: string): boolean {
+  if (!profile || !model) return false
+  const normTarget = normalizeModelName(model)
+  const targetFamily = modelFamily(normTarget)
+
+  // 1. 通配符匹配
+  if (profile.models.some((m) => m === "*" || m.toLowerCase() === "all")) {
+    return true
+  }
+
+  // 2. 精确或前缀匹配
+  for (const rawM of profile.models) {
+    const normM = normalizeModelName(rawM)
+    if (normTarget === normM) return true
+    if (normTarget.startsWith(normM) || normM.startsWith(normTarget)) {
+      return true
+    }
+  }
+
+  // 3. 家族智能匹配
+  if (targetFamily && profile.model_family) {
+    const pFam = profile.model_family.toLowerCase()
+    if (targetFamily === pFam) return true
+    if (targetFamily.startsWith("gpt") && pFam.startsWith("gpt")) return true
+  }
+
+  return false
 }
 
 export function findProfile(id: string): Profile | undefined {
@@ -349,17 +401,59 @@ export function getAllProfiles(): Profile[] {
   return PROFILES
 }
 
-export function getInstruction(group: Group, model: string): string | null {
+export function getInstruction(group: Group, model: string, requestedModel?: string): string | null {
+  if (!group) return null
+
+  // 1. 自定义策略优先（如配置）
+  if (group.custom_instruction && group.custom_instruction.trim()) {
+    return group.custom_instruction.trim()
+  }
+
+  // 2. 检查绑定的专有 profile_ids
   if (group.profile_ids && group.profile_ids.length > 0) {
+    const candidates = [model, requestedModel].filter(Boolean) as string[]
+
+    // 阶段 A: 精确/前缀优先匹配
     for (const id of group.profile_ids) {
       const profile = findProfile(id)
-      if (profile && profile.models.includes(model)) {
+      if (!profile) continue
+      for (const m of candidates) {
+        const normTarget = normalizeModelName(m)
+        if (
+          profile.models.some((pm) => {
+            const normPm = normalizeModelName(pm)
+            return normTarget === normPm || normTarget.startsWith(normPm) || normPm.startsWith(normTarget)
+          })
+        ) {
+          return profile.instruction
+        }
+      }
+    }
+
+    // 阶段 B: 家族智能匹配
+    for (const id of group.profile_ids) {
+      const profile = findProfile(id)
+      if (!profile) continue
+      for (const m of candidates) {
+        if (matchProfileForModel(profile, m)) {
+          return profile.instruction
+        }
+      }
+    }
+
+    // 阶段 C: 通配符匹配
+    for (const id of group.profile_ids) {
+      const profile = findProfile(id)
+      if (profile && profile.models.some((pm) => pm === "*" || pm.toLowerCase() === "all")) {
         return profile.instruction
       }
     }
   }
+
+  // 3. 回退到默认策略 (Astra 通用执行策略)
   if (group.default_strategy_enabled) {
     return DEFAULT_INSTRUCTION
   }
+
   return null
 }

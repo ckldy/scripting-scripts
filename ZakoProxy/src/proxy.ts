@@ -107,30 +107,70 @@ export function applyPromptStrategy(
   protocol: string,
   body: any,
   group: Group,
-  actualModel: string
+  actualModel: string,
+  requestedModel?: string
 ): void {
-  const instruction = getInstruction(group, actualModel)
-  if (!instruction) return
+  const instruction = getInstruction(group, actualModel, requestedModel)
+  if (!instruction || !instruction.trim()) return
+
+  const cleanInstruction = instruction.trim()
 
   if (protocol === "anthropic") {
     if (!body.system || (typeof body.system === "string" && body.system.trim() === "")) {
-      body.system = instruction
+      body.system = cleanInstruction
     } else if (typeof body.system === "string") {
-      body.system = `${instruction}\n\n${body.system}`
+      if (!body.system.includes(cleanInstruction)) {
+        body.system = `${cleanInstruction}\n\n${body.system}`
+      }
     } else if (Array.isArray(body.system)) {
-      body.system = [{ type: "text", text: instruction }, ...body.system]
+      const alreadyHas = body.system.some(
+        (part: any) => typeof part === "object" && part?.text && part.text.includes(cleanInstruction)
+      )
+      if (!alreadyHas) {
+        body.system = [{ type: "text", text: cleanInstruction }, ...body.system]
+      }
     }
   } else if (protocol === "chat") {
     if (!Array.isArray(body.messages)) {
-      throw new Error("messages must be an array when a group instruction is applied")
+      body.messages = []
     }
-    body.messages = [{ role: "system", content: instruction }, ...body.messages]
+    const firstMsg = body.messages[0]
+    if (firstMsg && (firstMsg.role === "system" || firstMsg.role === "developer")) {
+      if (typeof firstMsg.content === "string") {
+        if (!firstMsg.content.includes(cleanInstruction)) {
+          firstMsg.content = `${cleanInstruction}\n\n${firstMsg.content}`
+        }
+      } else if (Array.isArray(firstMsg.content)) {
+        const alreadyHas = firstMsg.content.some(
+          (part: any) => typeof part === "object" && part?.text && part.text.includes(cleanInstruction)
+        )
+        if (!alreadyHas) {
+          firstMsg.content = [{ type: "text", text: cleanInstruction }, ...firstMsg.content]
+        }
+      }
+    } else {
+      body.messages.unshift({ role: "system", content: cleanInstruction })
+    }
   } else {
     // responses or compact
-    if (!body.instructions || (typeof body.instructions === "string" && body.instructions.trim() === "")) {
-      body.instructions = instruction
-    } else if (typeof body.instructions === "string") {
-      body.instructions = `${instruction}\n\n${body.instructions}`
+    if (body.instructions !== undefined) {
+      if (typeof body.instructions === "string" && body.instructions.trim()) {
+        if (!body.instructions.includes(cleanInstruction)) {
+          body.instructions = `${cleanInstruction}\n\n${body.instructions}`
+        }
+      } else {
+        body.instructions = cleanInstruction
+      }
+    } else if (body.instruction !== undefined) {
+      if (typeof body.instruction === "string" && body.instruction.trim()) {
+        if (!body.instruction.includes(cleanInstruction)) {
+          body.instruction = `${cleanInstruction}\n\n${body.instruction}`
+        }
+      } else {
+        body.instruction = cleanInstruction
+      }
+    } else {
+      body.instructions = cleanInstruction
     }
   }
 }
@@ -260,7 +300,7 @@ export class ProxyEngine {
       const upstreamBody = JSON.parse(JSON.stringify(body))
       upstreamBody.model = actualModel
       try {
-        applyPromptStrategy(protocol, upstreamBody, group, actualModel)
+        applyPromptStrategy(protocol, upstreamBody, group, actualModel, requestedModel)
       } catch (err: any) {
         this.store.runtime.release(selectedAccount.id)
         throw { status: 400, message: err.message || "Failed to apply prompt strategy" }

@@ -896,31 +896,80 @@
     if (!container) return;
     const profileMap = new Map(profiles.map((p) => [p.id, p]));
 
+    if (!groups || groups.length === 0) {
+      container.innerHTML = `
+        <div class="glass-card" style="text-align:center;padding:36px;color:var(--text-3);">
+          <div style="font-size:32px;margin-bottom:8px;">📦</div>
+          <div style="font-size:14px;color:var(--text-2);margin-bottom:12px;">暂无任何分组</div>
+          <button type="button" class="btn btn-primary btn-sm" onclick="window.openAddGroupModal()">立即新建第一个分组</button>
+        </div>
+      `;
+      return;
+    }
+
     container.innerHTML = groups
       .map((g) => {
         const boundProfiles = (g.profile_ids || [])
           .map((pid) => {
             const p = profileMap.get(pid);
             return p
-              ? `<span class="badge badge-cyber" style="cursor:pointer;" onclick="window.viewProfileDetail('${p.id}')">${escapeHtml(p.name)}</span>`
-              : '';
+              ? `<span class="badge badge-cyber" style="cursor:pointer;" onclick="window.viewProfileDetail('${p.id}')" title="点击查看策略提示词详情">${escapeHtml(p.name)} (${escapeHtml(p.model_family)})</span>`
+              : `<span class="badge badge-cyber" style="opacity:0.6;">${escapeHtml(pid)}</span>`;
           })
           .join('');
 
+        const hasCustomPrompt = typeof g.custom_instruction === 'string' && g.custom_instruction.trim().length > 0;
+        const customPromptSnippet = hasCustomPrompt
+          ? g.custom_instruction.trim().slice(0, 100) + (g.custom_instruction.trim().length > 100 ? '...' : '')
+          : '';
+
         return `
           <div class="glass-card" style="margin-bottom:16px;">
-            <div class="glass-card-header">
+            <div class="glass-card-header" style="flex-wrap:wrap;gap:8px;">
               <div class="glass-card-title">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                 <span>${escapeHtml(g.name)}</span>
+                <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-3);margin-left:4px;">ID: ${escapeHtml(g.id)}</span>
               </div>
-              <span class="badge ${g.default_strategy_enabled ? 'badge-success' : 'badge-warning'}">
-                ${g.default_strategy_enabled ? '已启用全局兜底任务策略 (Astra/General)' : '仅匹配专属策略'}
-              </span>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="window.openEditGroupModal('${g.id}')">✏️ 编辑与策略绑定</button>
+                <button type="button" class="btn btn-danger btn-sm" onclick="window.deleteGroup('${g.id}', '${escapeHtml(g.name)}')">🗑️ 删除</button>
+              </div>
             </div>
-            <div style="font-size:12px;color:var(--text-2);margin-bottom:12px;">已挂载专属策略:</div>
-            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
-              ${boundProfiles || '<span style="color:var(--text-3);font-size:11px;">未绑定独立策略（将应用系统通用任务执行模式）</span>'}
+
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:12px;margin-bottom:12px;padding:10px;background:rgba(0,0,0,0.15);border-radius:8px;">
+              <div>
+                <span style="font-size:11px;color:var(--text-3);">通用兜底策略 (Astra)：</span>
+                <span class="badge ${g.default_strategy_enabled ? 'badge-success' : 'badge-warning'}" style="margin-left:6px;">
+                  ${g.default_strategy_enabled ? '已开启' : '已关闭'}
+                </span>
+              </div>
+              <div>
+                <span style="font-size:11px;color:var(--text-3);">自定义专属指令：</span>
+                <span class="badge ${hasCustomPrompt ? 'badge-primary' : 'badge-cyber'}" style="margin-left:6px;">
+                  ${hasCustomPrompt ? `已配置 (${g.custom_instruction.length} 字符)` : '未配置 (使用预设)'}
+                </span>
+              </div>
+              <div>
+                <span style="font-size:11px;color:var(--text-3);">已绑定内置预设：</span>
+                <span style="font-size:12px;font-weight:600;color:var(--text-1);margin-left:6px;">
+                  ${(g.profile_ids || []).length} / 36 款
+                </span>
+              </div>
+            </div>
+
+            ${hasCustomPrompt ? `
+              <div style="margin-bottom:12px;">
+                <div style="font-size:11px;color:var(--text-3);margin-bottom:4px;">优先注入的自定义提示词片段：</div>
+                <div style="font-size:11px;font-family:var(--font-mono);color:var(--text-2);background:rgba(0,0,0,0.25);padding:8px 10px;border-radius:6px;line-height:1.4;white-space:pre-wrap;">${escapeHtml(customPromptSnippet)}</div>
+              </div>
+            ` : ''}
+
+            <div>
+              <div style="font-size:12px;color:var(--text-2);margin-bottom:8px;">绑定的专有 Prompt 策略：</div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                ${boundProfiles || '<span style="color:var(--text-3);font-size:11px;">未绑定独立策略（将根据全局兜底开关决定是否注入通用任务提示词）</span>'}
+              </div>
             </div>
           </div>
         `;
@@ -955,16 +1004,169 @@
       .join('');
   }
 
+  // 渲染编辑分组时的 Profile 勾选列表
+  function renderProfilesSelector(selectedProfileIds = []) {
+    const selector = document.getElementById('group-profiles-selector');
+    if (!selector) return;
+    const selectedSet = new Set(selectedProfileIds);
+
+    const profiles = state.profiles || [];
+    selector.innerHTML = profiles
+      .map((p) => {
+        const isChecked = selectedSet.has(p.id) ? 'checked' : '';
+        return `
+          <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-1);cursor:pointer;padding:4px 6px;border-radius:4px;background:rgba(255,255,255,0.03);user-select:none;">
+            <input type="checkbox" name="profile_id" value="${escapeHtml(p.id)}" ${isChecked} style="accent-color:var(--primary);width:14px;height:14px;" />
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span>
+          </label>
+        `;
+      })
+      .join('');
+  }
+
+  // 打开新建分组弹窗
+  window.openAddGroupModal = function () {
+    const modal = document.getElementById('modal-group');
+    if (!modal) return;
+    document.getElementById('group-modal-title').textContent = '新建分组与 Prompt 策略';
+    document.getElementById('group-id').value = '';
+    document.getElementById('group-name').value = `分组 ${(state.groups?.length || 0) + 1}`;
+    document.getElementById('group-default-strategy').checked = true;
+    document.getElementById('group-custom-instruction').value = '';
+    renderProfilesSelector([]);
+    modal.classList.add('active');
+  };
+
+  // 打开编辑分组弹窗
+  window.openEditGroupModal = function (groupId) {
+    const g = (state.groups || []).find((item) => item.id === groupId);
+    if (!g) return;
+    const modal = document.getElementById('modal-group');
+    if (!modal) return;
+    document.getElementById('group-modal-title').textContent = `编辑分组「${g.name}」与策略`;
+    document.getElementById('group-id').value = g.id;
+    document.getElementById('group-name').value = g.name || '';
+    document.getElementById('group-default-strategy').checked = g.default_strategy_enabled !== false;
+    document.getElementById('group-custom-instruction').value = g.custom_instruction || '';
+    renderProfilesSelector(g.profile_ids || []);
+    modal.classList.add('active');
+  };
+
+  // 删除分组
+  window.deleteGroup = async function (groupId, groupName) {
+    if (!confirm(`确定要删除分组「${groupName}」吗？`)) return;
+    try {
+      await api(`/api/groups/${groupId}`, { method: 'DELETE' });
+      showToast('分组已成功删除', 'success');
+      await loadGroups();
+    } catch (e) {
+      showToast(`删除分组失败: ${e.message}`, 'error');
+    }
+  };
+
+  function initGroupModal() {
+    const modal = document.getElementById('modal-group');
+    const form = document.getElementById('form-group');
+    const closeBtn = document.getElementById('btn-close-group-modal');
+    const cancelBtn = document.getElementById('btn-cancel-group');
+    const addGroupBtn = document.getElementById('btn-add-group');
+    const selectAllBtn = document.getElementById('btn-select-all-profiles');
+    const clearAllBtn = document.getElementById('btn-clear-all-profiles');
+
+    const closeModal = () => modal?.classList.remove('active');
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+    if (addGroupBtn) addGroupBtn.addEventListener('click', () => window.openAddGroupModal());
+
+    if (selectAllBtn) {
+      selectAllBtn.addEventListener('click', () => {
+        const cbs = modal.querySelectorAll('input[name="profile_id"]');
+        cbs.forEach((cb) => (cb.checked = true));
+      });
+    }
+
+    if (clearAllBtn) {
+      clearAllBtn.addEventListener('click', () => {
+        const cbs = modal.querySelectorAll('input[name="profile_id"]');
+        cbs.forEach((cb) => (cb.checked = false));
+      });
+    }
+
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('group-id')?.value;
+        const name = document.getElementById('group-name')?.value.trim();
+        const defaultStrategy = document.getElementById('group-default-strategy')?.checked ?? true;
+        const customInstruction = document.getElementById('group-custom-instruction')?.value.trim();
+
+        if (!name) {
+          showToast('分组名称不能为空', 'warning');
+          return;
+        }
+
+        const selectedProfileIds = Array.from(modal.querySelectorAll('input[name="profile_id"]:checked')).map(
+          (cb) => cb.value
+        );
+
+        const payload = {
+          name,
+          default_strategy_enabled: defaultStrategy,
+          custom_instruction: customInstruction,
+          profile_ids: selectedProfileIds,
+        };
+
+        try {
+          if (id) {
+            await api(`/api/groups/${id}`, {
+              method: 'PUT',
+              body: JSON.stringify(payload),
+            });
+            showToast('分组及 Prompt 策略已更新', 'success');
+          } else {
+            await api('/api/groups', {
+              method: 'POST',
+              body: JSON.stringify(payload),
+            });
+            showToast('新分组创建成功', 'success');
+          }
+          closeModal();
+          await loadGroups();
+        } catch (err) {
+          showToast(`保存分组失败: ${err.message}`, 'error');
+        }
+      });
+    }
+  }
+
   // 查看策略详情
-  window.viewProfileDetail = function (profileId) {
-    const p = state.profiles.find((item) => item.id === profileId);
-    if (!p) return;
+  window.viewProfileDetail = async function (profileId) {
     const modal = document.getElementById('modal-profile-detail');
     if (!modal) return;
-    document.getElementById('profile-detail-title').textContent = `${p.name} (${p.model_family})`;
-    document.getElementById('profile-detail-models').textContent = (p.models || []).join('\n');
-    document.getElementById('profile-detail-prompt').value = p.instruction || p.instruction_snippet;
+    const titleEl = document.getElementById('profile-detail-title');
+    const modelsEl = document.getElementById('profile-detail-models');
+    const promptEl = document.getElementById('profile-detail-prompt');
+
+    titleEl.textContent = `策略加载中... (${profileId})`;
+    modelsEl.textContent = '...';
+    promptEl.value = '正在从后端拉取完整提示词正文...';
     modal.classList.add('active');
+
+    try {
+      const p = await api(`/api/profiles/${profileId}`);
+      titleEl.textContent = `${p.name} (${p.model_family})`;
+      modelsEl.textContent = (p.models || []).join('\n');
+      promptEl.value = p.instruction || p.instruction_snippet || '(空)';
+    } catch (e) {
+      const cached = state.profiles?.find((item) => item.id === profileId);
+      if (cached) {
+        titleEl.textContent = `${cached.name} (${cached.model_family})`;
+        modelsEl.textContent = (cached.models || []).join('\n');
+        promptEl.value = cached.instruction_snippet || '(拉取失败)';
+      } else {
+        promptEl.value = `拉取策略详情失败: ${e.message}`;
+      }
+    }
   };
 
   function initProfileDetailModal() {
@@ -1190,6 +1392,7 @@
     initNavigation();
     initAccountModal();
     initKeyModal();
+    initGroupModal();
     initProfileDetailModal();
     initLogsControls();
     initSettingsControls();

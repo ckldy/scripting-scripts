@@ -3,6 +3,7 @@ export interface Group {
   name: string
   profile_ids: string[]
   default_strategy_enabled: boolean
+  custom_instruction?: string
 }
 
 export interface Account {

@@ -1,10 +1,10 @@
 # ZakoProxy for Scripting
 
-> **当前版本**：`v1.1.0`  
+> **当前版本**：`v1.2.0`  
 > **作者**：`vcncv`  
 > **来源架构**：基于 [ckldy/ZakoProxyCLI](https://github.com/ckldy/ZakoProxyCLI) 核心移植，视觉界面参考 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS) 流光毛玻璃架构深度定制。
 
-为 iOS / iPadOS **Scripting App** 打造的高性能自托管 AI API 中转、模型策略注入与多账号容灾网关，内置 **双模流光毛玻璃 Web 控制台（Liquid Glassmorphism WebUI）**、SwiftUI 风格原生仪表盘、SQLite WAL 存储与 Web Crypto AES-256-GCM 凭据加密体系。
+为 iOS / iPadOS **Scripting App** 打造的高性能自托管 AI API 中转、模型策略注入与多账号容灾网关，内置 **双模流光毛玻璃 Web 控制台（Liquid Glassmorphism WebUI）**、SwiftUI 风格原生仪表盘、智能分层 Prompt 提示词注入引擎、SQLite WAL 存储与 Web Crypto AES-256-GCM 凭据加密体系。
 
 ---
 
@@ -40,16 +40,22 @@
 
 ---
 
-### 3. 内置 36 款针对性 Prompt 预设与 Astra 通用执行策略
-- **36 款针对性模型 Profile**：
+### 3. 内置 36 款针对性 Prompt 预设与分层智能匹配引擎 (v1.2.0 增强)
+- **分层智能匹配算法**：
+  1. **自定义策略优先**：分组支持独立配置 `custom_instruction`，若配置则最高优先级直接注入；
+  2. **绑定的专有 Profile 精确/前缀/家族匹配**：支持模型名称归一化（自动剥离 `openai/` 等提供商前缀），支持 Claude、DeepSeek、Gemini、GPT、Kimi、GLM、Grok 家族泛化匹配与 `*` 通配符；
+  3. **Astra 通用自适应兜底**：当请求的模型未匹配到绑定预设时，若开启默认策略，则平滑回退并注入系统通用任务执行 Profile。
+- **全协议多形态请求体安全合并与防重入**：
+  - **Anthropic 协议**：若客户端已有 `system`（无论是字符串还是 ContentBlock 数组），均安全前置合并并防止重复追加；
+  - **OpenAI Chat 协议**：若客户端已有 `system`/`developer` 消息，合并至首条内容首部；若仅有 `user` 消息，自动在首位插入 `system` 消息；
+  - **Responses / Compact 协议**：安全合并至 `instructions` / `instruction` 字段。
+- **36 款针对性模型 Profile 矩阵**：
   - **Claude (14款)**：`claude-opus-5-5`, `claude-sonnet-4-6`, `claude-haiku-4-5` 等
   - **DeepSeek (6款)**：包含汉霜 (Hanshuang) 与 DSH purge API 适配器完整集成
   - **Gemini (7款)**：`gemini-3.1-pro`, `gemini-3-flash`, `gemini-3.1-flash-image` 等
   - **GPT 5.6 / 6 (3款)**：`gpt-5.6-sol-v45`, `gpt-6-astra-v2-rc1` 等
   - **Kimi (4款破限)**：`kimi-k2-code`, `kimi-k2.5-code`, `kimi-k2.7-code`, `kimi-k2-plus`
   - **GLM / Grok (2款)**：`glm-5.3`, `grok-4.7`
-- **默认策略 (Astra General Task Execution)**：
-  - 基于 Astra 任务执行与状态延续机制自适应全协议通用注入，去除固定身份与输出格式限制；当未匹配到专有预设且分组开启默认策略时自动生效。
 
 ---
 

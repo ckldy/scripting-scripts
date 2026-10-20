@@ -1,4 +1,4 @@
-import { PROFILES } from "./profiles"
+import { PROFILES, findProfile } from "./profiles"
 import type { ZakoServer } from "./server"
 import type { Store } from "./store"
 import { digest, id, now, token } from "./store"
@@ -462,6 +462,7 @@ export async function handleApiRoute(
       name: String(body.name).trim(),
       profile_ids: Array.isArray(body.profile_ids) ? body.profile_ids : [],
       default_strategy_enabled: body.default_strategy_enabled !== false,
+      custom_instruction: typeof body.custom_instruction === "string" ? body.custom_instruction.trim() : undefined,
     }
     await store.updateConfig((c) => {
       if (!c.groups) c.groups = []
@@ -483,6 +484,9 @@ export async function handleApiRoute(
         if (typeof body.default_strategy_enabled === "boolean") {
           item.default_strategy_enabled = body.default_strategy_enabled
         }
+        if (body.custom_instruction !== undefined) {
+          item.custom_instruction = typeof body.custom_instruction === "string" ? body.custom_instruction.trim() : undefined
+        }
         updated = item
       }
     })
@@ -502,7 +506,15 @@ export async function handleApiRoute(
     return jsonResponse({ success: removed })
   }
 
-  // 18. GET /api/profiles
+  // 18. GET /api/profiles/:id
+  if (cleanPath.startsWith("/api/profiles/") && method === "GET") {
+    const profileId = cleanPath.slice("/api/profiles/".length)
+    const profile = findProfile(profileId)
+    if (!profile) return jsonResponse({ error: "Profile not found" }, 404)
+    return jsonResponse(profile)
+  }
+
+  // 18.2 GET /api/profiles
   if (cleanPath === "/api/profiles" && method === "GET") {
     const summary = PROFILES.map((p) => ({
       id: p.id,
