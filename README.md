@@ -11,7 +11,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 | 黃豆短劇 | 1.2.0 | 浏览、搜索与收藏黃豆短劇内容，支持播放历史、剧集播放、上下滑切集与进度条 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D) |
 | NetRadio（网络收音机） | 1.0.1 | 全球 1000+ 公开网络电台（按 36 个国家/地区归类），黑胶唱机舞台、电平示波器、主题调色板与 iOS 原生后台/锁屏播控（基于 net-redio 移植，作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D) |
 | 音乐大合集 | 1.0.0 | 多源聚合音乐播放器，支持 QQ/网易/酷狗/酷我/咪咕音源，经典与沉浸播放页窗口自适应、纯净无下划线歌词、多样式进度条与后台保活播放（作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F%E9%9F%B3%E4%B9%90%E5%A4%A7%E5%90%88%E9%9B%86.zip%22%5D) |
-| ZakoProxy（AI 代理中转） | 1.2.0 | 基于 ckldy/ZakoProxyCLI 深度移植的自托管 AI API 中转代理。升级分层智能 Prompt 提示词注入引擎（支持自定义策略、36款内置Profile精确/前缀/家族匹配与Astra兜底），修复多协议请求体合并，支持 Web 控制台与原生 iOS 分组策略全功能管理，带流光毛玻璃双模界面、多账号故障转移熔断与 AES-256 本地加密（作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FZakoProxy.zip%22%5D) |
+| ZakoProxy（AI 代理中转） | 1.3.0 | 基于 ckldy/ZakoProxyCLI 深度移植的自托管 AI API 中转代理。升级模型通道修饰后缀解构与 Base Model 提取算法，新增分层多维打分智能匹配引擎并消除同家族混淆，实现全透明审计日志展示与秒级服务热重启机制，带流光毛玻璃双模界面、多账号故障转移熔断与 AES-256 本地加密（作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FZakoProxy.zip%22%5D) |
 
 ## 📥 安装方法
 
@@ -22,10 +22,13 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 ## 🌟 脚本功能详解与直链
 
 ### 🛡️ ZakoProxy (自托管 AI API 代理中转与提示词策略系统)
-- **版本**：`1.2.0` ｜ **作者**：`vcncv`（基于 `ckldy/ZakoProxyCLI` 深度移植，界面参考 `yyhoworks/LocalDNS` 流光毛玻璃架构）
+- **版本**：`1.3.0` ｜ **作者**：`vcncv`（基于 `ckldy/ZakoProxyCLI` 深度移植，界面参考 `yyhoworks/LocalDNS` 流光毛玻璃架构）
 - **特性**：
-  - **全新分层智能 Prompt 策略引擎与全协议安全注入 (v1.2.0 修复与增强)**：
-    - **分层智能匹配算法**：三层智能命中（自定义策略优先 → 绑定的 36 款内置 Profile 精确/前缀/家族智能匹配与通配符 → Astra 通用执行策略全局兜底），自动剔除提供商前缀（如 `openai/`、`Anthropic/`）；
+  - **通道修饰后缀解构与多维打分 Prompt 策略引擎 (v1.3.0 深度加固)**：
+    - **通道修饰后缀解构与 Base Model 提取**：针对多渠道请求修饰后缀（如 `-high`, `-low`, `-medium`, `-tiered`, `-extra`, `-thinking`, `-preview`, `-latest`, `-agent`, `-image`, `-chat` 等），自动解构并提取 Base Model 候选（如 `openai/gemini-3.8-flash-high` 自动解构出 `gemini-3.8-flash`）；自动剥离日期后缀（`-20241022`, `-0731`）与微版本号；
+    - **多维打分引擎与同家族混淆彻底消除**：提取模型核心版本特征（`extractModelCore`）进行多维加权打分，基础模型精确匹配赋予 850 高分，彻底杜绝同家族互斥细分子型号之间的相互劫持与误注入，未精确命中的模型平滑回退至 Astra 默认兜底策略；
+    - **全透明请求日志审计**：每次请求均在 SQLite 与前端展示中记录策略决策明细（`strategy_type`, `profile_name`, `matched_model`），Web 控制台表格/详情抽屉与 iOS 原生日志列表实时透明呈现；
+    - **服务秒级热重启与版本自省**：支持 `POST /api/system/restart` 接口，WebUI（侧边栏内核状态底栏、设置页表单）与原生 iOS 控制台均提供晶透的一键热重启按钮，各端版本号自省统一为 `v1.3.0`；
     - **全协议深度安全合并与防重入**：完美支持 Anthropic Messages（安全前置合并字符串或 Block 数组）、OpenAI Chat（安全前置合并 system/developer 消息或在首位 unshift 插入）与 Responses/Compact，重复调用防双重注入；
     - **Web 控制台与原生 iOS 全功能策略绑定**：WebUI 新增分组编辑与策略配置抽屉，支持 36 款策略复选、一键全选/清空、自定义 Prompt 实时配置；原生 iOS 控制台新增策略预览与批量绑定；
   - **全新流光毛玻璃 Web 控制台 (Liquid Glassmorphism WebUI)**：

@@ -2,9 +2,9 @@ declare const fetch: any
 declare const Response: any
 declare const AbortController: any
 
-import type { Account, ApiKey, Config, Group, RequestLog, Usage } from "./types"
+import type { Account, ApiKey, Config, Group, RequestLog, StrategyMatchResult, Usage } from "./types"
 import { Store, digest, id, now, parseUsage } from "./store"
-import { getInstruction } from "./profiles"
+import { getInstruction, matchInstruction } from "./profiles"
 
 const MAX_ERROR_BYTES = 2048
 
@@ -109,9 +109,12 @@ export function applyPromptStrategy(
   group: Group,
   actualModel: string,
   requestedModel?: string
-): void {
-  const instruction = getInstruction(group, actualModel, requestedModel)
-  if (!instruction || !instruction.trim()) return
+): StrategyMatchResult {
+  const match = matchInstruction(group, actualModel, requestedModel)
+  const instruction = match.instruction
+  if (!instruction || !instruction.trim()) {
+    return match
+  }
 
   const cleanInstruction = instruction.trim()
 
@@ -173,6 +176,8 @@ export function applyPromptStrategy(
       body.instructions = cleanInstruction
     }
   }
+
+  return match
 }
 
 export interface ForwardResult {
@@ -250,6 +255,7 @@ export class ProxyEngine {
         attempts: 0,
         request_path: `/v1/${routeFor(protocol)}`,
         error: "No account supports this group, model, and protocol",
+        strategy_type: "none",
       }
       await this.store.log(logEntry, config.settings.retention_days)
       throw { status: 503, message: "No account supports this group, model, and protocol" }
@@ -299,8 +305,9 @@ export class ProxyEngine {
       // 深度拷贝请求体，并注入对应策略
       const upstreamBody = JSON.parse(JSON.stringify(body))
       upstreamBody.model = actualModel
+      let matchResult: StrategyMatchResult = { instruction: null, strategy_type: "none" }
       try {
-        applyPromptStrategy(protocol, upstreamBody, group, actualModel, requestedModel)
+        matchResult = applyPromptStrategy(protocol, upstreamBody, group, actualModel, requestedModel)
       } catch (err: any) {
         this.store.runtime.release(selectedAccount.id)
         throw { status: 400, message: err.message || "Failed to apply prompt strategy" }
@@ -467,6 +474,10 @@ export class ProxyEngine {
         attempts: attemptsCount,
         request_path: `/v1/${routeFor(protocol)}`,
         error: isSuccess ? undefined : errorSummary(`Upstream status ${res.status}`, secretsToRedact),
+        strategy_type: matchResult.strategy_type,
+        profile_id: matchResult.profile_id,
+        profile_name: matchResult.profile_name,
+        matched_model: matchResult.matched_model,
       }
       await this.store.log(logEntry, config.settings.retention_days)
 

@@ -1,10 +1,10 @@
 # ZakoProxy for Scripting
 
-> **当前版本**：`v1.2.0`  
+> **当前版本**：`v1.3.0`  
 > **作者**：`vcncv`  
 > **来源架构**：基于 [ckldy/ZakoProxyCLI](https://github.com/ckldy/ZakoProxyCLI) 核心移植，视觉界面参考 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS) 流光毛玻璃架构深度定制。
 
-为 iOS / iPadOS **Scripting App** 打造的高性能自托管 AI API 中转、模型策略注入与多账号容灾网关，内置 **双模流光毛玻璃 Web 控制台（Liquid Glassmorphism WebUI）**、SwiftUI 风格原生仪表盘、智能分层 Prompt 提示词注入引擎、SQLite WAL 存储与 Web Crypto AES-256-GCM 凭据加密体系。
+为 iOS / iPadOS **Scripting App** 打造的高性能自托管 AI API 中转、模型策略注入与多账号容灾网关，内置 **双模流光毛玻璃 Web 控制台（Liquid Glassmorphism WebUI）**、SwiftUI 风格原生仪表盘、多维分层智能 Prompt 提示词注入引擎、SQLite WAL 存储、服务秒级热重启与 Web Crypto AES-256-GCM 凭据加密体系。
 
 ---
 
@@ -40,11 +40,17 @@
 
 ---
 
-### 3. 内置 36 款针对性 Prompt 预设与分层智能匹配引擎 (v1.2.0 增强)
-- **分层智能匹配算法**：
-  1. **自定义策略优先**：分组支持独立配置 `custom_instruction`，若配置则最高优先级直接注入；
-  2. **绑定的专有 Profile 精确/前缀/家族匹配**：支持模型名称归一化（自动剥离 `openai/` 等提供商前缀），支持 Claude、DeepSeek、Gemini、GPT、Kimi、GLM、Grok 家族泛化匹配与 `*` 通配符；
-  3. **Astra 通用自适应兜底**：当请求的模型未匹配到绑定预设时，若开启默认策略，则平滑回退并注入系统通用任务执行 Profile。
+### 3. 内置 36 款针对性 Prompt 预设与分层多维智能匹配引擎 (v1.3.0 深度加固)
+- **通道修饰后缀解构与 Base Model 提取**：
+  - 针对实际中转站与多渠道常见的多样化修饰后缀（如 `-high`, `-low`, `-medium`, `-tiered`, `-extra`, `-thinking`, `-preview`, `-latest`, `-agent`, `-image`, `-chat` 等），自动解构并提取出对应的 **Base Model**（如 `openai/gemini-3.8-flash-high` 自动解构出 `gemini-3.8-flash`）；
+  - 自动剥离日期后缀（如 `-20241022`, `-0731`）与微版本号（如 `-v1`, `-v2`）。
+- **多维打分引擎与同家族混淆彻底消除**：
+  - 针对同一模型家族内的不同细分子型号（如 `gemini-3.8-flash` vs `gemini-3-flash`，`claude-opus-4-6` vs `claude-sonnet-4-6`），提取模型核心版本特征进行加权打分；
+  - 基础模型精确匹配赋予 850 高分，杜绝了绑定的某一子型号策略无脑劫持同家族其他互斥模型的严重隐患；
+  - 未绑定精确策略的同家族模型平滑回退至 Astra 通用兜底，杜绝误注入。
+- **全透明请求日志审计**：
+  - 每次请求调用均在 SQLite 审计日志与前端展示中记录策略决策明细（`strategy_type`: 自定义/预设/兜底/无，`profile_name`, `matched_model`）；
+  - Web 控制台审计日志表格与详情抽屉、iOS 原生日志列表均可秒级查看注入了哪款 Prompt、命中哪个特征。
 - **全协议多形态请求体安全合并与防重入**：
   - **Anthropic 协议**：若客户端已有 `system`（无论是字符串还是 ContentBlock 数组），均安全前置合并并防止重复追加；
   - **OpenAI Chat 协议**：若客户端已有 `system`/`developer` 消息，合并至首条内容首部；若仅有 `user` 消息，自动在首位插入 `system` 消息；
@@ -52,10 +58,19 @@
 - **36 款针对性模型 Profile 矩阵**：
   - **Claude (14款)**：`claude-opus-5-5`, `claude-sonnet-4-6`, `claude-haiku-4-5` 等
   - **DeepSeek (6款)**：包含汉霜 (Hanshuang) 与 DSH purge API 适配器完整集成
-  - **Gemini (7款)**：`gemini-3.1-pro`, `gemini-3-flash`, `gemini-3.1-flash-image` 等
+  - **Gemini (7款)**：`gemini-3.1-pro`, `gemini-3-flash`, `gemini-3.1-flash-image`, `gemini-3.8-flash` 等
   - **GPT 5.6 / 6 (3款)**：`gpt-5.6-sol-v45`, `gpt-6-astra-v2-rc1` 等
   - **Kimi (4款破限)**：`kimi-k2-code`, `kimi-k2.5-code`, `kimi-k2.7-code`, `kimi-k2-plus`
   - **GLM / Grok (2款)**：`glm-5.3`, `grok-4.7`
+
+---
+
+### 4. 服务秒级热重启与版本自省 (v1.3.0 新增)
+- **热重启接口**：支持 `POST /api/system/restart` 异步热重启，自动保持当前活动端口无缝重新载入路由与内存策略；
+- **多端一键交互**：
+  - Web 控制台：侧边栏内核状态底栏、设置页网络表单均提供晶透的「热重启服务」一键按钮；
+  - iOS 原生控制台：仪表盘服务控制栏直接提供「重启」按钮，修改端口后提示一键重启生效；
+- **全系统版本自省统一**：`/api/system`、`/health`、页面 UI 统一展示动态自省版本号 `v1.3.0`。
 
 ---
 

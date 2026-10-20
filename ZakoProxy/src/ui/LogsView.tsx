@@ -93,6 +93,18 @@ export function LogsView({ store }: LogsViewProps) {
                     <Text attributedString="**⚡ Cyber**" />
                   ) : null}
                 </HStack>
+                {log.strategy_type && log.strategy_type !== "none" ? (
+                  <HStack>
+                    <Text attributedString={
+                      log.strategy_type === "custom"
+                        ? "**✨ 策略: 自定义**"
+                        : log.strategy_type === "profile"
+                        ? `**🎯 策略: ${log.profile_name || log.profile_id}**`
+                        : "**🛡️ 策略: Astra兜底**"
+                    } />
+                    {log.matched_model ? <Text>({log.matched_model})</Text> : null}
+                  </HStack>
+                ) : null}
                 <HStack>
                   <Text>
                     Tokens: 进 {log.usage.input_tokens} / 出 {log.usage.output_tokens} (缓存 {log.usage.cached_tokens})

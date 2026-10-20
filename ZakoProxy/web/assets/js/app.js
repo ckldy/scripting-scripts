@@ -320,6 +320,11 @@
     if (uptimeEl) {
       uptimeEl.textContent = formatUptime(sys.uptime_seconds);
     }
+
+    const versionEl = document.getElementById('sidebar-app-version');
+    if (versionEl && sys.version) {
+      versionEl.textContent = `v${sys.version}`;
+    }
   }
 
   // 2. 指标概览与图表渲染
@@ -1210,7 +1215,7 @@
     if (logsData.items.length === 0) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="7" style="text-align:center;padding:40px;color:var(--text-3);">
+          <td colspan="8" style="text-align:center;padding:40px;color:var(--text-3);">
             暂无匹配的审计请求记录
           </td>
         </tr>
@@ -1225,10 +1230,20 @@
         const statusClass = is2xx ? 'status-2xx' : is4xx ? 'status-4xx' : 'status-5xx';
         const totalTok = (l.usage?.input_tokens || 0) + (l.usage?.output_tokens || 0);
 
+        let stratBadge = '<span style="color:var(--text-3);font-size:11px;">无策略</span>';
+        if (l.strategy_type === 'custom') {
+          stratBadge = '<span class="badge" style="background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.3);">✨ 自定义</span>';
+        } else if (l.strategy_type === 'profile') {
+          stratBadge = `<span class="badge" style="background:rgba(59,130,246,0.15);color:#60a5fa;border:1px solid rgba(59,130,246,0.3);" title="${escapeHtml(l.profile_name || '')}">🎯 ${escapeHtml(l.profile_name || '预设')}</span>`;
+        } else if (l.strategy_type === 'default') {
+          stratBadge = '<span class="badge" style="background:rgba(234,179,8,0.15);color:#facc15;border:1px solid rgba(234,179,8,0.3);">🛡️ Astra兜底</span>';
+        }
+
         return `
           <tr class="table-row-item" style="cursor:pointer;" onclick="window.viewLogDetail('${l.id}')">
             <td>${formatTime(l.timestamp)}</td>
             <td><code style="font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--text-1);">${escapeHtml(l.model)}</code></td>
+            <td>${stratBadge}</td>
             <td><span class="badge badge-primary">${escapeHtml(l.protocol)}</span></td>
             <td><span class="status-tag ${statusClass}">${l.status}</span></td>
             <td style="font-family:var(--font-mono);">${l.latency_ms}ms</td>
@@ -1257,6 +1272,18 @@
     document.getElementById('log-detail-tokens-out').textContent = formatNumber(item.usage?.output_tokens || 0);
     document.getElementById('log-detail-tokens-cache').textContent = formatNumber(item.usage?.cached_tokens || 0);
     document.getElementById('log-detail-error').textContent = item.error || '无错误';
+
+    let stratText = '<span style="color:var(--text-3);">无注入策略</span>';
+    if (item.strategy_type === 'custom') {
+      stratText = '<span style="color:#c084fc;">✨ 自定义分组 Prompt 策略</span>';
+    } else if (item.strategy_type === 'profile') {
+      stratText = `<span style="color:#60a5fa;">🎯 专有预设: <strong>${escapeHtml(item.profile_name || item.profile_id)}</strong></span>` +
+        (item.matched_model ? ` <span style="color:var(--text-3);font-size:12px;">(匹配特征: <code>${escapeHtml(item.matched_model)}</code>)</span>` : '');
+    } else if (item.strategy_type === 'default') {
+      stratText = '<span style="color:#facc15;">🛡️ Astra 通用自适应执行策略 (默认保底)</span>';
+    }
+    const stratEl = document.getElementById('log-detail-strategy');
+    if (stratEl) stratEl.innerHTML = stratText;
 
     modal.classList.add('active');
   };
@@ -1335,7 +1362,43 @@
     document.getElementById('setting-port').value = s.port ?? 1990;
   }
 
+  async function restartServer() {
+    const btnSidebar = document.getElementById('btn-restart-server-sidebar');
+    const btnSettings = document.getElementById('btn-restart-server-settings');
+    if (btnSidebar) btnSidebar.disabled = true;
+    if (btnSettings) btnSettings.disabled = true;
+    showToast('正在触发 ZakoProxy 代理服务热重启...', 'info');
+
+    try {
+      const res = await api('/api/system/restart', { method: 'POST' });
+      showToast(`热重启指令已发送，监听端口: ${res.target_port || 1990}`, 'success');
+      setTimeout(async () => {
+        try {
+          await loadSystem();
+          showToast(`服务已就绪 (v${state.system?.version || '1.3.0'})`, 'success');
+        } catch {
+          showToast('服务重启中，请稍候刷新页面...', 'warning');
+        } finally {
+          if (btnSidebar) btnSidebar.disabled = false;
+          if (btnSettings) btnSettings.disabled = false;
+        }
+      }, 1500);
+    } catch (err) {
+      showToast(`热重启服务失败: ${err.message}`, 'error');
+      if (btnSidebar) btnSidebar.disabled = false;
+      if (btnSettings) btnSettings.disabled = false;
+    }
+  }
+
   function initSettingsControls() {
+    const btnRestartSidebar = document.getElementById('btn-restart-server-sidebar');
+    if (btnRestartSidebar) {
+      btnRestartSidebar.addEventListener('click', restartServer);
+    }
+    const btnRestartSettings = document.getElementById('btn-restart-server-settings');
+    if (btnRestartSettings) {
+      btnRestartSettings.addEventListener('click', restartServer);
+    }
     const form = document.getElementById('form-settings');
     if (form) {
       form.addEventListener('submit', async (e) => {

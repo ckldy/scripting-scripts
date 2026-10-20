@@ -3,10 +3,13 @@ import { handleApiRoute } from "./api"
 import { ProxyEngine } from "./proxy"
 import type { Store } from "./store"
 
+export const APP_VERSION = "1.3.0"
+
 export class ZakoServer {
   private server: HttpServer | null = null
   private engine: ProxyEngine
   public activePort: number | null = null
+  public startTime: number = Date.now()
 
   constructor(private store: Store) {
     this.engine = new ProxyEngine(store)
@@ -101,7 +104,7 @@ export class ZakoServer {
       // 2. GET /health
       this.server.registerAsyncHandler("/health", async () => {
         return HttpResponse.ok(
-          HttpResponseBody.text(JSON.stringify({ status: "ok", app: "ZakoProxy", version: "1.0.0" }))
+          HttpResponseBody.text(JSON.stringify({ status: "ok", app: "ZakoProxy", version: APP_VERSION }))
         )
       })
 
@@ -164,6 +167,7 @@ export class ZakoServer {
       }
 
       this.activePort = this.server.port || port
+      this.startTime = Date.now()
       return { success: true, port: this.activePort }
     } catch (e: any) {
       this.server = null
@@ -180,6 +184,13 @@ export class ZakoServer {
       this.server = null
       this.activePort = null
     }
+  }
+
+  async restart(port?: number): Promise<{ success: boolean; port?: number; error?: string }> {
+    const targetPort = port || this.activePort || 1990
+    this.stop()
+    await new Promise<void>((resolve) => setTimeout(() => resolve(), 150))
+    return this.start(targetPort)
   }
 
   private async handleForward(protocol: string, req: HttpRequest): Promise<HttpResponse> {

@@ -1,4 +1,5 @@
 import { PROFILES, findProfile } from "./profiles"
+import { APP_VERSION } from "./server"
 import type { ZakoServer } from "./server"
 import type { Store } from "./store"
 import { digest, id, now, token } from "./store"
@@ -67,17 +68,43 @@ export async function handleApiRoute(
   if (cleanPath === "/api/system" && method === "GET") {
     const cfg = await store.getConfig()
     return jsonResponse({
-      version: "1.0.0",
+      version: APP_VERSION,
       app: "ZakoProxy",
       author: "vcncv",
       running: server.isRunning,
       port: server.activePort || 1990,
-      uptime_seconds: Math.floor((Date.now() - START_TIME) / 1000),
-      start_time: START_TIME,
+      uptime_seconds: Math.floor((Date.now() - server.startTime) / 1000),
+      start_time: server.startTime,
       accounts_count: cfg.accounts?.length || 0,
       keys_count: cfg.keys?.length || 0,
       groups_count: cfg.groups?.length || 0,
       profiles_count: PROFILES.length,
+    })
+  }
+
+  // 1.1 POST /api/system/restart (热重启代理服务)
+  if (cleanPath === "/api/system/restart" && method === "POST") {
+    const cfg = await store.getConfig()
+    const body = parseJsonBody(req)
+    const targetPort =
+      (typeof body.port === "number" && body.port > 0)
+        ? body.port
+        : (server.activePort || cfg.settings?.port || 1990)
+
+    // 延迟 100ms 异步重启，以便先完成当前 HTTP 响应的交付
+    setTimeout(async () => {
+      try {
+        await server.restart(targetPort)
+      } catch (e) {
+        console.error("ZakoProxy hot restart failed:", e)
+      }
+    }, 100)
+
+    return jsonResponse({
+      success: true,
+      message: "ZakoProxy 代理服务正在热重启...",
+      target_port: targetPort,
+      version: APP_VERSION,
     })
   }
 

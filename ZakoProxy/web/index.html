@@ -86,6 +86,21 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           <span>系统设置</span>
         </a>
+
+        <!-- 侧边栏服务热重启与自省底栏 -->
+        <div style="margin-top:auto;padding-top:20px;">
+          <div style="padding:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border-glass);border-radius:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+              <span style="font-size:11px;color:var(--text-3);">内核状态</span>
+              <span class="badge badge-primary" style="font-size:10px;" id="sidebar-app-version">v1.3.0</span>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-restart-server-sidebar" style="width:100%;font-size:11px;padding:6px 0;display:flex;align-items:center;justify-content:center;gap:6px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              <span>热重启服务</span>
+            </button>
+          </div>
+        </div>
+      </aside>
       </aside>
 
       <!-- 主视图容器 -->
@@ -333,6 +348,7 @@
                 <tr>
                   <th>请求时间</th>
                   <th>模型</th>
+                  <th>Prompt 策略</th>
                   <th>协议</th>
                   <th>状态</th>
                   <th>耗时</th>
@@ -341,7 +357,7 @@
                 </tr>
               </thead>
               <tbody id="logs-table-body">
-                <tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text-3);">正在加载日志...</td></tr>
+                <tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text-3);">正在加载日志...</td></tr>
               </tbody>
             </table>
           </div>
@@ -401,7 +417,13 @@
                   <input type="number" id="setting-port" class="form-input" min="1024" max="65535" />
                   <span class="form-hint">修改端口需重启服务生效</span>
                 </div>
-                <button type="submit" class="btn btn-primary" style="width:100%;margin-top:10px;">保存网络配置</button>
+                <div style="display:flex;gap:10px;margin-top:14px;">
+                  <button type="submit" class="btn btn-primary" style="flex:1;">保存网络配置</button>
+                  <button type="button" class="btn btn-secondary" id="btn-restart-server-settings" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    <span>热重启服务</span>
+                  </button>
+                </div>
               </form>
             </div>
 
@@ -656,6 +678,7 @@
         <div><span style="color:var(--text-3);font-size:11px;">请求时间</span><div id="log-detail-time" style="font-weight:600;font-size:13px;"></div></div>
         <div><span style="color:var(--text-3);font-size:11px;">转发路径</span><div id="log-detail-path" style="font-family:var(--font-mono);font-size:12px;"></div></div>
         <div><span style="color:var(--text-3);font-size:11px;">最终响应状态</span><div id="log-detail-status" style="font-weight:600;font-size:13px;"></div></div>
+        <div style="grid-column: span 2;"><span style="color:var(--text-3);font-size:11px;">Prompt 策略注入审计</span><div id="log-detail-strategy" style="font-weight:600;font-size:13px;margin-top:2px;"></div></div>
       </div>
       <div class="account-stats-row" style="margin-bottom:14px;">
         <div class="account-stat-col">

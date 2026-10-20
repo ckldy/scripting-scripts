@@ -136,6 +136,26 @@ export function DashboardView({ store, server, onDismiss }: DashboardViewProps) 
     }
   }
 
+  const handleRestartServer = async () => {
+    const cfg = await store.getConfig()
+    const port = cfg.settings?.port || serverPort || 1990
+    const res = await server.restart(port)
+    if (res.success) {
+      setServerRunning(true)
+      setServerPort(res.port || port)
+      await Dialog.alert({
+        title: "服务已重启",
+        message: `ZakoProxy 代理内核已重新载入并在端口 :${res.port || port} 运行！最新 Prompt 策略已热加载生效。`,
+      })
+    } else {
+      await Dialog.alert({
+        title: "重启失败",
+        message: res.error || "服务重启失败",
+      })
+    }
+    await loadData()
+  }
+
   const handleCopyBaseUrl = async () => {
     const url = `http://127.0.0.1:${serverPort}/v1`
     await Pasteboard.setString(url)
@@ -280,10 +300,15 @@ export function DashboardView({ store, server, onDismiss }: DashboardViewProps) 
             <Text attributedString={serverRunning ? "**🟢 代理服务运行中**" : "**⚪ 服务已停止**"} />
             <Text>监听地址: 127.0.0.1:{serverPort}</Text>
           </VStack>
-          <Button
-            title={serverRunning ? "停止服务" : "启动服务"}
-            action={handleToggleServer}
-          />
+          <HStack spacing={8}>
+            {serverRunning ? (
+              <Button title="重启" action={handleRestartServer} />
+            ) : null}
+            <Button
+              title={serverRunning ? "停止服务" : "启动服务"}
+              action={handleToggleServer}
+            />
+          </HStack>
         </HStack>
 
         <HStack>

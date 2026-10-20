@@ -59,6 +59,10 @@ export function SettingsView({ store, onPortChange }: SettingsViewProps) {
     })
     await loadData()
     if (onPortChange) onPortChange(p)
+    await Dialog.alert({
+      title: "端口已修改",
+      message: `端口已更新为 :${p}，返回控制台点击「重启」按钮即可平滑生效。`,
+    })
   }
 
   const handleEditRetries = async () => {

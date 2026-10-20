@@ -75,6 +75,19 @@ export interface RequestLog {
   attempts: number
   request_path: string
   error?: string
+  strategy_type?: "custom" | "profile" | "default" | "none"
+  profile_id?: string
+  profile_name?: string
+  matched_model?: string
+}
+
+export interface StrategyMatchResult {
+  instruction: string | null
+  strategy_type: "custom" | "profile" | "default" | "none"
+  profile_id?: string
+  profile_name?: string
+  matched_model?: string
+  score?: number
 }
 
 export interface AccountRuntime {
