@@ -11,7 +11,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 | 黃豆短劇 | 1.2.0 | 浏览、搜索与收藏黃豆短劇内容，支持播放历史、剧集播放、上下滑切集与进度条 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D) |
 | NetRadio（网络收音机） | 1.0.1 | 全球 1000+ 公开网络电台（按 36 个国家/地区归类），黑胶唱机舞台、电平示波器、主题调色板与 iOS 原生后台/锁屏播控（基于 net-redio 移植，作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D) |
 | 音乐大合集 | 1.0.0 | 多源聚合音乐播放器，支持 QQ/网易/酷狗/酷我/咪咕音源，经典与沉浸播放页窗口自适应、纯净无下划线歌词、多样式进度条与后台保活播放（作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F%E9%9F%B3%E4%B9%90%E5%A4%A7%E5%90%88%E9%9B%86.zip%22%5D) |
-| ZakoProxy（AI 代理中转） | 1.4.1 | 基于 ckldy/ZakoProxyCLI 深度移植的自托管 AI API 中转代理。v1.4.1 关键修复：长回复被 2KB 错误摘要误截断（现完整回传含 `data: [DONE]`）、WebUI 新建账号无法选择分组导致永久不可用、`/ui` 静态目录穿越可下载 `master.key`、分组名存储型 XSS，并新增 CSP/防嵌入安全头与账号密钥密文不外传；保留分层多维打分智能匹配、审计日志与秒级热重启，带流光毛玻璃双模界面、多账号故障转移熔断与 AES-256 本地加密（作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FZakoProxy.zip%22%5D) |
+| ZakoProxy（AI 代理中转） | 1.4.2 | 基于 ckldy/ZakoProxyCLI 深度移植的自托管 AI API 中转代理。v1.4.2 关键修复：模型名匹配不再被渠道前缀（workbuddy/、coldcoffee-、kimi-break-、hanshuang- 等）迷惑，自动识别真实模型身份并命中对应预设；同族版本号改为令牌级严格比对（v4 不再被误判为 v4.1）；保留分层多维打分、审计日志与秒级热重启，带流光毛玻璃双模界面、多账号故障转移熔断与 AES-256 本地加密（作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FZakoProxy.zip%22%5D) |
 
 ## 📥 安装方法
 
@@ -22,7 +22,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 ## 🌟 脚本功能详解与直链
 
 ### 🛡️ ZakoProxy (自托管 AI API 代理中转与提示词策略系统)
-- **版本**：`1.4.1` ｜ **作者**：`vcncv`（基于 `ckldy/ZakoProxyCLI` 深度移植，界面参考 `yyhoworks/LocalDNS` 流光毛玻璃架构）
+- **版本**：`1.4.2` ｜ **作者**：`vcncv`（基于 `ckldy/ZakoProxyCLI` 深度移植，界面参考 `yyhoworks/LocalDNS` 流光毛玻璃架构）
 - **特性**：
   - **v1.4.1 稳定性与安全修复**：
     - **长回复不再被截断**：成功响应体误用了日志用的 2KB `errorSummary` 截断，导致超过 2048 字符的回复（尤其 SSE）被硬切且缺失 `data: [DONE]`；现拆分为只做密钥替换的 `redactSecrets` 与仅用于日志的 `errorSummary`，完整回传（实测 15.5 万字符 / 676 条 SSE 分片全部保留）；

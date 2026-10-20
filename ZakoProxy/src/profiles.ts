@@ -332,12 +332,89 @@ export const PROFILES: Profile[] = [
 
 const FAMILIES = ["gpt-5.6", "gpt-6.1", "gpt-6", "claude", "grok", "gemini", "deepseek", "glm", "kimi"] as const
 
+/**
+ * 渠道/中转前缀白名单。这些前缀不属于模型身份，只是运营渠道标签。
+ * 例如 workbuddy-deepseek-v4.1-flash 的真实身份是 deepseek-v4.1-flash。
+ */
+export const CHANNEL_PREFIXES = [
+  "workbuddy",
+  "work-buddy",
+  "coldcoffee",
+  "cold-coffee",
+  "hanshuang",
+  "kimi-break",
+  "kimibreak",
+  "openrouter",
+  "openai",
+  "anthropic",
+  "google",
+  "azure",
+  "vertex",
+  "bedrock",
+  "volcengine",
+  "volces",
+  "dashscope",
+  "aliyun",
+  "qwen",
+  "moonshot",
+  "deepseek",
+  "zhipu",
+  "bigmodel",
+  "siliconflow",
+  "groq",
+  "together",
+  "fireworks",
+  "perplexity",
+  "xai",
+  "mistral",
+  "meta",
+  "llama",
+] as const
+
+/** 本身就是模型族名的前缀，不应当作渠道标签剥离 */
+const FAMILY_PREFIXES = ["deepseek", "qwen", "llama", "mistral", "grok", "claude", "gemini"] as const
+
+/**
+ * 从模型名中剥离渠道前缀（可多级，例如 workbuddy/coldcoffee/deepseek-v4.1-flash）。
+ * 只剥离“前缀之后仍然像模型名”的部分，避免把 kimi-break 这类真实型号名剥残。
+ */
+export function stripChannelPrefix(name: string): string {
+  let s = name
+  let guard = 0
+  while (guard++ < 4) {
+    let changed = false
+    for (const prefix of CHANNEL_PREFIXES) {
+      if (!s.startsWith(`${prefix}-`) && !s.startsWith(`${prefix}/`) && !s.startsWith(`${prefix}:`)) continue
+      const rest = s.slice(prefix.length + 1)
+      // 剥完必须还有内容，且剩下的部分不能只剩数字/修饰词
+      if (!rest || rest.length < 3) continue
+      // 真实模型家族名不当前缀剥离：kimi-break-kimi-k3 -> kimi-break 是渠道，保留 kimi-k3
+      if (prefix === "kimi-break" || prefix === "kimibreak") {
+        if (!rest.startsWith("kimi")) continue
+      }
+      // 模型族名（deepseek/qwen/llama 等）是模型身份本身，任何情况下都不当渠道标签剥离
+      if (FAMILY_PREFIXES.includes(prefix as any)) continue
+      s = rest
+      changed = true
+      break
+    }
+    if (!changed) break
+  }
+  return s
+}
+
+/**
+ * 模型名归一化：小写、去空格、剥离多级渠道前缀与路径前缀。
+ * 结果必须是“模型身份”，与请求经由哪个渠道无关。
+ */
 export function normalizeModelName(raw: string): string {
   if (!raw) return ""
   let clean = raw.toLowerCase().trim()
+  // 兼容 providers 路径写法与 :tag 后缀：openai/gpt-4o、gemini-3-flash:latest
   if (clean.includes("/")) {
     clean = clean.split("/").pop() || clean
   }
+  clean = stripChannelPrefix(clean)
   return clean
 }
 
@@ -410,6 +487,7 @@ export function extractBaseModelCandidates(raw: string): string[] {
 }
 
 export function modelFamily(model: string): string | null {
+  // normalizeModelName 已剥离渠道/路径前缀，family 判定不再被前缀迷惑
   const norm = normalizeModelName(model)
   if (!norm) return null
 
@@ -451,7 +529,35 @@ export function extractModelCore(name: string): string {
       s = s.slice(0, -suffix.length)
     }
   }
-  return s
+  return s.replace(/-+/g, "-").replace(/^-|-$/g, "")
+}
+
+/**
+ * 将核心标识归一为可比较的片段集合。
+ * 统一处理 v 前缀、点/横线、以及数字段切分，使
+ * "v4.1-flash / 4.1-flash / v4-1-flash / v41-flash" 全部得到同一组片段。
+ */
+export function coreTokens(core: string): string[] {
+  if (!core) return []
+  return core
+    .toLowerCase()
+    .split(/[^a-z0-9.]+/)
+    .filter(Boolean)
+    .flatMap((seg) => seg.split("."))
+    .map((seg) => seg.replace(/^v(?=\d)/, ""))
+    .filter(Boolean)
+}
+
+/**
+ * 判断两个核心标识是否为同一“型号+版本”。
+ * 不用朴素 startsWith，否则 deepseek 的 v4 会错误地“包含” v4.1（4 是 4.1 的前缀）。
+ */
+export function isSameModelCore(a: string, b: string): boolean {
+  const ta = coreTokens(a)
+  const tb = coreTokens(b)
+  if (!ta.length || !tb.length) return false
+  if (ta.length !== tb.length) return false
+  return ta.every((tok, i) => tok === tb[i])
 }
 
 /**
@@ -532,17 +638,29 @@ export function scoreProfileMatch(
       // 规则 E: 同家族严格核心版本匹配 (Strict Same-Family Core Match)
       if (candFamily && declaredFamily && candFamily === declaredFamily) {
         if (candCore && declaredCore) {
-          if (candCore === declaredCore) {
-            const score = isOriginal ? 700 : 650
+          if (isSameModelCore(candCore, declaredCore)) {
+            const score = isOriginal ? 720 : 670
             if (score > bestScore) {
               bestScore = score
               bestMatchedModel = candidate
             }
-          } else if (candCore.startsWith(declaredCore) || declaredCore.startsWith(candCore)) {
-            const score = 600
-            if (score > bestScore) {
-              bestScore = score
-              bestMatchedModel = candidate
+          } else {
+            // 代号相同仅版本号成前缀关系（如 opus-4 与 opus-4-6）时给低分保留兼容，
+            // 但必须排除单纯数字前缀误判：v4 不得算作 v4.1 的前缀。
+            const ta = coreTokens(candCore)
+            const tb = coreTokens(declaredCore)
+            const shorter = ta.length <= tb.length ? ta : tb
+            const longer = ta.length <= tb.length ? tb : ta
+            const prefixOk =
+              shorter.length > 1 &&
+              shorter.every((tok, i) => tok === longer[i]) &&
+              !/^\d+$/.test(longer[shorter.length] || "")
+            if (prefixOk) {
+              const score = 560
+              if (score > bestScore) {
+                bestScore = score
+                bestMatchedModel = candidate
+              }
             }
           }
         }

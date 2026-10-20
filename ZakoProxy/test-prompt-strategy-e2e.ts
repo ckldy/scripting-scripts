@@ -12,7 +12,9 @@ import {
   normalizeModelName,
   extractBaseModelCandidates,
   extractModelCore,
+  isSameModelCore,
   scoreProfileMatch,
+  stripChannelPrefix,
 } from "./src/profiles"
 import { applyPromptStrategy, errorSummary, redactSecrets } from "./src/proxy"
 import type { Group } from "./src/types"
@@ -48,6 +50,32 @@ async function runPromptStrategyE2ETest() {
 
   const tieredCandidates = extractBaseModelCandidates("gemini-3.7-flash-tiered")
   assert(tieredCandidates.includes("gemini-3.7-flash"), "候选列表成功剥离 -tiered 后缀")
+
+  // 渠道前缀无关化（v1.4.2）：运营渠道名不属于模型身份，不得干扰匹配
+  assert(
+    stripChannelPrefix("workbuddy-deepseek-v4.1-flash") === "deepseek-v4.1-flash",
+    "stripChannelPrefix 剥离 workbuddy- 渠道前缀"
+  )
+  assert(
+    normalizeModelName("workbuddy/gemini-3.8-flash-high") === "gemini-3.8-flash-high",
+    "workbuddy/ 路径式渠道前缀也被剥离"
+  )
+  assert(normalizeModelName("coldcoffee-claude-opus-4-6") === "claude-opus-4-6", "coldcoffee- 渠道前缀被剥离")
+  assert(normalizeModelName("kimi-break-kimi-k3") === "kimi-k3", "kimi-break- 渠道前缀被剥离但保留 kimi-k3")
+  assert(normalizeModelName("WORKBUDDY-Claude-Opus-4-6") === "claude-opus-4-6", "渠道前缀大写也能识别")
+  assert(
+    normalizeModelName("workbuddy-coldcoffee-gemini-3.8-flash") === "gemini-3.8-flash",
+    "多级渠道前缀可递进剥离"
+  )
+  assert(normalizeModelName("deepseek-v4.1-flash") === "deepseek-v4.1-flash", "真实模型族名不被误当渠道前缀剥掉")
+  assert(normalizeModelName("hanshuang-deepseek-flash") === "deepseek-flash", "hanshuang- 剥离后 deepseek 仍保留")
+  assert(normalizeModelName("gemini-3-flash") === "gemini-3-flash", "无前缀模型名保持不变")
+  assert(modelFamily("workbuddy-deepseek-v4.1-flash") === "deepseek", "渠道前缀不影响家族识别")
+
+  // 核心版本容错：v4 不得被当成 v4.1 的前缀
+  assert(!isSameModelCore(extractModelCore("deepseek-v4-flash"), extractModelCore("deepseek-v4.1-flash")), "v4-flash 与 v4.1-flash 不会被混淆")
+  assert(isSameModelCore(extractModelCore("deepseek-v4.1-flash"), extractModelCore("workbuddy-deepseek-v4.1-flash")), "渠道前缀不影响核心版本相等判定")
+  assert(!isSameModelCore(extractModelCore("claude-opus-4-6"), extractModelCore("claude-opus-4-7")), "opus-4-6 与 opus-4-7 严格区分")
 
   // 模型核心版本提取
   assert(extractModelCore("gemini-3.8-flash-high") === "3.8-flash", "extractModelCore 正确提取 gemini-3.8-flash-high 核心为 3.8-flash")
@@ -99,9 +127,52 @@ async function runPromptStrategyE2ETest() {
   )
 
   // ==========================================
-  // 3. 多协议请求体安全注入与防重入测试
+  // 2.5 渠道前缀无关的端到端策略命中矩阵
   // ==========================================
-  console.log("\n[3/5] 测试多协议请求体提示词安全注入与审计元数据...")
+  console.log("\n[2.5/5] 测试渠道前缀无关的策略命中矩阵...")
+  const prefixGroup: Group = {
+    id: "grp-prefix",
+    name: "渠道前缀无关组",
+    profile_ids: [
+      "coldcoffee-gemini-3.8-flash-v1",
+      "coldcoffee-gemini-3-flash-v1",
+      "coldcoffee-deepseek-v4.1-flash-v1",
+      "coldcoffee-deepseek-v4-flash-v1",
+      "coldcoffee-claude-opus-4-6-v1",
+      "coldcoffee-claude-sonnet-4-6-v1",
+      "kimi-break-kimi-k3-v1",
+      "coldcoffee-glm-5.3-v1",
+    ],
+    default_strategy_enabled: true,
+  }
+  const prefixCases: [string, string][] = [
+    ["workbuddy-deepseek-v4.1-flash", "coldcoffee-deepseek-v4.1-flash-v1"],
+    ["workbuddy-deepseek-v4-flash", "coldcoffee-deepseek-v4-flash-v1"],
+    ["workbuddy/gemini-3.8-flash-high", "coldcoffee-gemini-3.8-flash-v1"],
+    ["workbuddy/gemini-3-flash", "coldcoffee-gemini-3-flash-v1"],
+    ["workbuddy-claude-opus-4-6", "coldcoffee-claude-opus-4-6-v1"],
+    ["claude-opus-4-6-thinking", "coldcoffee-claude-opus-4-6-v1"],
+    ["claude-sonnet-4-6", "coldcoffee-claude-sonnet-4-6-v1"],
+    ["kimi-break-kimi-k3", "kimi-break-kimi-k3-v1"],
+    ["workbuddy-glm-5.3", "coldcoffee-glm-5.3-v1"],
+  ]
+  for (const [model, expectId] of prefixCases) {
+    const m = matchInstruction(prefixGroup, model, model)
+    assert(
+      m.profile_id === expectId && m.strategy_type === "profile",
+      `${model} 命中 ${m.profile_id || m.strategy_type}（期望 ${expectId}）`
+    )
+  }
+  // 未绑定的模型不得被任何同族预设劫持
+  const unbound = matchInstruction({ ...prefixGroup, profile_ids: ["coldcoffee-gemini-3.8-flash-v1"] }, "workbuddy-deepseek-v4.1-flash")
+  assert(unbound.strategy_type === "default", "未绑定 deepseek 时回退 Astra 兜底，不劫持")
+  // 同族不同版本不得互相错配
+  const misVersion = matchInstruction({ ...prefixGroup, profile_ids: ["coldcoffee-deepseek-v4-flash-v1"] }, "workbuddy-deepseek-v4.1-flash")
+  assert(misVersion.profile_id !== "coldcoffee-deepseek-v4-flash-v1", "未绑定 v4.1 时不会被 v4 预设错配")
+
+  // ==========================================
+  // 3. 多协议请求体安全注入与防重入测试
+  // ==========================================  console.log("\n[3/5] 测试多协议请求体提示词安全注入与审计元数据...")
   const claudeProfile = findProfile("coldcoffee-claude-sonnet-4-6-v1") || PROFILES.find((p) => p.model_family === "claude")!
   const targetClaudeModel = claudeProfile.models[0]
   const testGroupClaude: Group = {

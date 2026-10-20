@@ -2,7 +2,7 @@
   "name": "ZakoProxy",
   "icon": "shield.lefthalf.filled",
   "color": "rgba(255, 45, 85, 1)",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "runInApp": true,
   "author": {
     "name": "vcncv"
