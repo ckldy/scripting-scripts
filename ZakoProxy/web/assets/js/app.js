@@ -513,8 +513,9 @@
   // 3. 上游账号工作台
   async function loadAccounts() {
     try {
-      const data = await api('/api/accounts');
+      const [data, groups] = await Promise.all([api('/api/accounts'), api('/api/groups')]);
       state.accounts = data;
+      state.groups = groups;
       renderAccounts(data);
     } catch (e) {
       showToast(`加载账号失败: ${e.message}`, 'error');
@@ -539,6 +540,12 @@
           .map((p) => `<span class="badge badge-primary">${escapeHtml(p)}</span>`)
           .join('');
         const modelsCount = (acc.models || []).length;
+        const groupNames = (acc.group_ids || [])
+          .map((gid) => (state.groups || []).find((g) => g.id === gid)?.name)
+          .filter(Boolean);
+        const groupBadges = groupNames.length
+          ? groupNames.map((n) => `<span class="badge badge-success">分组: ${escapeHtml(n)}</span>`).join('')
+          : `<span class="badge" style="color:var(--danger);border-color:var(--danger);">未分配分组·不可用</span>`;
         const cooldown = acc.runtime?.cooldownRemaining || 0;
 
         return `
@@ -556,6 +563,7 @@
 
             <div class="account-badges">
               ${protocolsBadges}
+              ${groupBadges}
               <span class="badge">权重: ${acc.priority}</span>
               <span class="badge">模型: ${modelsCount}款</span>
               ${cooldown > 0 ? `<span class="badge badge-warning">冷却倒计时: ${cooldown}s</span>` : ''}
@@ -693,6 +701,24 @@
       }
     });
 
+    // 分组多选（未挂分组的账号永远不会被选中）
+    const groupsBox = document.getElementById('acc-groups');
+    if (groupsBox) {
+      const groups = state.groups || [];
+      const selectedGroups = isEdit ? acc.group_ids || [] : groups.slice(0, 1).map((g) => g.id);
+      groupsBox.innerHTML = groups.length
+        ? groups
+            .map(
+              (g) => `
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" class="acc-group-check" value="${g.id}" ${selectedGroups.includes(g.id) ? 'checked' : ''} />
+              <span>${escapeHtml(g.name)}</span>
+            </label>`
+            )
+            .join('')
+        : `<span class="form-hint" style="color:var(--danger);">暂无分组，请先到「分组管理」创建分组</span>`;
+    }
+
     modal.classList.add('active');
   }
 
@@ -730,6 +756,13 @@
         const protocols = [];
         document.querySelectorAll('.acc-proto-check:checked').forEach((chk) => protocols.push(chk.value));
 
+        const groupIds = [];
+        document.querySelectorAll('.acc-group-check:checked').forEach((chk) => groupIds.push(chk.value));
+        if (groupIds.length === 0) {
+          showToast('请至少勾选一个分组，否则该账号永远不会被请求命中', 'error');
+          return;
+        }
+
         const payload = {
           name,
           endpoint,
@@ -739,6 +772,7 @@
           proxy_url,
           models,
           protocols,
+          group_ids: groupIds,
         };
         if (apiKey && !apiKey.includes('••••')) {
           payload.api_key = apiKey;
@@ -959,7 +993,7 @@
               </div>
               <div style="display:flex;align-items:center;gap:8px;">
                 <button type="button" class="btn btn-secondary btn-sm" onclick="window.openEditGroupModal('${g.id}')">✏️ 编辑与策略绑定</button>
-                <button type="button" class="btn btn-danger btn-sm" onclick="window.deleteGroup('${g.id}', '${escapeHtml(g.name)}')">🗑️ 删除</button>
+                <button type="button" class="btn btn-danger btn-sm del-group-btn" data-id="${escapeHtml(g.id)}" data-name="${escapeHtml(g.name)}">🗑️ 删除</button>
               </div>
             </div>
 
@@ -1001,6 +1035,13 @@
         `;
       })
       .join('');
+
+    // 用 data-* + 事件监听，避免把用户可控的分组名拼进内联 onclick（存储型 XSS）
+    container.querySelectorAll('.del-group-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        window.deleteGroup(btn.getAttribute('data-id'), btn.getAttribute('data-name'));
+      });
+    });
   }
 
   function renderProfilesCatalog(profiles) {
@@ -1396,7 +1437,7 @@
       setTimeout(async () => {
         try {
           await loadSystem();
-          showToast(`服务已就绪 (v${state.system?.version || '1.4.0'})`, 'success');
+          showToast(`服务已就绪 (v${state.system?.version || '1.4.1'})`, 'success');
         } catch {
           showToast('服务重启中，请稍候刷新页面...', 'warning');
         } finally {

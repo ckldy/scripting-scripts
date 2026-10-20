@@ -1,5 +1,5 @@
 import { Script } from "scripting"
-import { ZakoServer } from "./src/server"
+import { ZakoServer, resolveStaticPath } from "./src/server"
 import { Store } from "./src/store"
 
 declare function fetch(input: any, init?: any): Promise<any>
@@ -24,8 +24,10 @@ async function runE2ETest() {
   console.log(`✅ ZakoProxy 测试服务已成功启动于端口 :${port}`)
 
   let allPassed = true
+  let passedCount = 0
   const assert = (condition: boolean, msg: string) => {
     if (condition) {
+      passedCount++
       console.log(`  ✓ ${msg}`)
     } else {
       console.error(`  ✗ ${msg}`)
@@ -53,6 +55,14 @@ async function runE2ETest() {
       htmlText.includes("data-preset=\"cosmos\""),
       "index.html 包含 cosmos 流光背景预设"
     )
+    assert(
+      htmlText.includes('id="acc-groups"'),
+      "index.html 账号弹窗包含分组选择容器"
+    )
+    assert(
+      (rHtml.headers?.get?.("content-security-policy") || "").includes("default-src 'none'"),
+      "index.html 返回 CSP 安全响应头"
+    )
 
     // 3. 测试 CSS 静态资源
     const rCss = await fetch(`${baseUrl}/ui/assets/css/glass.css`)
@@ -71,6 +81,14 @@ async function runE2ETest() {
       jsText.includes("initAppearance"),
       "app.js 包含流光毛玻璃与交互初始化"
     )
+    assert(
+      jsText.includes("acc-group-check") && jsText.includes("group_ids: groupIds"),
+      "app.js 账号表单提交 group_ids（避免新建账号永远不可用）"
+    )
+    assert(
+      jsText.includes("del-group-btn") && !jsText.includes("window.deleteGroup('"),
+      "分组删除按钮不再把名称拼进内联 onclick（防存储型 XSS）"
+    )
 
     // 5. 测试 Chart.js 静态资源
     const rChart = await fetch(`${baseUrl}/ui/assets/js/chart.umd.min.js`)
@@ -79,6 +97,13 @@ async function runE2ETest() {
     // 6. 测试 Logo 图标
     const rLogo = await fetch(`${baseUrl}/ui/assets/img/logo.png`)
     assert(rLogo.status === 200, "GET /ui/assets/img/logo.png 状态码 200")
+
+    // 6.1 静态资源路径穿越防护（曾可下载 data/master.key）
+    const webRoot = "/tmp/web"
+    assert(resolveStaticPath(webRoot, "assets/js/app.js") === "/tmp/web/assets/js/app.js", "正常静态路径可解析")
+    assert(resolveStaticPath(webRoot, "../data/master.key") === null, "阻止 ../ 目录穿越")
+    assert(resolveStaticPath(webRoot, "assets/../../data/zako.db") === null, "阻止嵌套目录穿越")
+    assert(resolveStaticPath(webRoot, "..\\data\\master.key") === null, "阻止反斜杠穿越")
 
     // 测试 REST API 路由
     console.log("\n[2/5] 测试核心 REST API 路由 (/api/*)...")
@@ -157,6 +182,7 @@ async function runE2ETest() {
         priority: 5,
         models: ["gpt-4o", "gpt-4o-mini"],
         protocols: ["chat", "responses"],
+        group_ids: [dGroups[0].id],
       }),
     })
     const dCreateAcc = await rCreateAcc.json()
@@ -170,6 +196,11 @@ async function runE2ETest() {
     const foundAcc = dGetAccs.find((a: any) => a.id === testAccId)
     assert(Boolean(foundAcc), "在账号列表中找到新建账号")
     assert(foundAcc?.api_key_masked?.includes("••••"), "展示已脱敏 API Key")
+    assert(foundAcc?.api_key === undefined, "账号列表不返回密钥密文")
+    assert(
+      Array.isArray(foundAcc?.group_ids) && foundAcc.group_ids.includes(dGroups[0].id),
+      "账号已正确绑定分组"
+    )
 
     // POST /api/accounts/:id/test (连通性测试)
     const rTestAcc = await fetch(`${baseUrl}/api/accounts/${testAccId}/test`, {
@@ -196,7 +227,7 @@ async function runE2ETest() {
 
     console.log("\n=======================================================")
     if (allPassed) {
-      console.log("🎉 所有 25 项流光毛玻璃 Web 控制台与 REST API 测试 100% 通过！")
+      console.log(`🎉 所有 ${passedCount} 项流光毛玻璃 Web 控制台与 REST API 测试 100% 通过！`)
     } else {
       console.error("❌ 部分测试用例未通过，请检查上述错误日志！")
     }

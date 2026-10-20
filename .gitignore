@@ -5,3 +5,9 @@ Thumbs.db
 
 # 本地临时
 .tmp/
+
+# 运行时数据（绝不可提交/发布）
+**/data/master.key
+**/data/*.db
+**/data/*.db-shm
+**/data/*.db-wal

@@ -14,13 +14,13 @@ import {
   extractModelCore,
   scoreProfileMatch,
 } from "./src/profiles"
-import { applyPromptStrategy } from "./src/proxy"
+import { applyPromptStrategy, errorSummary, redactSecrets } from "./src/proxy"
 import type { Group } from "./src/types"
 
 declare function fetch(input: any, init?: any): Promise<any>
 
 async function runPromptStrategyE2ETest() {
-  console.log("=== 开始 ZakoProxy 预设 Prompt 策略全链路与 E2E 验证 (v1.4.0) ===")
+  console.log("=== 开始 ZakoProxy 预设 Prompt 策略全链路与 E2E 验证 (v1.4.1) ===")
 
   let allPassed = true
   const assert = (condition: boolean, msg: string) => {
@@ -54,6 +54,16 @@ async function runPromptStrategyE2ETest() {
   assert(extractModelCore("gemini-3-flash") === "3-flash", "extractModelCore 正确提取 gemini-3-flash 核心为 3-flash")
   assert(extractModelCore("claude-opus-4-6-thinking") === "opus-4-6", "extractModelCore 正确提取 claude-opus-4-6-thinking 核心为 opus-4-6")
   assert(extractModelCore("claude-sonnet-4-6") === "sonnet-4-6", "extractModelCore 正确提取 claude-sonnet-4-6 核心为 sonnet-4-6")
+
+  // 响应体完整性：长回复必须完整转发（曾误用 2KB 错误摘要导致流式回复被截断）
+  const longBody = "数".repeat(5000)
+  assert(redactSecrets(longBody, []).length === 5000, "redactSecrets 不截断正常响应体")
+  assert(!redactSecrets(longBody, []).includes("…"), "正常响应体不会出现截断省略号")
+  assert(
+    redactSecrets(`${longBody} sk-secret-123`, ["sk-secret-123"]).includes("[redacted]"),
+    "redactSecrets 仍会替换密钥"
+  )
+  assert(errorSummary(longBody, []).length === 2048, "errorSummary 仅用于日志并保留 2KB 截断")
 
   // ==========================================
   // 2. 多维打分系统与同家族防劫持测试

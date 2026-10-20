@@ -23,6 +23,10 @@ async function build() {
   for (const src of scriptDirs) {
     const name = src.substring(src.lastIndexOf("/") + 1)
     const dest = distDir + "/" + name + ".zip"
+    // 安全门禁：运行时数据（master.key / zako.db 等）绝不能进入发布包
+    if (await FileManager.exists(src + "/data")) {
+      throw new Error(`${name}: 脚本目录包含运行时 data/，请先移除再打包（避免泄漏 master.key、数据库与上游密钥）`)
+    }
     await FileManager.remove(dest).catch(() => undefined)
     console.log("开始打包:", src)
     await FileManager.zip(src, dest, false) // shouldKeepParent=false → zip 根直接是脚本文件

@@ -1,10 +1,23 @@
 import { Path, Script } from "scripting"
-import { handleApiRoute } from "./api"
+import { SECURITY_HEADERS, handleApiRoute } from "./api"
 import { ProxyEngine } from "./proxy"
 import { APP_VERSION } from "./version"
 import type { Store } from "./store"
 
 export { APP_VERSION }
+
+/**
+ * 将 /ui/ 后的相对路径安全地解析到 web 根目录内。
+ * 返回 null 表示路径非法（目录穿越、反斜杠、NUL 等），调用方应直接 404。
+ */
+export function resolveStaticPath(webRootRaw: string, sub: string): string | null {
+  const webRoot = webRootRaw.replace(/\/+$/, "")
+  if (!sub || sub.includes("\0") || sub.includes("\\")) return null
+  if (sub.split(/[\\/]+/).includes("..")) return null
+  const fullPath = Path.join(webRoot, sub)
+  if (fullPath !== webRoot && !fullPath.startsWith(`${webRoot}/`)) return null
+  return fullPath
+}
 
 export class ZakoServer {
   private server: HttpServer | null = null
@@ -35,14 +48,18 @@ export class ZakoServer {
         const path = req.path || "/"
 
         // CORS Preflight 预检请求
+        // 仅对 AI 代理端点放开跨域；/api/* 是无需鉴权的管理接口，绝不向第三方网页开放
         if (method === "OPTIONS") {
+          const allowCors = !path.startsWith("/api/")
           return HttpResponse.raw(204, "No Content", {
-            headers: {
-              "Access-Control-Allow-Origin": "*",
-              "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
-              "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key",
-              "Access-Control-Max-Age": "86400",
-            },
+            headers: allowCors
+              ? {
+                  "Access-Control-Allow-Origin": "*",
+                  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+                  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key",
+                  "Access-Control-Max-Age": "86400",
+                }
+              : {},
           })
         }
 
@@ -58,7 +75,18 @@ export class ZakoServer {
           if (!sub || sub === "/") sub = "index.html"
           sub = sub.split("?")[0]
 
-          const fullPath = Path.join(webDir, sub)
+          // 防目录穿越：拒绝 .. 段/反斜杠/NUL，且最终路径必须位于 web 目录内
+          const fullPath = resolveStaticPath(webDir, sub)
+          if (!fullPath) {
+            return HttpResponse.raw(404, "Not Found", {
+              headers: {
+                "Content-Type": "text/plain; charset=utf-8",
+                ...SECURITY_HEADERS,
+              },
+              body: Data.fromRawString("Not Found", "utf-8") || undefined,
+            })
+          }
+
           if ((await FileManager.exists(fullPath)) && !(await FileManager.isDirectory(fullPath))) {
             const ext = Path.extname(fullPath).toLowerCase()
             const mimeMap: Record<string, string> = {
@@ -84,6 +112,7 @@ export class ZakoServer {
                 Pragma: "no-cache",
                 Expires: "0",
                 "Access-Control-Allow-Origin": "*",
+                ...SECURITY_HEADERS,
               },
               body: file,
             })
@@ -151,7 +180,7 @@ export class ZakoServer {
           },
         })
         return HttpResponse.raw(404, "Not Found", {
-          headers: { "Content-Type": "application/json; charset=utf-8" },
+          headers: { "Content-Type": "application/json; charset=utf-8", ...SECURITY_HEADERS },
           body: Data.fromRawString(errorJson, "utf-8") || undefined,
         })
       })

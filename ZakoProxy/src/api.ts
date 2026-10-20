@@ -9,15 +9,25 @@ declare function fetch(input: any, init?: any): Promise<any>
 
 const START_TIME = Date.now()
 
+/**
+ * 控制台统一安全响应头：禁止内嵌、禁止 MIME 探测、限制外部连接（防数据外带）
+ * 注：WebUI 大量使用内联 onclick/style，故保留 'unsafe-inline'。
+ */
+export const SECURITY_HEADERS: Record<string, string> = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "no-referrer",
+  "Content-Security-Policy":
+    "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+}
+
 export function jsonResponse(data: any, status: number = 200): HttpResponse {
   const jsonStr = JSON.stringify(data)
   return HttpResponse.raw(status, status === 200 ? "OK" : "Error", {
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
       "Cache-Control": "no-cache, no-store, must-revalidate",
+      ...SECURITY_HEADERS,
     },
     body: Data.fromRawString(jsonStr, "utf-8") || undefined,
   })
@@ -248,13 +258,17 @@ export async function handleApiRoute(
   if (cleanPath === "/api/accounts" && method === "GET") {
     const cfg = await store.getConfig()
     const current = now()
-    const safeAccounts = (cfg.accounts || []).map((acc) => {
+    const safeAccounts = []
+    for (const acc of cfg.accounts || []) {
       const rt = store.runtime.getRuntime(acc.id)
       const cooldownRemaining = Math.max(0, rt.cooldown_until - current)
-      return {
-        ...acc,
-        // 脱敏显示，防止泄漏明文
-        api_key_masked: acc.api_key ? `${acc.api_key.slice(0, 4)}••••${acc.api_key.slice(-4)}` : "",
+      // 永远不返回密钥（即使是密文），只返回脱敏后的明文前缀
+      const safe: any = { ...acc }
+      delete safe.api_key
+      const rawKey = acc.api_key ? await store.cipher.unseal(acc.api_key) : ""
+      safeAccounts.push({
+        ...safe,
+        api_key_masked: rawKey ? `${rawKey.slice(0, 4)}••••${rawKey.slice(-4)}` : "",
         has_api_key: Boolean(acc.api_key),
         runtime: {
           active: rt.active,
@@ -262,8 +276,8 @@ export async function handleApiRoute(
           cooldownRemaining,
           requests: rt.requests,
         },
-      }
-    })
+      })
+    }
     return jsonResponse(safeAccounts)
   }
 

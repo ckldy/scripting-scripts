@@ -1,6 +1,6 @@
 # ZakoProxy for Scripting
 
-> **当前版本**：`v1.4.0`  
+> **当前版本**：`v1.4.1`  
 > **作者**：`vcncv`  
 > **来源架构**：基于 [ckldy/ZakoProxyCLI](https://github.com/ckldy/ZakoProxyCLI) 核心移植，视觉界面参考 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS) 流光毛玻璃架构深度定制。
 
@@ -32,7 +32,8 @@
 ---
 
 ### 2. 全协议原生中转与流式转发
-- **OpenAI Chat Completions**：`POST /v1/chat/completions`，支持多轮对话、Function / Tool Calls、多模态以及 SSE 流式响应。
+- **OpenAI Chat Completions**：`POST /v1/chat/completions`，支持多轮对话、Function / Tool Calls、多模态以及 SSE 流式响应（按 SSE 格式完整回传；受 Scripting `HttpServer` 不支持边到边流式写入的限制，实际会在上游生成完毕后一次性下发）。
+- **长响应完整转发 (v1.4.1)**：正常响应只做密钥脱敏，**不再套用 2KB 错误摘要截断**，完整保留 `data: [DONE]` 与全部 SSE 分片。
 - **Anthropic Messages**：`POST /v1/messages`，原生保持 Anthropic 消息结构与工具定义，支持 `x-api-key` 鉴权与 `anthropic-version` 透传。
 - **Responses / Compact**：`POST /v1/responses`、`POST /v1/responses/compact`。
 - **模型发现列表**：`GET /v1/models`，根据客户端 API Key 所属分组，动态聚合该分组下全部启用账号的模型与有效别名映射。
@@ -71,7 +72,7 @@
 - **多端一键交互**：
   - Web 控制台：侧边栏内核状态底栏、设置页网络表单均提供晶透的「热重启服务」一键按钮；
   - iOS 原生控制台：仪表盘服务控制栏直接提供「重启」按钮，修改端口后提示一键重启生效；
-- **全系统版本自省统一**：`/api/system`、`/health`、页面 UI（顶栏品牌徽标、侧栏内核状态、设置页「关于与版本信息」卡片、浏览器标题）统一展示动态自省版本号 `v1.4.0`。
+- **全系统版本自省统一**：`/api/system`、`/health`、页面 UI（顶栏品牌徽标、侧栏内核状态、设置页「关于与版本信息」卡片、浏览器标题）统一展示动态自省版本号 `v1.4.1`。
 
 ---
 
@@ -92,6 +93,10 @@
 - **SQLite WAL 模式存储**：配置、账号、密钥与请求日志完整保存在本地 SQLite 数据库中。
 - **AES-256-GCM 凭据加密**：所有上游 API Key 在本地均通过独有的 `master.key` 进行 AES-256-GCM 高度加密存储，密钥绝不以明文留存。
 - **代理 Key SHA-256 哈希鉴权**：系统对外发放的 `sk-...` 客户端密钥仅保存哈希散列，并自动进行日志脱敏。
+- **静态资源防目录穿越 (v1.4.1)**：`/ui/*` 请求经路径归一化校验，`..`、反斜杠与 NUL 一律 404，避免 `master.key` / `zako.db` 被直接下载。
+- **安全响应头 (v1.4.1)**：统一返回 `Content-Security-Policy`、`X-Frame-Options: DENY`、`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`。
+- **管理接口不返回密钥密文 (v1.4.1)**：`/api/accounts` 仅返回 4+4 位掩码与 `has_api_key`；`/api/*` 不再开放跨域，仅 AI 代理端点保留 CORS。
+- **账号分组必选 (v1.4.1)**：WebUI 账号弹窗新增分组多选与必选校验，避免新建账号因 `group_ids` 为空而永远不被选中。
 
 ---
 
@@ -157,7 +162,7 @@ ZakoProxy 内置了前后端解耦的 RESTful 架构，共提供 20 个轻量级
 
 ```
 ZakoProxy/
-├── script.json         # 脚本元数据描述符 (v1.4.0)
+├── script.json         # 脚本元数据描述符 (v1.4.1)
 ├── index.tsx           # 脚本主入口、SwiftUI 原生仪表盘与 WebViewController 挂载
 ├── test-webui-e2e.ts   # 25 项全链路自动化端到端测试用例
 ├── README.md           # 项目使用与配置文档

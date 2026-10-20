@@ -32,13 +32,19 @@ export function upstreamUrl(endpoint: string, route: string): string {
   return `${root}/${cleanRoute}`
 }
 
-export function errorSummary(message: string, secrets: string[]): string {
+export function redactSecrets(message: string, secrets: string[]): string {
   let msg = message
   for (const s of secrets) {
     if (s && s.length > 0) {
       msg = msg.split(s).join("[redacted]")
     }
   }
+  return msg
+}
+
+/** 仅用于日志/错误摘要：脱敏后截断到 2KB（正常响应体绝不能用它） */
+export function errorSummary(message: string, secrets: string[]): string {
+  let msg = redactSecrets(message, secrets)
   if (msg.length > MAX_ERROR_BYTES) {
     msg = msg.slice(0, MAX_ERROR_BYTES - 1) + "…"
   }
@@ -457,8 +463,8 @@ export class ProxyEngine {
 
       const totalLatency = Date.now() - startTime
 
-      // 脱敏处理
-      const safeResponseText = errorSummary(rawResponseText, secretsToRedact)
+      // 脱敏处理（只替掉密钥，绝不截断正常响应体）
+      const safeResponseText = redactSecrets(rawResponseText, secretsToRedact)
 
       const returnHeaders: Record<string, string> = {
         "Content-Type": responseContentType || "application/json; charset=utf-8",
