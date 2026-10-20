@@ -20,7 +20,7 @@ import type { Group } from "./src/types"
 declare function fetch(input: any, init?: any): Promise<any>
 
 async function runPromptStrategyE2ETest() {
-  console.log("=== 开始 ZakoProxy 预设 Prompt 策略全链路与 E2E 验证 (v1.3.0) ===")
+  console.log("=== 开始 ZakoProxy 预设 Prompt 策略全链路与 E2E 验证 (v1.4.0) ===")
 
   let allPassed = true
   const assert = (condition: boolean, msg: string) => {
@@ -110,15 +110,30 @@ async function runPromptStrategyE2ETest() {
   assert(anthropicRes.strategy_type === "profile", "Anthropic 注入返回 strategy_type 为 profile")
   assert(anthropicBody.system.includes(claudeProfile.instruction.trim()), "Anthropic system 正确注入 Claude 提示词")
 
-  // OpenAI Chat 协议
+  // OpenAI Chat 协议：关键修复——注入到最后一条 user 消息（规避上游适配层丢弃 system）
   const chatBody: any = {
     model: "gemini-3.8-flash-high",
-    messages: [{ role: "user", content: "hello" }],
+    messages: [
+      { role: "system", content: "You are a coding assistant." },
+      { role: "user", content: "hello" },
+    ],
   }
   const chatRes = applyPromptStrategy("chat", chatBody, testGroupGemini38Only, "gemini-3.8-flash-high")
   assert(chatRes.strategy_type === "profile", "Chat 注入返回 strategy_type 为 profile")
-  assert(chatBody.messages[0].role === "system", "Chat 协议在首条插入 system 消息")
-  assert(chatBody.messages[0].content.includes(gemini38Profile.instruction.trim()), "Chat 协议正确注入冷咖啡 Gemini 提示词")
+  const lastUser = chatBody.messages[chatBody.messages.length - 1]
+  assert(
+    lastUser.role === "user" && typeof lastUser.content === "string" && lastUser.content.includes(gemini38Profile.instruction.trim()),
+    "Chat 协议将预设注入到最后一条 user 消息内容中"
+  )
+  assert(
+    chatBody.messages[0].role === "system" && !chatBody.messages[0].content.includes(gemini38Profile.instruction.trim()),
+    "Chat 协议保留客户端 system 消息不被污染"
+  )
+
+  // 幂等性：重复注入不叠加
+  applyPromptStrategy("chat", chatBody, testGroupGemini38Only, "gemini-3.8-flash-high")
+  const occ = (String(chatBody.messages[chatBody.messages.length - 1].content).match(/【ZakoProxy 预设策略 · 已生效/g) || []).length
+  assert(occ === 1, "Chat 协议重复注入具备幂等性（仅注入一次）")
 
   // ==========================================
   // 4. RESTful API、审计日志与 Web 控制台测试

@@ -1,9 +1,10 @@
 import { Path, Script } from "scripting"
 import { handleApiRoute } from "./api"
 import { ProxyEngine } from "./proxy"
+import { APP_VERSION } from "./version"
 import type { Store } from "./store"
 
-export const APP_VERSION = "1.3.0"
+export { APP_VERSION }
 
 export class ZakoServer {
   private server: HttpServer | null = null

@@ -11,7 +11,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 | 黃豆短劇 | 1.2.0 | 浏览、搜索与收藏黃豆短劇内容，支持播放历史、剧集播放、上下滑切集与进度条 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D) |
 | NetRadio（网络收音机） | 1.0.1 | 全球 1000+ 公开网络电台（按 36 个国家/地区归类），黑胶唱机舞台、电平示波器、主题调色板与 iOS 原生后台/锁屏播控（基于 net-redio 移植，作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D) |
 | 音乐大合集 | 1.0.0 | 多源聚合音乐播放器，支持 QQ/网易/酷狗/酷我/咪咕音源，经典与沉浸播放页窗口自适应、纯净无下划线歌词、多样式进度条与后台保活播放（作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F%E9%9F%B3%E4%B9%90%E5%A4%A7%E5%90%88%E9%9B%86.zip%22%5D) |
-| ZakoProxy（AI 代理中转） | 1.3.0 | 基于 ckldy/ZakoProxyCLI 深度移植的自托管 AI API 中转代理。升级模型通道修饰后缀解构与 Base Model 提取算法，新增分层多维打分智能匹配引擎并消除同家族混淆，实现全透明审计日志展示与秒级服务热重启机制，带流光毛玻璃双模界面、多账号故障转移熔断与 AES-256 本地加密（作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FZakoProxy.zip%22%5D) |
+| ZakoProxy（AI 代理中转） | 1.4.0 | 基于 ckldy/ZakoProxyCLI 深度移植的自托管 AI API 中转代理。关键修复预设 Prompt 策略注入机制（Chat 协议改为注入到末条 user 消息，彻底规避上游适配层丢弃 system 角色导致策略不生效），新增逐请求策略可见性响应头与全端显式版本号展示，保留分层多维打分智能匹配、审计日志与秒级热重启，带流光毛玻璃双模界面、多账号故障转移熔断与 AES-256 本地加密（作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FZakoProxy.zip%22%5D) |
 
 ## 📥 安装方法
 
@@ -22,14 +22,18 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 ## 🌟 脚本功能详解与直链
 
 ### 🛡️ ZakoProxy (自托管 AI API 代理中转与提示词策略系统)
-- **版本**：`1.3.0` ｜ **作者**：`vcncv`（基于 `ckldy/ZakoProxyCLI` 深度移植，界面参考 `yyhoworks/LocalDNS` 流光毛玻璃架构）
+- **版本**：`1.4.0` ｜ **作者**：`vcncv`（基于 `ckldy/ZakoProxyCLI` 深度移植，界面参考 `yyhoworks/LocalDNS` 流光毛玻璃架构）
 - **特性**：
-  - **通道修饰后缀解构与多维打分 Prompt 策略引擎 (v1.3.0 深度加固)**：
+  - **预设 Prompt 策略注入机制关键修复 (v1.4.0)**：
+    - **Chat 协议改为注入到末条 `user` 消息**：许多上游适配层（尤其 Gemini 逆向类）会丢弃 `system` 角色，导致预设“写了却没生效”；现改为将预设以高优先级分隔标记注入到最后一条 user 消息内容首部（`user` 内容必定转发），并具备幂等去重，确保预设真正送达并被采纳；
+    - **全端显式版本号**：顶栏品牌徽标、侧栏内核状态、设置页「关于与版本信息」卡片、浏览器标题统一动态展示版本号，修改即所见；
+    - **逐请求策略可见性**：代理响应头新增 `X-Zako-Strategy` / `X-Zako-Profile` / `X-Zako-Matched-Model` / `X-Zako-Version`，任意客户端或抓包工具均可即时确认实际生效的预设；
+  - **通道修饰后缀解构与多维打分 Prompt 策略引擎**：
     - **通道修饰后缀解构与 Base Model 提取**：针对多渠道请求修饰后缀（如 `-high`, `-low`, `-medium`, `-tiered`, `-extra`, `-thinking`, `-preview`, `-latest`, `-agent`, `-image`, `-chat` 等），自动解构并提取 Base Model 候选（如 `openai/gemini-3.8-flash-high` 自动解构出 `gemini-3.8-flash`）；自动剥离日期后缀（`-20241022`, `-0731`）与微版本号；
     - **多维打分引擎与同家族混淆彻底消除**：提取模型核心版本特征（`extractModelCore`）进行多维加权打分，基础模型精确匹配赋予 850 高分，彻底杜绝同家族互斥细分子型号之间的相互劫持与误注入，未精确命中的模型平滑回退至 Astra 默认兜底策略；
     - **全透明请求日志审计**：每次请求均在 SQLite 与前端展示中记录策略决策明细（`strategy_type`, `profile_name`, `matched_model`），Web 控制台表格/详情抽屉与 iOS 原生日志列表实时透明呈现；
-    - **服务秒级热重启与版本自省**：支持 `POST /api/system/restart` 接口，WebUI（侧边栏内核状态底栏、设置页表单）与原生 iOS 控制台均提供晶透的一键热重启按钮，各端版本号自省统一为 `v1.3.0`；
-    - **全协议深度安全合并与防重入**：完美支持 Anthropic Messages（安全前置合并字符串或 Block 数组）、OpenAI Chat（安全前置合并 system/developer 消息或在首位 unshift 插入）与 Responses/Compact，重复调用防双重注入；
+    - **服务秒级热重启与版本自省**：支持 `POST /api/system/restart` 接口，WebUI（侧边栏内核状态底栏、设置页表单）与原生 iOS 控制台均提供晶透的一键热重启按钮，各端版本号自省统一为 `v1.4.0`；
+    - **全协议深度安全合并与防重入**：完美支持 Anthropic Messages（安全追加至 `system` 字段并保持幂等）、OpenAI Chat（注入末条 `user` 消息，保留客户端 system 不被污染）与 Responses/Compact（合并至 `instructions`/`instruction`），重复调用防双重注入；
     - **Web 控制台与原生 iOS 全功能策略绑定**：WebUI 新增分组编辑与策略配置抽屉，支持 36 款策略复选、一键全选/清空、自定义 Prompt 实时配置；原生 iOS 控制台新增策略预览与批量绑定；
   - **全新流光毛玻璃 Web 控制台 (Liquid Glassmorphism WebUI)**：
     - **三场景无缝运行**：支持 iOS 原生内置全屏 `WebViewController`、Safari 移动浏览器（自适应底栏）以及局域网多设备协同访问；

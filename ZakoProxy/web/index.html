@@ -4,7 +4,7 @@
   <base href="/ui/" />
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>ZakoProxy · 流光毛玻璃控制台</title>
+  <title>ZakoProxy v1.4.0 · 流光毛玻璃控制台</title>
   <link rel="icon" type="image/png" href="assets/img/logo.png" />
   <link rel="stylesheet" href="assets/css/glass.css" />
   <script src="assets/js/chart.umd.min.js"></script>
@@ -28,7 +28,7 @@
         </div>
         <div class="brand-meta">
           <span class="brand-title">ZakoProxy</span>
-          <span class="brand-pill">v1.0.0</span>
+          <span class="brand-pill" id="brand-app-version">v1.4.0</span>
         </div>
         <div class="server-pulse-badge" id="server-status-badge">
           <span class="pulse-dot"></span>
@@ -92,7 +92,7 @@
           <div style="padding:12px;background:rgba(255,255,255,0.03);border:1px solid var(--border-glass);border-radius:12px;">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
               <span style="font-size:11px;color:var(--text-3);">内核状态</span>
-              <span class="badge badge-primary" style="font-size:10px;" id="sidebar-app-version">v1.3.0</span>
+              <span class="badge badge-primary" style="font-size:10px;" id="sidebar-app-version">v1.4.0</span>
             </div>
             <button type="button" class="btn btn-secondary btn-sm" id="btn-restart-server-sidebar" style="width:100%;font-size:11px;padding:6px 0;display:flex;align-items:center;justify-content:center;gap:6px;">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -463,6 +463,47 @@
                 <div style="font-weight:600;font-size:12px;color:var(--primary);margin-bottom:4px;">iOS 原生全屏体验提示</div>
                 <div style="font-size:11px;color:var(--text-2);line-height:1.5;">
                   该控制台已针对 Scripting App 的 WebViewController 全屏呈现进行了视口适配 (viewport-fit=cover) 与高刷新率硬件加速渲染。
+                </div>
+              </div>
+            </div>
+
+            <!-- 关于与版本信息 -->
+            <div class="glass-card">
+              <div class="glass-card-header">
+                <div class="glass-card-title">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                  <span>关于与版本信息</span>
+                </div>
+                <span class="badge badge-primary" id="about-app-version" style="font-size:12px;font-weight:700;">v1.4.0</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(0,0,0,0.15);border-radius:8px;">
+                  <span style="font-size:12px;color:var(--text-3);">应用名称</span>
+                  <span style="font-size:12px;font-weight:600;color:var(--text-1);">ZakoProxy · 流光毛玻璃控制台</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(0,0,0,0.15);border-radius:8px;">
+                  <span style="font-size:12px;color:var(--text-3);">当前版本</span>
+                  <span style="font-size:13px;font-weight:700;color:var(--primary);font-family:var(--font-mono);" id="about-app-version-row">v1.4.0</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(0,0,0,0.15);border-radius:8px;">
+                  <span style="font-size:12px;color:var(--text-3);">作者</span>
+                  <span style="font-size:12px;font-weight:600;color:var(--text-1);" id="about-app-author">vcncv</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(0,0,0,0.15);border-radius:8px;">
+                  <span style="font-size:12px;color:var(--text-3);">运行状态</span>
+                  <span style="font-size:12px;font-weight:600;" id="about-app-status">-</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(0,0,0,0.15);border-radius:8px;">
+                  <span style="font-size:12px;color:var(--text-3);">监听端口</span>
+                  <span style="font-size:12px;font-weight:600;font-family:var(--font-mono);color:var(--text-1);" id="about-app-port">-</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(0,0,0,0.15);border-radius:8px;">
+                  <span style="font-size:12px;color:var(--text-3);">已运行时长</span>
+                  <span style="font-size:12px;font-weight:600;font-family:var(--font-mono);color:var(--text-1);" id="about-app-uptime">-</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(0,0,0,0.15);border-radius:8px;">
+                  <span style="font-size:12px;color:var(--text-3);">内置预设策略库</span>
+                  <span style="font-size:12px;font-weight:600;color:var(--text-1);" id="about-app-profiles">-</span>
                 </div>
               </div>
             </div>

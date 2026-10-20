@@ -321,10 +321,31 @@
       uptimeEl.textContent = formatUptime(sys.uptime_seconds);
     }
 
+    const versionText = sys.version ? `v${sys.version}` : '';
     const versionEl = document.getElementById('sidebar-app-version');
-    if (versionEl && sys.version) {
-      versionEl.textContent = `v${sys.version}`;
+    if (versionEl && versionText) versionEl.textContent = versionText;
+    const brandVersionEl = document.getElementById('brand-app-version');
+    if (brandVersionEl && versionText) brandVersionEl.textContent = versionText;
+    const aboutVersionEl = document.getElementById('about-app-version');
+    if (aboutVersionEl && versionText) aboutVersionEl.textContent = versionText;
+    const aboutVersionRow = document.getElementById('about-app-version-row');
+    if (aboutVersionRow && versionText) aboutVersionRow.textContent = versionText;
+    if (versionText) {
+      document.title = `ZakoProxy ${versionText} · 流光毛玻璃控制台`;
     }
+    const aboutAuthor = document.getElementById('about-app-author');
+    if (aboutAuthor && sys.author) aboutAuthor.textContent = sys.author;
+    const aboutStatus = document.getElementById('about-app-status');
+    if (aboutStatus) {
+      aboutStatus.textContent = sys.running ? '运行中' : '已停止';
+      aboutStatus.style.color = sys.running ? 'var(--success)' : 'var(--danger, #ef4444)';
+    }
+    const aboutPort = document.getElementById('about-app-port');
+    if (aboutPort) aboutPort.textContent = `:${sys.port}`;
+    const aboutUptime = document.getElementById('about-app-uptime');
+    if (aboutUptime) aboutUptime.textContent = formatUptime(sys.uptime_seconds);
+    const aboutProfiles = document.getElementById('about-app-profiles');
+    if (aboutProfiles) aboutProfiles.textContent = `${sys.profiles_count ?? '-'} 款`;
   }
 
   // 2. 指标概览与图表渲染
@@ -1375,7 +1396,7 @@
       setTimeout(async () => {
         try {
           await loadSystem();
-          showToast(`服务已就绪 (v${state.system?.version || '1.3.0'})`, 'success');
+          showToast(`服务已就绪 (v${state.system?.version || '1.4.0'})`, 'success');
         } catch {
           showToast('服务重启中，请稍候刷新页面...', 'warning');
         } finally {

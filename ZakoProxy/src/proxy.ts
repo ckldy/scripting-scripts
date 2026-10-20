@@ -5,6 +5,7 @@ declare const AbortController: any
 import type { Account, ApiKey, Config, Group, RequestLog, StrategyMatchResult, Usage } from "./types"
 import { Store, digest, id, now, parseUsage } from "./store"
 import { getInstruction, matchInstruction } from "./profiles"
+import { APP_VERSION } from "./version"
 
 const MAX_ERROR_BYTES = 2048
 
@@ -117,63 +118,73 @@ export function applyPromptStrategy(
   }
 
   const cleanInstruction = instruction.trim()
+  const STRATEGY_MARKER = "【ZakoProxy 预设策略 · 已生效 · 最高优先级】"
+  const strategyBlock = `${STRATEGY_MARKER}\n${cleanInstruction}\n【ZakoProxy 预设策略 · 结束】`
+  const hasBlock = (t: any): boolean => typeof t === "string" && t.includes(STRATEGY_MARKER)
 
   if (protocol === "anthropic") {
+    // Anthropic 原生 system 字段最权威，追加注入并保持幂等
     if (!body.system || (typeof body.system === "string" && body.system.trim() === "")) {
-      body.system = cleanInstruction
+      body.system = strategyBlock
     } else if (typeof body.system === "string") {
-      if (!body.system.includes(cleanInstruction)) {
-        body.system = `${cleanInstruction}\n\n${body.system}`
-      }
+      if (!hasBlock(body.system)) body.system = `${body.system}\n\n${strategyBlock}`
     } else if (Array.isArray(body.system)) {
       const alreadyHas = body.system.some(
-        (part: any) => typeof part === "object" && part?.text && part.text.includes(cleanInstruction)
+        (part: any) => typeof part === "object" && part?.text && hasBlock(part.text)
       )
-      if (!alreadyHas) {
-        body.system = [{ type: "text", text: cleanInstruction }, ...body.system]
-      }
+      if (!alreadyHas) body.system = [...body.system, { type: "text", text: strategyBlock }]
     }
   } else if (protocol === "chat") {
-    if (!Array.isArray(body.messages)) {
-      body.messages = []
+    if (!Array.isArray(body.messages)) body.messages = []
+    // 关键修复：把预设注入到最后一条 user 消息。
+    // 许多上游适配层（尤其 Gemini 逆向类）会丢弃 system 角色，但 user 内容必定转发；
+    // 放在当前用户轮次也拥有最高 recency，确保预设真正送达并被采纳。
+    let targetIdx = -1
+    for (let i = body.messages.length - 1; i >= 0; i--) {
+      if (body.messages[i] && body.messages[i].role === "user") {
+        targetIdx = i
+        break
+      }
     }
-    const firstMsg = body.messages[0]
-    if (firstMsg && (firstMsg.role === "system" || firstMsg.role === "developer")) {
-      if (typeof firstMsg.content === "string") {
-        if (!firstMsg.content.includes(cleanInstruction)) {
-          firstMsg.content = `${cleanInstruction}\n\n${firstMsg.content}`
-        }
-      } else if (Array.isArray(firstMsg.content)) {
-        const alreadyHas = firstMsg.content.some(
-          (part: any) => typeof part === "object" && part?.text && part.text.includes(cleanInstruction)
+    if (targetIdx >= 0) {
+      const msg = body.messages[targetIdx]
+      if (typeof msg.content === "string") {
+        if (!hasBlock(msg.content)) msg.content = `${strategyBlock}\n\n${msg.content}`
+      } else if (Array.isArray(msg.content)) {
+        const alreadyHas = msg.content.some(
+          (part: any) => typeof part === "object" && part?.text && hasBlock(part.text)
         )
-        if (!alreadyHas) {
-          firstMsg.content = [{ type: "text", text: cleanInstruction }, ...firstMsg.content]
-        }
+        if (!alreadyHas) msg.content = [{ type: "text", text: strategyBlock }, ...msg.content]
+      } else {
+        msg.content = strategyBlock
       }
     } else {
-      body.messages.unshift({ role: "system", content: cleanInstruction })
+      // 没有 user 消息时退回 system / 首条消息
+      const firstMsg = body.messages[0]
+      if (firstMsg && (firstMsg.role === "system" || firstMsg.role === "developer")) {
+        if (typeof firstMsg.content === "string") {
+          if (!hasBlock(firstMsg.content)) firstMsg.content = `${firstMsg.content}\n\n${strategyBlock}`
+        } else if (Array.isArray(firstMsg.content)) {
+          const alreadyHas = firstMsg.content.some(
+            (part: any) => typeof part === "object" && part?.text && hasBlock(part.text)
+          )
+          if (!alreadyHas) firstMsg.content = [...firstMsg.content, { type: "text", text: strategyBlock }]
+        } else {
+          firstMsg.content = strategyBlock
+        }
+      } else {
+        body.messages.unshift({ role: "system", content: strategyBlock })
+      }
     }
   } else {
-    // responses or compact
-    if (body.instructions !== undefined) {
-      if (typeof body.instructions === "string" && body.instructions.trim()) {
-        if (!body.instructions.includes(cleanInstruction)) {
-          body.instructions = `${cleanInstruction}\n\n${body.instructions}`
-        }
-      } else {
-        body.instructions = cleanInstruction
-      }
-    } else if (body.instruction !== undefined) {
-      if (typeof body.instruction === "string" && body.instruction.trim()) {
-        if (!body.instruction.includes(cleanInstruction)) {
-          body.instruction = `${cleanInstruction}\n\n${body.instruction}`
-        }
-      } else {
-        body.instruction = cleanInstruction
-      }
+    // responses / compact：注入到 instructions / instruction 字段
+    const field =
+      body.instructions !== undefined ? "instructions" : body.instruction !== undefined ? "instruction" : "instructions"
+    const cur = body[field]
+    if (typeof cur === "string" && cur.trim()) {
+      if (!hasBlock(cur)) body[field] = `${cur}\n\n${strategyBlock}`
     } else {
-      body.instructions = cleanInstruction
+      body[field] = strategyBlock
     }
   }
 
@@ -457,6 +468,14 @@ export class ProxyEngine {
         const val = res.headers.get(h)
         if (val) returnHeaders[h] = val
       }
+
+      // 将本次实际生效的 Prompt 策略写入响应头，便于逐请求“看得见”验证
+      if (matchResult && matchResult.strategy_type && matchResult.strategy_type !== "none") {
+        returnHeaders["X-Zako-Strategy"] = matchResult.strategy_type
+        if (matchResult.profile_name) returnHeaders["X-Zako-Profile"] = encodeURIComponent(matchResult.profile_name)
+        if (matchResult.matched_model) returnHeaders["X-Zako-Matched-Model"] = encodeURIComponent(matchResult.matched_model)
+      }
+      returnHeaders["X-Zako-Version"] = APP_VERSION
 
       // 记录日志
       const logEntry: RequestLog = {
