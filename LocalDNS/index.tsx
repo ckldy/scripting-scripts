@@ -13,7 +13,6 @@ import {
   Spacer,
   Image,
   useState,
-  useEffect,
   Toolbar,
   ToolbarItem,
 } from 'scripting';
@@ -114,11 +113,6 @@ function LocalDnsApp() {
     } catch {}
   };
 
-  // 实时刷新统计数据（每 1 秒），让“服务运行中”数据实时更新
-  useEffect(() => {
-    const timer = setInterval(() => { refreshStats(); }, 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   const handleToggleVpn = async () => {
     if (typeof VPN === 'undefined') {
