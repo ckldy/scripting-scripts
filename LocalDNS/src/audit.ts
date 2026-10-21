@@ -403,6 +403,27 @@ export class AuditManager {
     lines.push('# TYPE localdns_queries_total counter');
     lines.push(`localdns_queries_total ${this.totalQueries}`);
 
+    // Overview KPI gauges (used by web/assets/livepulse.js for 1s in-place updates)
+    lines.push('# HELP localdns_clients_total Unique client IP addresses seen.');
+    lines.push('# TYPE localdns_clients_total gauge');
+    lines.push(`localdns_clients_total ${this.uniqueClients.size}`);
+
+    lines.push('# HELP localdns_domains_total Unique domains queried.');
+    lines.push('# TYPE localdns_domains_total gauge');
+    lines.push(`localdns_domains_total ${this.uniqueDomains.size}`);
+
+    lines.push('# HELP localdns_blocked_total Total blocked queries.');
+    lines.push('# TYPE localdns_blocked_total counter');
+    lines.push(`localdns_blocked_total ${this.blockedQueries}`);
+
+    lines.push('# HELP localdns_adguard_blocked_total Total AdGuard-blocked queries.');
+    lines.push('# TYPE localdns_adguard_blocked_total counter');
+    lines.push(`localdns_adguard_blocked_total ${this.adguardBlockedQueries}`);
+
+    lines.push('# HELP localdns_average_duration_ms Average DNS query duration in milliseconds.');
+    lines.push('# TYPE localdns_average_duration_ms gauge');
+    lines.push(`localdns_average_duration_ms ${stats.average_duration_ms}`);
+
     // Cache metrics
     lines.push('# HELP localdns_cache_query_total Total cache queries.');
     lines.push('# TYPE localdns_cache_query_total counter');
