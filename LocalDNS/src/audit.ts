@@ -27,6 +27,10 @@ export class AuditManager {
   // Upstream node metrics
   private upstreamStatsMap = new Map<string, UpstreamStats>();
 
+  // Speed-check metrics
+  private speedQueryCount = 0;
+  private speedProbeTotal = 0;
+
   // Traffic History Sampling (Upstream UI 2026.10.18.17 / .18 / .19 traffic-client.js)
   private trafficSeries: Array<{ time: number; elapsed: number; qps: number | null; delta: number; total: number }> = [];
   private lastSampleTime = Date.now();
@@ -125,6 +129,26 @@ export class AuditManager {
 
   getUpstreamStatsList(): UpstreamStats[] {
     return Array.from(this.upstreamStatsMap.values());
+  }
+
+  /** Mark a node as the winning node without double-counting query_total/success. */
+  recordUpstreamWinner(group: string, tag: string): void {
+    const key = `${group}:${tag}`;
+    let stats = this.upstreamStatsMap.get(key);
+    if (!stats) {
+      stats = { group, tag, query_total: 0, success_total: 0, winner_total: 0, error_total: 0, latency_sum: 0, latency_count: 0, recent_errors: [] };
+      this.upstreamStatsMap.set(key, stats);
+    }
+    stats.winner_total++;
+  }
+
+  recordSpeed(probeCount: number): void {
+    this.speedQueryCount++;
+    this.speedProbeTotal += probeCount;
+  }
+
+  getSpeedStats(): { queries: number; probes: number } {
+    return { queries: this.speedQueryCount, probes: this.speedProbeTotal };
   }
 
   clearLogs(): void {
@@ -360,7 +384,7 @@ export class AuditManager {
 
     lines.push('# HELP localdns_info Information about LocalDNS version.');
     lines.push('# TYPE localdns_info gauge');
-    lines.push('localdns_info{version="FJGAC"} 1');
+    lines.push('localdns_info{version="FJGIR"} 1');
 
     lines.push('# HELP localdns_runtime_info Information about runtime.');
     lines.push('# TYPE localdns_runtime_info gauge');
@@ -373,6 +397,11 @@ export class AuditManager {
     lines.push('# HELP localdns_tasks Active async tasks.');
     lines.push('# TYPE localdns_tasks gauge');
     lines.push('localdns_tasks 12');
+
+    // Total DNS queries counter (used by UI DNS trend QPS sampling)
+    lines.push('# HELP localdns_queries_total Total DNS queries handled.');
+    lines.push('# TYPE localdns_queries_total counter');
+    lines.push(`localdns_queries_total ${this.totalQueries}`);
 
     // Cache metrics
     lines.push('# HELP localdns_cache_query_total Total cache queries.');
@@ -444,14 +473,19 @@ export class AuditManager {
    */
   getTrafficHistory(minutes = 60): {
     now: number;
-    points: Array<{ time: number; elapsed: number; qps: number | null }>;
+    points: Array<{ time: number; elapsed: number; qps: number | null; delta: number | null; total: number }>;
     current: { qps: number | null };
     error: string;
   } {
     const now = Date.now();
     // 建立周期采样基线（最少 1.5 秒采样一次，形成平滑的 QPS 时序曲线）
     const elapsed = this.lastSampleTime > 0 ? (now - this.lastSampleTime) / 1000 : 0;
-    if (elapsed >= 1.5 || this.trafficSeries.length === 0) {
+    if (this.trafficSeries.length === 0) {
+      // 首次调用只建立基线：不把“启动至今的全部查询”误算为第一个区间
+      this.trafficSeries.push({ time: now, elapsed: 0, qps: null, delta: 0, total: this.totalQueries });
+      this.lastSampleTime = now;
+      this.lastSampleTotal = this.totalQueries;
+    } else if (elapsed >= 1.5) {
       const delta = this.totalQueries >= this.lastSampleTotal ? this.totalQueries - this.lastSampleTotal : 0;
       const qps = elapsed > 0 ? Number((delta / elapsed).toFixed(2)) : null;
       this.trafficSeries.push({
@@ -463,18 +497,18 @@ export class AuditManager {
       });
       this.lastSampleTime = now;
       this.lastSampleTotal = this.totalQueries;
+    }
 
-      // 保留最多 7 天采样历史
-      const cutoff7d = now - 7 * 86400 * 1000;
-      while (this.trafficSeries.length > 5000 || (this.trafficSeries[0] && this.trafficSeries[0].time < cutoff7d)) {
-        this.trafficSeries.shift();
-      }
+    // 保留最多 7 天采样历史
+    const cutoff7d = now - 7 * 86400 * 1000;
+    while (this.trafficSeries.length > 5000 || (this.trafficSeries[0] && this.trafficSeries[0].time < cutoff7d)) {
+      this.trafficSeries.shift();
     }
 
     const cutoff = now - Math.max(1, minutes) * 60000;
     const points = this.trafficSeries
       .filter((p) => p.time >= cutoff)
-      .map((p) => ({ time: p.time, elapsed: p.elapsed, qps: p.qps }));
+      .map((p) => ({ time: p.time, elapsed: p.elapsed, qps: p.qps, delta: p.delta, total: p.total }));
 
     const latest = this.trafficSeries[this.trafficSeries.length - 1];
     const currentQps = latest && now - latest.time <= 90000 && latest.qps !== null ? latest.qps : null;

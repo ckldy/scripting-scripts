@@ -13,6 +13,7 @@ import {
   Spacer,
   Image,
   useState,
+  useEffect,
   Toolbar,
   ToolbarItem,
 } from 'scripting';
@@ -41,8 +42,8 @@ declare namespace Safari {
   function openURL(url: string): Promise<void>;
 }
 
-const APP_VERSION = 'v1.6.0';
-const APP_BUILD = '20261018';
+const APP_VERSION = 'v1.8.0';
+const APP_BUILD = '20261022';
 const APP_AUTHOR = 'vcncv';
 const UPSTREAM_REPO = 'https://github.com/yyhoworks/LocalDNS';
 
@@ -83,6 +84,13 @@ function LocalDnsApp() {
   const [switchIpv6Block, setSwitchIpv6Block] = useState<boolean>(initialSwitches.switch6 === 'A');
   const [switchReqBlock, setSwitchReqBlock] = useState<boolean>(initialSwitches.switch1 === 'A');
 
+  // SmartDNS-inspired advanced config
+  const initialSpeed = store.getSpeedConfig();
+  const [switchSpeed, setSwitchSpeed] = useState<boolean>(initialSpeed.enabled);
+  const [switchDualstack, setSwitchDualstack] = useState<boolean>(initialSpeed.dualstackSelection);
+  const initialDns64 = store.getDns64Config();
+  const [switchDns64, setSwitchDns64] = useState<boolean>(initialDns64.enabled);
+
   // DNS Tester state
   const [testDomain, setTestDomain] = useState<string>('baidu.com');
   const [testResult, setTestResult] = useState<string>('');
@@ -105,6 +113,12 @@ function LocalDnsApp() {
       }
     } catch {}
   };
+
+  // 实时刷新统计数据（每 1 秒），让“服务运行中”数据实时更新
+  useEffect(() => {
+    const timer = setInterval(() => { refreshStats(); }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleToggleVpn = async () => {
     if (typeof VPN === 'undefined') {
@@ -255,6 +269,24 @@ function LocalDnsApp() {
     setter(val);
     store.setSwitch(tag, val ? 'A' : 'B');
     setStatusMessage(`设置已更新: ${tag} -> ${val ? '开启' : '关闭'}`);
+  };
+
+  const handleSpeedToggle = (val: boolean) => {
+    setSwitchSpeed(val);
+    store.setSpeedConfig({ enabled: val });
+    setStatusMessage(`智能测速选优已${val ? '开启' : '关闭'}`);
+  };
+
+  const handleDualstackToggle = (val: boolean) => {
+    setSwitchDualstack(val);
+    store.setSpeedConfig({ dualstackSelection: val });
+    setStatusMessage(`双栈优选已${val ? '开启' : '关闭'}`);
+  };
+
+  const handleDns64Toggle = (val: boolean) => {
+    setSwitchDns64(val);
+    store.setDns64Config({ enabled: val });
+    setStatusMessage(`DNS64 已${val ? '开启' : '关闭'}`);
   };
 
   const handleClearCache = () => {
@@ -502,6 +534,28 @@ function LocalDnsApp() {
             title="请求屏蔽 (无解析结果请求拦截)"
             value={switchReqBlock}
             onChanged={(val) => handleSwitchChange('switch1', val, setSwitchReqBlock)}
+          />
+        </Section>
+
+        {/* 智能测速与高级解析 (参考 SmartDNS) */}
+        <Section
+          header={<Text>智能测速与高级解析</Text>}
+          footer={<Text>测速选最快 IP：对上游返回的多个 A/AAAA 做 TCP 握手测速（tcp:443/80），返回访问最快的地址；关闭则透传上游顺序。</Text>}
+        >
+          <Toggle
+            title="智能测速选优 (返回最快 IP)"
+            value={switchSpeed}
+            onChanged={handleSpeedToggle}
+          />
+          <Toggle
+            title="双栈优选 (IPv4 明显更快时跳过 IPv6)"
+            value={switchDualstack}
+            onChanged={handleDualstackToggle}
+          />
+          <Toggle
+            title="DNS64 (AAAA 无结果时由 A 合成)"
+            value={switchDns64}
+            onChanged={handleDns64Toggle}
           />
         </Section>
 

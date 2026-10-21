@@ -19,7 +19,7 @@ async function fetchDiversionWithFallback(url: string): Promise<string> {
   for (const u of candidateUrls) {
     try {
       const resp = await fetch(u, {
-        headers: { 'User-Agent': 'LocalDNS/FJGAC' },
+        headers: { 'User-Agent': 'LocalDNS/FJGIR' },
         signal: AbortSignal.timeout(8000),
       });
       if (resp.ok) {
@@ -112,9 +112,19 @@ export class DiversionEngine {
 
   private parseList(text: string): Set<string> {
     const set = new Set<string>();
+    const namedSets = Store.get().getNamedSets().domainSets || {};
     for (let line of text.split('\n')) {
       line = line.trim();
       if (!line || line.startsWith('#') || line.startsWith('!')) continue;
+      // Expand named domain-set references: "domain-set:name"
+      if (line.toLowerCase().startsWith('domain-set:')) {
+        const name = line.slice('domain-set:'.length).trim();
+        for (const d of (namedSets[name] || [])) {
+          const cleaned = String(d).trim().replace(/^\./, '').toLowerCase();
+          if (cleaned) set.add(cleaned);
+        }
+        continue;
+      }
       // Strip leading full: or domain: prefixes if any
       const cleaned = line.replace(/^(?:full:|domain:)/i, '').toLowerCase();
       set.add(cleaned);

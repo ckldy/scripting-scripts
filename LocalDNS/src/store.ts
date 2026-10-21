@@ -3,6 +3,10 @@ import type {
   SwitchStates,
   AdGuardRuleSource,
   DiversionSource,
+  SpeedConfig,
+  CacheConfig,
+  Dns64Config,
+  NamedSets,
 } from './types';
 
 export class Store {
@@ -17,6 +21,7 @@ export class Store {
   private clientAliases: Record<string, string> = {};
   private auditCapacity = 500;
   private auditCapturing = true;
+  private auditDir = 'logs';
   private requeryConfig = {
     enabled: false,
     interval_minutes: 60,
@@ -25,15 +30,20 @@ export class Store {
   };
   private interfaceSettings: Record<string, { value: any; revision: number }> = {};
   private ruleBackups: Record<string, Array<{ id: string; time: number; bytes: number; tag: string; content: string }>> = {};
+  private speedConfig: SpeedConfig = { enabled: true, mode: 'tcp:443,tcp:80', responseMode: 'fastest-ip', maxReplyIpNum: 0, timeoutMs: 800, dualstackSelection: false };
+  private cacheConfig: CacheConfig = { size: 20000, persist: true, prefetch: true, serveExpiredTtl: 86400, replyTtl: 5, rrTtlMin: 0, rrTtlMax: 0, negativeTtl: 60 };
+  private dns64Config: Dns64Config = { enabled: false, prefix: '64:ff9b::/96' };
+  private namedSets: NamedSets = { domainSets: {}, ipSets: {} };
 
   private constructor() {
     this.upstreamConfig = this.loadOrDefault('localdns_upstreams', {
       domestic: [
+        { tag: 'alidns_ip', protocol: 'https', addr: 'https://223.5.5.5/dns-query', enabled: true },
         { tag: 'alidns_doh', protocol: 'https', addr: 'https://dns.alidns.com/dns-query', enabled: true },
         { tag: 'dnspod_doh', protocol: 'https', addr: 'https://doh.pub/dns-query', enabled: true },
       ],
       foreign: [
-        { tag: 'cloudflare_doh', protocol: 'https', addr: 'https://1.1.1.1/dns-query', enabled: true },
+        { tag: 'cloudflare_ip', protocol: 'https', addr: 'https://1.1.1.1/dns-query', enabled: true },
         { tag: 'google_doh', protocol: 'https', addr: 'https://dns.google/dns-query', enabled: true },
       ],
       foreign_ecs: [
@@ -68,6 +78,15 @@ export class Store {
       client_ip: '# 客户端 IP 列表\n',
       direct_ip: '# 直连 IP 列表\n',
       rewrite: '# 重定向列表: 域名 目标IP\n# dev.local 127.0.0.1\n',
+      ignore_ip: '# 忽略的 IP/CIDR（结果中剔除）\n',
+      blacklist_ip: '# 黑名单 IP/CIDR（结果中剔除）\n',
+      whitelist_ip: '# 白名单 IP/CIDR\n',
+      ip_alias: '# IP 别名: CIDR 目标IP1,目标IP2\n',
+      bogus_nxdomain: '# 伪 NXDOMAIN IP/CIDR\n',
+      client_rules: '# 客户端规则: CIDR 分组(domestic/foreign/foreign_ecs/proxy) [no-cache] [no-rule]\n',
+      local_hosts: '# 本地 hosts: IP 域名1 域名2\n',
+      txt_records: '# TXT 记录: 域名 文本\n',
+      cname_records: '# CNAME 记录: 域名 目标域名\n',
     });
 
     this.adguardSources = this.loadOrDefault('localdns_adguard_sources', [
@@ -129,10 +148,15 @@ export class Store {
     this.clientAliases = this.loadOrDefault('localdns_client_aliases', {});
     this.auditCapacity = this.loadOrDefault('localdns_audit_capacity', 500);
     this.auditCapturing = this.loadOrDefault('localdns_audit_capturing', true);
+    this.auditDir = this.loadOrDefault('localdns_audit_dir', 'logs');
     this.upstreamEcs = this.loadOrDefault('localdns_upstream_ecs', '');
     this.requeryConfig = this.loadOrDefault('localdns_requery_config', this.requeryConfig);
     this.interfaceSettings = this.loadOrDefault('localdns_interface_settings', {});
     this.ruleBackups = this.loadOrDefault('localdns_rule_backups', {});
+    this.speedConfig = this.loadOrDefault('localdns_speed_config', this.speedConfig);
+    this.cacheConfig = this.loadOrDefault('localdns_cache_config', this.cacheConfig);
+    this.dns64Config = this.loadOrDefault('localdns_dns64_config', this.dns64Config);
+    this.namedSets = this.loadOrDefault('localdns_named_sets', this.namedSets);
 
     // Auto-healing: Ensure primary AdGuard filter source and switch7 are enabled so ad blocking works out of the box!
     let sourcesChanged = false;
@@ -148,6 +172,35 @@ export class Store {
     if (this.switches.switch7 !== 'A') {
       this.switches.switch7 = 'A';
       this.persist('localdns_switches', this.switches);
+    }
+
+    // Auto-migration: Ensure native IP DoH endpoints (223.5.5.5) are present in domestic upstreams
+    // to provide zero-domain-dependency instant bootstrapping and 130ms resolution out of the box.
+    let upstreamsChanged = false;
+    if (!this.upstreamConfig.domestic) {
+      this.upstreamConfig.domestic = [];
+    }
+    const hasDomesticIp = this.upstreamConfig.domestic.some(n => n.addr.includes('223.5.5.5'));
+    if (!hasDomesticIp) {
+      this.upstreamConfig.domestic.unshift({
+        tag: 'alidns_ip',
+        protocol: 'https',
+        addr: 'https://223.5.5.5/dns-query',
+        enabled: true,
+      });
+      upstreamsChanged = true;
+    }
+    if (this.upstreamConfig.foreign && !this.upstreamConfig.foreign.some(n => n.addr.includes('1.1.1.1'))) {
+      this.upstreamConfig.foreign.unshift({
+        tag: 'cloudflare_ip',
+        protocol: 'https',
+        addr: 'https://1.1.1.1/dns-query',
+        enabled: true,
+      });
+      upstreamsChanged = true;
+    }
+    if (upstreamsChanged) {
+      this.persist('localdns_upstreams', this.upstreamConfig);
     }
   }
 
@@ -277,6 +330,15 @@ export class Store {
     this.persist('localdns_audit_capturing', capturing);
   }
 
+  getAuditDir(): string {
+    return this.auditDir;
+  }
+
+  setAuditDir(dir: string): void {
+    this.auditDir = String(dir || 'logs').trim() || 'logs';
+    this.persist('localdns_audit_dir', this.auditDir);
+  }
+
   // Requery
   getRequeryConfig() {
     return this.requeryConfig;
@@ -331,5 +393,49 @@ export class Store {
     }
     this.persist('localdns_rule_backups', this.ruleBackups);
     return { id: backupItem.id, time: backupItem.time, bytes: backupItem.bytes };
+  }
+
+  // Speed check / response mode
+  getSpeedConfig(): SpeedConfig {
+    return this.speedConfig;
+  }
+
+  setSpeedConfig(patch: Partial<SpeedConfig>): SpeedConfig {
+    this.speedConfig = { ...this.speedConfig, ...patch };
+    this.persist('localdns_speed_config', this.speedConfig);
+    return this.speedConfig;
+  }
+
+  // Cache tuning
+  getCacheConfig(): CacheConfig {
+    return this.cacheConfig;
+  }
+
+  setCacheConfig(patch: Partial<CacheConfig>): CacheConfig {
+    this.cacheConfig = { ...this.cacheConfig, ...patch };
+    this.persist('localdns_cache_config', this.cacheConfig);
+    return this.cacheConfig;
+  }
+
+  // DNS64
+  getDns64Config(): Dns64Config {
+    return this.dns64Config;
+  }
+
+  setDns64Config(patch: Partial<Dns64Config>): Dns64Config {
+    this.dns64Config = { ...this.dns64Config, ...patch };
+    this.persist('localdns_dns64_config', this.dns64Config);
+    return this.dns64Config;
+  }
+
+  // Named domain-set / ip-set collections
+  getNamedSets(): NamedSets {
+    return this.namedSets;
+  }
+
+  setNamedSets(patch: Partial<NamedSets>): NamedSets {
+    this.namedSets = { ...this.namedSets, ...patch };
+    this.persist('localdns_named_sets', this.namedSets);
+    return this.namedSets;
   }
 }

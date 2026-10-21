@@ -139,3 +139,33 @@ export interface UpstreamStats {
   latency_count: number;
   recent_errors: Array<{ time: number; error: string }>;
 }
+
+export interface SpeedConfig {
+  enabled: boolean;
+  mode: string; // e.g. 'tcp:443,tcp:80' | 'none'
+  responseMode: 'fastest-ip' | 'fastest-response' | 'first-ping';
+  maxReplyIpNum: number; // 0 = unlimited
+  timeoutMs: number;
+  dualstackSelection: boolean;
+}
+
+export interface CacheConfig {
+  size: number;
+  persist: boolean;
+  prefetch: boolean;
+  serveExpiredTtl: number;
+  replyTtl: number;
+  rrTtlMin: number;
+  rrTtlMax: number;
+  negativeTtl: number;
+}
+
+export interface Dns64Config {
+  enabled: boolean;
+  prefix: string;
+}
+
+export interface NamedSets {
+  domainSets: Record<string, string[]>;
+  ipSets: Record<string, string[]>;
+}

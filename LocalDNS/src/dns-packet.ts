@@ -421,3 +421,39 @@ export function createEmptyResponse(req: DnsPacket, rcode = 0, rcodeName = 'NOER
     additionals: [],
   };
 }
+
+export function createAnswersResponse(
+  req: DnsPacket,
+  domain: string,
+  qtype: number,
+  ips: string[],
+  ttl = 300
+): DnsPacket {
+  const isV6 = qtype === 28;
+  const answers: DnsRecord[] = ips.map(ip => ({
+    name: domain,
+    type: qtype,
+    typeName: isV6 ? 'AAAA' : 'A',
+    class: 1, // IN
+    ttl,
+    data: ip,
+  }));
+
+  return {
+    id: req.id,
+    flags: 0x8180,
+    qr: true,
+    opcode: 0,
+    aa: true,
+    tc: false,
+    rd: req.rd,
+    ra: true,
+    rcode: 0,
+    rcodeName: 'NOERROR',
+    questions: req.questions,
+    answers,
+    authorities: [],
+    additionals: [],
+  };
+}
+

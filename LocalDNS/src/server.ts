@@ -5,6 +5,10 @@ import { AdGuardEngine } from './adguard';
 import { DiversionEngine } from './diversion';
 import { AuditManager } from './audit';
 import { DnsResolver, cleanDomain } from './resolver';
+import { SpeedChecker } from './speedcheck';
+import { IpRulesEngine } from './ip-rules';
+import { ClientRulesEngine } from './client-rules';
+import { LocalRecordsEngine } from './records';
 
 function parseJsonBody(req: HttpRequest): any {
   try {
@@ -132,6 +136,12 @@ export class LocalDnsServer {
     this.port = startedPort;
     this.httpServer = mainServer;
     this.isRunning = true;
+
+    // Apply cache configuration and warm up persisted cache
+    try {
+      CacheManager.get().applyConfig(Store.get().getCacheConfig());
+      CacheManager.get().loadFromStorage();
+    } catch {}
 
     // 2. Start HTTPS DoH Server (default 9443, with TLS P12 for Surge and RFC 8484 HTTPS clients)
     this.isHttpsActive = false;
@@ -456,6 +466,13 @@ export class LocalDnsServer {
     }
   }
 
+  private reloadRuleEngines(): void {
+    try { IpRulesEngine.get().reload(); } catch {}
+    try { ClientRulesEngine.get().reload(); } catch {}
+    try { LocalRecordsEngine.get().reload(); } catch {}
+    try { DiversionEngine.get().reloadLocalRules(); } catch {}
+  }
+
   private async handleApi(path: string, method: string, req: HttpRequest): Promise<HttpResponse> {
     const store = Store.get();
     const cleanPath = path.split('?')[0];
@@ -469,7 +486,7 @@ export class LocalDnsServer {
 
       return jsonResponse({
         status: 'online',
-        version: 'FJGAC',
+        version: 'FJGIR',
         upstream_stats: upstreamStats,
         rules: {
           geosite_cn: fileCounts.geosite_cn || 0,
@@ -543,6 +560,33 @@ export class LocalDnsServer {
           return jsonResponse({ success: true, capacity: store.getAuditCapacity() });
         }
         return jsonResponse({ error: 'Capacity must be at least 100' }, 400);
+      }
+    }
+
+    // 6.5 /api/v1/audit/settings (custom audit log directory)
+    if (path === '/api/v1/audit/settings') {
+      const buildAuditStorage = () => {
+        const dir = store.getAuditDir();
+        const abs = dir.startsWith('/') ? dir : Path.join(Script.directory, dir);
+        const logs: any = AuditManager.get().getLogs({ page: 1, limit: 1 });
+        const entries = Number((logs && (logs.total ?? logs.totalCount)) || 0) || 0;
+        return {
+          dir,
+          path: abs,
+          memory_fs: false,
+          capacity: store.getAuditCapacity(),
+          entries,
+          memory_bytes: entries * 220,
+          disk_bytes: 0,
+        };
+      };
+      if (method === 'GET') return jsonResponse(buildAuditStorage());
+      if (method === 'POST') {
+        const body = parseJsonBody(req);
+        const dir = String(body.dir || '').trim();
+        if (!dir) return jsonResponse({ error: '日志目录不能为空' }, 400);
+        store.setAuditDir(dir);
+        return jsonResponse(buildAuditStorage());
       }
     }
 
@@ -811,6 +855,71 @@ $httpClient.get({
         service: 'LocalDNS Config协同服务',
         features: ['interface', 'rule-backups', 'traffic', 'cores', 'files']
       });
+    }
+
+    // 30. /api/v1/speed/config (测速选优配置)
+    if (cleanPath === '/api/v1/speed/config') {
+      if (method === 'GET') {
+        return jsonResponse({ ...store.getSpeedConfig(), stats: AuditManager.get().getSpeedStats() });
+      }
+      if (method === 'POST') {
+        const body = parseJsonBody(req);
+        const cfg = store.setSpeedConfig(body);
+        return jsonResponse({ success: true, config: cfg });
+      }
+    }
+
+    // 30.1 /api/v1/speed/test (单 IP 测速)
+    if (cleanPath === '/api/v1/speed/test' && method === 'GET') {
+      const getParam = (k: string) => req.queryParams.find(p => p.key === k)?.value;
+      const ip = getParam('ip') || '';
+      if (!ip) return jsonResponse({ error: 'Missing ip' }, 400);
+      const mode = getParam('mode') || store.getSpeedConfig().mode;
+      const rtt = await SpeedChecker.get().measure(ip, mode, store.getSpeedConfig().timeoutMs);
+      return jsonResponse({ ip, mode, rtt, ok: rtt !== null });
+    }
+
+    // 31. /api/v1/cache/config (缓存调优)
+    if (cleanPath === '/api/v1/cache/config') {
+      if (method === 'GET') {
+        return jsonResponse(store.getCacheConfig());
+      }
+      if (method === 'POST') {
+        const body = parseJsonBody(req);
+        const cfg = store.setCacheConfig(body);
+        CacheManager.get().applyConfig(cfg);
+        return jsonResponse({ success: true, config: cfg });
+      }
+    }
+
+    // 32. /api/v1/dns64/config (DNS64)
+    if (cleanPath === '/api/v1/dns64/config') {
+      if (method === 'GET') {
+        return jsonResponse(store.getDns64Config());
+      }
+      if (method === 'POST') {
+        const body = parseJsonBody(req);
+        return jsonResponse({ success: true, config: store.setDns64Config(body) });
+      }
+    }
+
+    // 33. /api/v1/named-sets (domain-set / ip-set 命名集合)
+    if (cleanPath === '/api/v1/named-sets') {
+      if (method === 'GET') {
+        return jsonResponse(store.getNamedSets());
+      }
+      if (method === 'POST') {
+        const body = parseJsonBody(req);
+        const sets = store.setNamedSets(body);
+        this.reloadRuleEngines();
+        return jsonResponse({ success: true, sets });
+      }
+    }
+
+    // 34. /api/v1/rule-engines/reload (立即重载 IP/客户端/记录规则)
+    if (cleanPath === '/api/v1/rule-engines/reload' && method === 'POST') {
+      this.reloadRuleEngines();
+      return jsonResponse({ success: true });
     }
 
     return jsonResponse({ error: 'Unknown API endpoint' }, 404);

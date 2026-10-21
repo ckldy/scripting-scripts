@@ -6,7 +6,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 
 | 脚本 | 版本 | 说明 | 安装链接 |
 |---|---|---|---|
-| LocalDNS（本地 DNS 服务） | 1.6.0 | 本地 DNS 与安全服务系统，v1.6.0 彻底瘦身去伪存真，砍掉虚假 L7 代理与伪切片清洗，回归纯粹极致的 DNS 核心：RFC 1035/3596 二进制 DNS wire 编解码、开箱即用 18.5 万条 AdGuard 广告与隐私追踪域名拦截 (返回 0.0.0.0)、四级内存缓存 (TTL 动态衰减与过期自愈响应)、Happy Eyeballs 多上游并发竞速解析、对齐上游 FJGAC / UI 2026.10.18.19 清单工作台 (支持名单备份与 7 天流量时序)、提供安全 DoH 与合规 Apple 原生加密 DNS 描述文件（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
+| LocalDNS（本地 DNS 服务） | 1.8.0 | 本地 DNS 与安全服务系统，v1.8.0 同步上游 FJGIR / UI 2026.10.21.2 打包版控制台（新增审计日志目录）+ 智能测速选最快 IP、DoT/TCP 上游、IP 治理、per-client、DNS64、LRU/持久化缓存；原 v1.6.0 彻底瘦身去伪存真，砍掉虚假 L7 代理与伪切片清洗，回归纯粹极致的 DNS 核心：RFC 1035/3596 二进制 DNS wire 编解码、开箱即用 18.5 万条 AdGuard 广告与隐私追踪域名拦截 (返回 0.0.0.0)、四级内存缓存 (TTL 动态衰减与过期自愈响应)、Happy Eyeballs 多上游并发竞速解析、对齐上游 FJGIR / UI 2026.10.21.2 清单工作台 (支持名单备份与 7 天流量时序)、提供安全 DoH 与合规 Apple 原生加密 DNS 描述文件（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
 | 台风路径 | 2.3.1 | 实时台风路径、多机构预报与气象图层；主程序刷新后会同步重载用户小组件，大号组件地图缓存批处理仅重载一次 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F台风路径.zip%22%5D) |
 | 黃豆短劇 | 1.2.0 | 浏览、搜索与收藏黃豆短劇内容，支持播放历史、剧集播放、上下滑切集与进度条 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D) |
 | NetRadio（网络收音机） | 1.0.1 | 全球 1000+ 公开网络电台（按 36 个国家/地区归类），黑胶唱机舞台、电平示波器、主题调色板与 iOS 原生后台/锁屏播控（基于 net-redio 移植，作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D) |
@@ -56,15 +56,16 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 
 
 ### 🛡️ LocalDNS (本地 DNS 服务与安全管理系统)
-- **版本**：`1.6.0` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
+- **版本**：`1.8.0` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
 - **特性**：
+  - **v1.8.0 同步上游 FJGIR / UI 2026.10.21.2**：前端升级为上游打包版 SPA 控制台（同款双皮肤），新增「审计控制 → 自定义日志目录」；后端版本号 FJGAC→FJGIR，新增 `/api/v1/audit/settings`；修复新 SPA「DNS 趋势」缺 `localdns_queries_total` 指标导致的空白；
   - **v1.6.0 彻底瘦身·去伪存真·回归纯粹 DNS 核心**：
     - **推倒不切实际的伪 L7 代理**：砍掉无法在 DNS 网络层生效的虚假 HTTP 代理嗅探、伪切片清洗与模拟沙箱，专注打造全网最快、最稳、最纯净的本地 DNS 基础设施；
     - **18.5 万条 AdGuard 广告与隐私追踪域名实时黑洞拦截**：开箱即用 185,122 条过滤规则，常见移动广告（百度移动、腾讯广点通、穿山甲、Google 双击广告等）在 DNS 层面 100% 立即黑洞化阻断并返回 `0.0.0.0`；
     - **RFC 1035 / 3596 二进制 DNS Wire 高速编解码**：纯 TypeScript 原生解析 A、AAAA、CNAME、PTR、SOA、TXT、HTTPS (SVCB) 报文；
     - **四级内存缓存池 (`CacheManager`)**：核心缓存、国内、国外、国外 ECS 缓存池，支持 TTL 动态衰减与过期缓存自愈回退；
     - **Happy Eyeballs 并发竞速解析**：多上游节点并发查询与最快采纳，非国内组 350ms 未返回自动拉起国内组竞速双发；
-    - **对齐上游 FJGAC / UI 2026.10.18.19 清单工作台**：合入最新清单工作台修复，支持规则草稿隔离、服务端名单历史备份（保留每名单 20 份快照）、界面身份持久化与 7 天时序流量采样；
+    - **对齐上游 FJGIR / UI 2026.10.21.2 清单工作台**：合入最新清单工作台修复，支持规则草稿隔离、服务端名单历史备份（保留每名单 20 份快照）、界面身份持久化与 7 天时序流量采样；
     - **Apple 官方原生加密 DNS 描述文件 (`/localdns.mobileconfig`)**：遵循 iOS 14+ 官方标准，内嵌安全根证书与 127.0.0.1 本地回环自引导，系统内核级驱动，零外挂、零耗电；
     - **Surge / 小火箭安全 DoH 接管**：支持 `https://127.0.0.1:9443/dns-query` (TLS 加密) 与 `http://127.0.0.1:9099/dns-query` (免证书)。
     - **动态模块链接自适应**：Web 控制台与原生仪表盘自适应当前访问端口与协议，一键调起安装至 Surge/Loon；
