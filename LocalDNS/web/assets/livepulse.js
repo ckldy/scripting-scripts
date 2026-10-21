@@ -83,34 +83,33 @@
     // 累计请求
     setText(q('.spark-kpi-card[data-route="logs"] .sk-val'), fmtNum(totalQ));
 
-    // 缓存命中率（主缓存优先，退化为四池合计）
-    var poolTags = ['cache_main', 'cache_domestic', 'cache_foreign', 'cache_foreign_ecs'];
+    // 缓存命中率（主缓存已由后端聚合为总体，缺失时退化为分组合计）
+    var groupTags = ['cache_domestic', 'cache_foreign', 'cache_foreign_ecs'];
     var mainQ = tagged['localdns_cache_query_total|cache_main'];
     var mainH = tagged['localdns_cache_hit_total|cache_main'];
     var sumQ = 0, sumH = 0, activePools = 0;
-    for (var i = 0; i < poolTags.length; i++) {
-      var pq = tagged['localdns_cache_query_total|' + poolTags[i]];
-      var ph = tagged['localdns_cache_hit_total|' + poolTags[i]];
-      if (isFinite(pq)) {
+    if (isFinite(mainQ) && mainQ > 0) activePools++;
+    for (var i = 0; i < groupTags.length; i++) {
+      var pq = tagged['localdns_cache_query_total|' + groupTags[i]];
+      var ph = tagged['localdns_cache_hit_total|' + groupTags[i]];
+      if (isFinite(pq) && pq > 0) {
+        activePools++;
         sumQ += pq;
-        if (pq > 0) activePools++;
+        if (isFinite(ph)) sumH += ph;
       }
-      if (isFinite(ph)) sumH += ph;
     }
     var cacheEl = q('.spark-kpi-card[data-route="management"] .sk-val');
     var cacheNoteEl = q('.spark-kpi-card[data-route="management"] .sk-note');
     var totalQn = isFinite(totalQ) ? +totalQ : 0;
-    if (isFinite(mainQ) && mainQ > 0 && isFinite(mainH)) {
-      var rate = mainH / mainQ * 100;
-      setText(cacheEl, fmtPct(rate));
-      setText(q('.spark-kpi-card[data-route="logs"] .sk-note'), '缓存命中占 ' + fmtPct(rate));
-    } else if (sumQ > 0 && isFinite(sumH)) {
-      var rate2 = sumH / sumQ * 100;
-      setText(cacheEl, fmtPct(rate2));
-      setText(q('.spark-kpi-card[data-route="logs"] .sk-note'), '缓存命中占 ' + fmtPct(rate2));
+    var overallRate = null;
+    if (isFinite(mainQ) && mainQ > 0 && isFinite(mainH)) overallRate = mainH / mainQ * 100;
+    else if (sumQ > 0) overallRate = sumH / sumQ * 100;
+    if (overallRate !== null) {
+      setText(cacheEl, fmtPct(overallRate));
+      setText(q('.spark-kpi-card[data-route="logs"] .sk-note'), '缓存命中占 ' + fmtPct(overallRate));
+      setText(cacheNoteEl, activePools + ' 个活跃缓存池');
     }
     // 无任何缓存查询时保持原样（可能是「已关闭」，不覆盖）
-    if (sumQ > 0) setText(cacheNoteEl, activePools + ' 个活跃缓存池');
 
     // 客户端数 / 域名数
     setText(q('#kpi-card-clients .sk-val'), fmtNum(clients));
@@ -125,6 +124,41 @@
 
     // 平均响应
     setText(q('.spark-kpi-card[data-route="upstreams"] .sk-val'), fmtMs(avgMs));
+
+    // 拓扑「02 引擎与多级缓存」：同步命中率、请求徽标与 5 条进度条
+    var engineCard = q('.t-engine-card');
+    if (engineCard && overallRate !== null) {
+      var overall = overallRate;
+      setText(q('.t-engine-card .tec-big'), overall.toFixed(1) + '%');
+      setText(q('.t-engine-card .tec-badge'), isFinite(totalQ) ? fmtCompact(totalQ) + ' 请求' : null);
+      setText(q('.t-engine-card .tec-desc'), '多级内存缓存命中 · ' + activePools + ' 个活跃缓存池');
+
+      var rateOf = function (tag) {
+        var tq = tagged['localdns_cache_query_total|' + tag];
+        var th = tagged['localdns_cache_hit_total|' + tag];
+        return isFinite(tq) && tq > 0 && isFinite(th) ? th / tq * 100 : 0;
+      };
+      var lazyRateOf = function (tag) {
+        var tq = tagged['localdns_cache_query_total|' + tag];
+        var tl = tagged['localdns_cache_lazy_hit_total|' + tag];
+        return isFinite(tq) && tq > 0 && isFinite(tl) ? tl / tq * 100 : 0;
+      };
+      var rates = [
+        overall,
+        rateOf('cache_domestic'),
+        rateOf('cache_foreign'),
+        rateOf('cache_foreign_ecs'),
+        Math.max(lazyRateOf('cache_main'), lazyRateOf('cache_domestic')),
+      ];
+      var rows = engineCard.querySelectorAll('.tec-bar-row');
+      for (var bi = 0; bi < rows.length && bi < rates.length; bi++) {
+        var fill = rows[bi].querySelector('.tec-bar-fill');
+        var pctEl = rows[bi].querySelector('.tec-bar-pct');
+        var w = Math.max(4, rates[bi]).toFixed(1) + '%';
+        if (fill && fill.style.width !== w) fill.style.width = w;
+        setText(pctEl, rates[bi].toFixed(1) + '%');
+      }
+    }
 
     // 右下浮动统计条
     if (isFinite(totalQ)) setText(q('#float-stat-top'), '↑ 累计 ' + fmtCompact(totalQ) + ' 次');
@@ -147,8 +181,8 @@
           setHtml(q('[data-service-metric="uptime"] .service-uptime-value'), uptimeMarkup(now / 1000 - start));
         }
 
-        // 业务 KPI：每秒就地更新
-        updateKpis(m);
+        // 业务 KPI：每秒就地更新（单个节点异常不影响其余脉冲）
+        try { updateKpis(m); } catch (e) {}
 
         // CPU / 内存：每 2 秒
         if (tick % 2 === 0) {

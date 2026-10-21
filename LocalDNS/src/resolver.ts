@@ -279,8 +279,7 @@ export class DnsResolver {
     // 7. Cache lookup (group pool first, then main) — fixes group cache dead feature
     if (switches.switch13 === 'A' && !noCache && !forceRefresh) {
       const allowExpired = switches.switch4 === 'A';
-      const cached = cacheManager.get(groupPoolTag, domain, qtype, allowExpired, cacheCfg.replyTtl)
-        || cacheManager.get('cache_main', domain, qtype, allowExpired, cacheCfg.replyTtl);
+      const cached = cacheManager.lookupWithFallback(groupPoolTag, 'cache_main', domain, qtype, allowExpired, cacheCfg.replyTtl);
       if (cached) {
         const respPacket: DnsPacket = { ...cached.packet, id: query.id };
         // Prefetch if nearing expiry

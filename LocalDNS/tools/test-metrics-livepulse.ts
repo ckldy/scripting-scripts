@@ -43,6 +43,9 @@ async function main() {
   for (const d of ['baidu.com', 'qq.com', 'apple.com', 'mobads.baidu.com']) {
     await resolver.resolve(makeDnsQuery(d), '127.0.0.1');
   }
+  // 重复查询以产生缓存命中
+  await resolver.resolve(makeDnsQuery('baidu.com'), '127.0.0.1');
+  await resolver.resolve(makeDnsQuery('qq.com'), '127.0.0.1');
 
   const res = await fetch(baseUrl + '/metrics');
   assert(res.status === 200, 'GET /metrics 200');
@@ -61,6 +64,14 @@ async function main() {
   const ch = m.tagged['localdns_cache_hit_total|cache_main'];
   assert(Number.isFinite(cq), 'tagged cache_main query_total parsed (got ' + cq + ')');
   assert(Number.isFinite(ch), 'tagged cache_main hit_total parsed (got ' + ch + ')');
+  assert(ch >= 2, 'aggregate cache_main hits > 0 (got ' + ch + ')');
+  const groupQ = ['cache_domestic', 'cache_foreign', 'cache_foreign_ecs']
+    .reduce((s, t) => s + (m.tagged['localdns_cache_query_total|' + t] || 0), 0);
+  const groupH = ['cache_domestic', 'cache_foreign', 'cache_foreign_ecs']
+    .reduce((s, t) => s + (m.tagged['localdns_cache_hit_total|' + t] || 0), 0);
+  assert(cq === groupQ, 'cache_main queries == group sum (' + cq + ' vs ' + groupQ + ')');
+  assert(ch === groupH, 'cache_main hits == group sum (' + ch + ' vs ' + groupH + ')');
+  assert(cq > 0 && ch / cq > 0, 'overall hit rate non-zero (' + (cq ? (ch / cq * 100).toFixed(1) : 0) + '%)');
 
   // metric lines well-formed (no NaN)
   assert(!/NaN|undefined/.test(txt), 'metrics contain no NaN/undefined');

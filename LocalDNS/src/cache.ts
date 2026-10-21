@@ -176,6 +176,13 @@ export class CacheManager {
   private persistTimer: any = null;
   private loaded = false;
 
+  // Aggregate logical lookups for the "core cache" view.
+  // The main pool is a write-through fallback, so its own counters only see misses;
+  // the UI expects cache_main to represent the overall hit rate of the multi-tier cache.
+  private aggQueries = 0;
+  private aggHits = 0;
+  private aggLazyHits = 0;
+
   private constructor() {}
 
   static get(): CacheManager {
@@ -207,6 +214,46 @@ export class CacheManager {
   get(poolTag: string, domain: string, qtype: number, allowExpired = false, replyTtl = 5) {
     const pool = this.getPool(poolTag) || this.mainCache;
     return pool.get(domain, qtype, allowExpired, replyTtl);
+  }
+
+  /**
+   * One logical cache lookup: try the group pool first, then the write-through main pool.
+   * Counts exactly one query (and at most one hit) for the aggregated core-cache metrics.
+   */
+  lookupWithFallback(
+    primaryTag: string,
+    fallbackTag: string,
+    domain: string,
+    qtype: number,
+    allowExpired = false,
+    replyTtl = 5
+  ) {
+    this.aggQueries++;
+    let result = this.get(primaryTag, domain, qtype, allowExpired, replyTtl);
+    if (!result && fallbackTag && fallbackTag !== primaryTag) {
+      result = this.get(fallbackTag, domain, qtype, allowExpired, replyTtl);
+    }
+    if (result) {
+      this.aggHits++;
+      if (result.isLazy) this.aggLazyHits++;
+    }
+    return result;
+  }
+
+  /** Pool metrics with cache_main reported as the aggregate of every logical lookup. */
+  getPoolMetrics(): CachePoolMetrics[] {
+    const main = this.mainCache.getMetrics();
+    const groups = [this.domesticCache, this.foreignCache, this.foreignEcsCache];
+    return [
+      {
+        tag: 'cache_main',
+        queries: this.aggQueries,
+        hits: this.aggHits,
+        lazyHits: this.aggLazyHits,
+        size: main.size,
+      },
+      ...groups.map(p => p.getMetrics()),
+    ];
   }
 
   peek(poolTag: string, domain: string, qtype: number) {

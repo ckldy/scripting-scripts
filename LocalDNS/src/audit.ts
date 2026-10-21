@@ -434,8 +434,7 @@ export class AuditManager {
     lines.push('# HELP localdns_cache_size_current Current items in cache.');
     lines.push('# TYPE localdns_cache_size_current gauge');
 
-    for (const pool of CacheManager.get().getAllPools()) {
-      const m = pool.getMetrics();
+    for (const m of CacheManager.get().getPoolMetrics()) {
       lines.push(`localdns_cache_query_total{tag="${m.tag}"} ${m.queries}`);
       lines.push(`localdns_cache_hit_total{tag="${m.tag}"} ${m.hits}`);
       lines.push(`localdns_cache_lazy_hit_total{tag="${m.tag}"} ${m.lazyHits}`);
