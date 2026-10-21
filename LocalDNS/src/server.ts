@@ -569,7 +569,10 @@ export class LocalDnsServer {
         const dir = store.getAuditDir();
         const abs = dir.startsWith('/') ? dir : Path.join(Script.directory, dir);
         const logs: any = AuditManager.get().getLogs({ page: 1, limit: 1 });
-        const entries = Number((logs && (logs.total ?? logs.totalCount)) || 0) || 0;
+        const entries =
+          Number(logs?.pagination?.total_items) ||
+          Number(logs?.total ?? logs?.totalCount) ||
+          0;
         return {
           dir,
           path: abs,
@@ -623,7 +626,55 @@ export class LocalDnsServer {
         response_code: getParam('response_code'),
         client_contains: getParam('client_contains'),
       });
-      return jsonResponse(logsResult);
+
+      // Map internal AuditLogEntry -> upstream UI v2 contract.
+      // UI strictly requires `answers` to be an array of records ({type,data,ttl}) and
+      // uses query_name / client_ip / query_time / pagination.current_page.
+      const mapAnswer = (value: string, qtypeName: string) => {
+        const v = String(value);
+        let type = qtypeName || 'A';
+        if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) type = 'A';
+        else if (v.includes(':')) type = 'AAAA';
+        else if (!/^\d+$/.test(v)) type = qtypeName === 'A' || qtypeName === 'AAAA' ? 'CNAME' : qtypeName;
+        return { type, data: v, value: v, ttl: null };
+      };
+      const mapLog = (log: any) => ({
+        // New UI fields
+        query_name: log.domain,
+        query_type: log.query_type,
+        query_class: 'IN',
+        client_ip: log.client,
+        client_alias: log.client_alias,
+        response_code: log.response_code,
+        query_time: new Date((log.timestamp || 0) * 1000).toISOString(),
+        answers: Array.isArray(log.answers)
+          ? log.answers.map((a: string) => mapAnswer(a, log.query_type))
+          : [],
+        cache: typeof log.upstream_tag === 'string' && log.upstream_tag.startsWith('cache'),
+        upstream_attempt: log.upstream_tag,
+        // Preserve legacy fields for the native page / older clients
+        id: log.id,
+        time: log.time,
+        timestamp: log.timestamp,
+        domain: log.domain,
+        client: log.client,
+        domain_set: log.domain_set,
+        duration_ms: log.duration_ms,
+        upstream_tag: log.upstream_tag,
+        trace_id: log.trace_id,
+      });
+
+      return jsonResponse({
+        logs: logsResult.logs.map(mapLog),
+        filters: logsResult.filters,
+        pagination: {
+          current_page: logsResult.pagination.page,
+          total_pages: logsResult.pagination.total_pages,
+          total_items: logsResult.pagination.total_items,
+          page: logsResult.pagination.page,
+          limit: logsResult.pagination.limit,
+        },
+      });
     }
 
     // 11. /api/v1/system/restart
