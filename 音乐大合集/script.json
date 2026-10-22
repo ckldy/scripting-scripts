@@ -20,7 +20,7 @@
     "ja" : "",
     "ru" : ""
   },
-  "version" : "1.0.0",
+  "version" : "1.1.0",
   "description" : "宝宝巴士音乐播放器",
   "permissions" : null,
   "entry" : "index.tsx",

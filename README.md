@@ -10,7 +10,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 | 台风路径 | 2.3.1 | 实时台风路径、多机构预报与气象图层；主程序刷新后会同步重载用户小组件，大号组件地图缓存批处理仅重载一次 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F台风路径.zip%22%5D) |
 | 黃豆短劇 | 1.2.0 | 浏览、搜索与收藏黃豆短劇内容，支持播放历史、剧集播放、上下滑切集与进度条 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D) |
 | NetRadio（网络收音机） | 1.0.1 | 全球 1000+ 公开网络电台（按 36 个国家/地区归类），黑胶唱机舞台、电平示波器、主题调色板与 iOS 原生后台/锁屏播控（基于 net-redio 移植，作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D) |
-| 音乐大合集 | 1.0.0 | 多源聚合音乐播放器，支持 QQ/网易/酷狗/酷我/咪咕音源，经典与沉浸播放页窗口自适应、纯净无下划线歌词、多样式进度条与后台保活播放（作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F%E9%9F%B3%E4%B9%90%E5%A4%A7%E5%90%88%E9%9B%86.zip%22%5D) |
+| 音乐大合集 | 1.1.0 | 多源聚合音乐播放器，支持 QQ/网易/酷狗/酷我/咪咕音源；设置持久化保存、音源列表切换与默认音源、音源文件信息面板、真实音质识别（母带自动回落无损）、播放页窗口自适应与纯净歌词、多样式进度条与后台保活（作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F%E9%9F%B3%E4%B9%90%E5%A4%A7%E5%90%88%E9%9B%86.zip%22%5D) |
 | ZakoProxy（AI 代理中转） | 1.4.3 | 基于 ckldy/ZakoProxyCLI 深度移植的自托管 AI API 中转代理。v1.4.3 关键修复：预设 Prompt 策略改为 **system + user 双通道注入** —— 尊重 system 的上游拿到最高优先级，丢弃 system 的 Gemini 逆向类适配层仍能从 user 拿到预设；两条通道各自幂等，消息数不膨胀。同时补齐 `Access-Control-Expose-Headers`（浏览器端终于能读到 `X-Zako-*` 诊断头）并新增 `X-Zako-Injected` / `X-Zako-Score`，审计日志记录 `injected_to` 通道。保留渠道前缀无关匹配、分层多维打分、秒级热重启，带流光毛玻璃双模界面、多账号故障转移熔断与 AES-256 本地加密（作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FZakoProxy.zip%22%5D) |
 
 ## 📥 安装方法
@@ -112,8 +112,12 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 - **App 直链**：`scripting://import_scripts?urls=https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/LocalDNS.zip`
 
 ### 🎵 音乐大合集 (Music Collection)
-- **版本**：`1.0.0` ｜ **作者**：`vcncv`
+- **版本**：`1.1.0` ｜ **作者**：`vcncv`
 - **特性**：
+  - **设置持久化**：设置改为本地文件存储并新增「保存设置 / 恢复默认」，固定本地端口，重启不再丢失主题 / 音质 / 音源 / 收藏等配置；
+  - **音源选择与默认音源**：播放页「切源 → 音源」弹出音源列表可视化切换（显示平台、使用中标记、禁用置灰），设置可指定默认音源，拿不到目标音质自动换源；
+  - **音源文件信息面板**：播放页「信息」展示格式 / 体积 / 时长 / 平均码率 / MIME / HTTP 状态 / 地址，一键复制音源地址（原生 HEAD/Range 探测不读 body）；
+  - **真实音质识别**：按真实 URL 识别档位，不虚标母带；母带拿不到自动回落无损，避免假母带与死链抢占；
   - **多源曲库聚合**：深度支持 QQ 音乐、网易云、酷狗、酷我、咪咕 5 大音源搜索与播放，突破跨域限制；支持扩展自定义本地或在线音源插件；
   - **全窗口自适应**：深度适配 iPad 台前调度、分屏模式与浮窗（`100dvh`），任意矮窗口下进度条、播放控制按键与底部工具菜单始终完整可见、永不裁切；
   - **纯净优雅歌词**：纯净无下划线高亮歌词，随歌曲明暗自适应主题色，丝滑垂直滚动，点击全屏歌词，锁屏歌词双句轮流播报；

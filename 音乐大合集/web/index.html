@@ -8,10 +8,11 @@
 <meta name="referrer" content="no-referrer" data-page-node-id="HrgGhxaYulVoCILOw9z8bn" />
 <title>Music</title>
 
+  <script src="settings.js"></script>
   <script>
-try{var t=localStorage.getItem("aq_theme")||"light";function _aqIsNight(){var h=new Date().getHours();return h>=18||h<6;}var dark=t==="dark"||(t==="auto"&&_aqIsNight())||(t==="system"&&window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(dark)document.documentElement.classList.add("dark");}catch(e){}
+try{var _aqs=window.__AQ_SETTINGS||{};var t=(window.__AQ_HAS_SAVED&&_aqs["aq_theme"])||localStorage.getItem("aq_theme")||"light";function _aqIsNight(){var h=new Date().getHours();return h>=18||h<6;}var dark=t==="dark"||(t==="auto"&&_aqIsNight())||(t==="system"&&window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(dark)document.documentElement.classList.add("dark");}catch(e){}
 </script>
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=6">
 </head>
 <body data-page-node-id="raGpTfuiS3DKlhJ6Y2VjVd">
 <div id="app" data-page-node-id="WQSCEz6WbZfDETRVTnUTCN">
@@ -163,7 +164,7 @@ try{var t=localStorage.getItem("aq_theme")||"light";function _aqIsNight(){var h=
         <div class="set-row" data-page-node-id="fwxJABZ0THzu96yPRqfH7n">
           <div data-page-node-id="gAs9JsDsLXuA90eeMp2vVK">
             <div class="set-label" data-page-node-id="EZKLg3zDdIm5HrIHmSICjQ">音质</div>
-            <div class="set-hint" data-page-node-id="9U9UBEA4OHwQTCeDBCVNGK">选母带需音源能出 AI00；仅启用可用源</div>
+            <div class="set-hint" data-page-node-id="9U9UBEA4OHwQTCeDBCVNGK">母带需音源真能提供；拿不到会自动用无损播放</div>
           </div>
           <div class="seg" id="segQ" data-page-node-id="j5gQin1RFRh4MDwdusSFPp">
             <button data-q="128k" data-page-node-id="tMUCT8LFwSFdhsrc3Dv7xa">标准</button>
@@ -241,7 +242,10 @@ try{var t=localStorage.getItem("aq_theme")||"light";function _aqIsNight(){var h=
             <button type="button" data-src="rank">随机榜单</button>
           </div>
         </div>
-      
+      </div>
+      <div class="set-actions" id="setActions">
+        <button class="btn-pink" id="btnSaveSettings" type="button">保存设置</button>
+        <button class="btn-ghost" id="btnResetSettings" type="button">恢复默认</button>
       </div>
       <div class="set-block" data-page-node-id="UnCEUEVWMdsjNZ7XG80MI5">
         <div class="set-row" data-page-node-id="TWeJ2UzxZRQyNE4nORWeGW">
@@ -249,6 +253,13 @@ try{var t=localStorage.getItem("aq_theme")||"light";function _aqIsNight(){var h=
             <div class="set-label" data-page-node-id="zaL1kM7eiRAtUehs0UmqdO">音源管理</div>
             <div class="set-hint" data-page-node-id="DXqMMUEbzbR1ix6nE4tuCy">可添加多个 · 指定平台 · 支持本地 JS</div>
           </div>
+        </div>
+        <div class="set-row" id="rowDefaultSrc">
+          <div>
+            <div class="set-label">默认音源</div>
+            <div class="set-hint">优先用该音源；拿不到目标音质会自动换源</div>
+          </div>
+          <button type="button" class="btn-ghost" id="btnPickDefaultSrc" style="width:auto;margin:0;min-width:92px;padding:8px 12px;font-size:14px">自动</button>
         </div>
         <div class="src-list" id="srcList" data-page-node-id="mtB0gqBB3mmIzaDPzqkEUL"></div>
         <div class="src-add-panel" data-page-node-id="bM5UYfCvEoY5u8q6mED7Uy">
@@ -382,6 +393,7 @@ try{var t=localStorage.getItem("aq_theme")||"light";function _aqIsNight(){var h=
     <button id="npSpeed" data-page-node-id="2LaB5Y37BXHGfpFADGk4ZA"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20a8 8 0 1 1 8-8"/><path d="M12 12l5-3"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg><span id="npSpeedLabel" data-page-node-id="QnflQF6S552V3isIDUVe6c">1.0x</span></button>
     <button id="npQuality" data-page-node-id="7wbtDF0g8nb6xNqc57ubYj"><svg viewBox="5.5 3 13 18" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="round"><path d="M7 14.5v-5"/><path d="M10 17V7"/><path d="M13 19.5V4.5"/><path d="M16 16.5V7.5"/><path d="M19 13.5v-3"/></svg>音质</button>
     <button id="npSleep" type="button" aria-label="定时关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 14.3A8.5 8.5 0 1 1 9.7 3 7 7 0 0 0 21 14.3z"/></svg><span id="npSleepLabel">定时</span></button>
+    <button id="npFileInfo" type="button" aria-label="音源文件信息" title="音源文件信息"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.6"/><circle cx="12" cy="7.9" r="1.25" fill="currentColor" stroke="none"/></svg>信息</button>
     <button id="npMore" type="button" aria-label="切换音源与平台" title="切换音源与平台"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h8a3 3 0 0 1 0 6h-1"/><path d="M15 7l-2.5-2.5M15 7l-2.5 2.5"/><path d="M17 17H9a3 3 0 0 1 0-6h1"/><path d="M9 17l2.5 2.5M9 17l2.5-2.5"/></svg>切源</button>
   </div>
 </div>
@@ -429,7 +441,7 @@ try{var t=localStorage.getItem("aq_theme")||"light";function _aqIsNight(){var h=
 <div class="np-more-pop" id="npMorePop" role="menu">
   <button type="button" id="npSwitchSrc" role="menuitem">
     <svg viewBox="0 0 24 24"><path d="M4 7h12"/><path d="M14 4l4 3-4 3"/><path d="M20 17H8"/><path d="M10 14l-4 3 4 3"/></svg>
-    音源
+    <span id="npSrcBtnLabel">音源</span>
   </button>
   <button type="button" id="npSwitchPlat" role="menuitem">
     <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
@@ -440,6 +452,29 @@ try{var t=localStorage.getItem("aq_theme")||"light";function _aqIsNight(){var h=
     歌词
   </button>
 </div>
+<div class="np-info-mask" id="npSrcMask" aria-hidden="true">
+  <div class="np-info-card" role="dialog" aria-label="选择音源">
+    <div class="np-info-head">
+      <span class="np-info-title" id="npSrcTitle">选择音源</span>
+      <button type="button" class="np-info-close" id="npSrcClose" aria-label="关闭">✕</button>
+    </div>
+    <div class="np-info-body np-src-body" id="npSrcList"></div>
+  </div>
+</div>
+
+<div class="np-info-mask" id="npInfoMask" aria-hidden="true">
+  <div class="np-info-card" id="npInfoCard" role="dialog" aria-label="音源文件信息">
+    <div class="np-info-head">
+      <span class="np-info-title">音源文件信息</span>
+      <button type="button" class="np-info-close" id="npInfoClose" aria-label="关闭">✕</button>
+    </div>
+    <div class="np-info-body" id="npInfoBody"></div>
+    <div class="np-info-actions">
+      <button type="button" class="np-info-btn" id="npInfoCopy">复制音源地址</button>
+    </div>
+  </div>
+</div>
+
 <div class="q-pop" id="qPop" data-page-node-id="VMTZCWXkSpBq6I6KdTrLOi">
   <div id="qPopOpts" data-page-node-id="8LJjjsiIRhtWLrsNLyoxbJ"></div>
 </div>
@@ -447,6 +482,6 @@ try{var t=localStorage.getItem("aq_theme")||"light";function _aqIsNight(){var h=
 
 <audio id="audio" preload="metadata" playsinline webkit-playsinline x-webkit-airplay="allow" data-page-node-id="9U7tpzv263eqM3EzgIKBzt"></audio>
 
-  <script src="app.js" defer></script>
+  <script src="app.js?v=7" defer></script>
 </body>
 </html>
