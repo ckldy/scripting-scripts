@@ -508,10 +508,10 @@ class AppearanceRepository {
 }
 const appearanceRepository = new AppearanceRepository();
 class ApiError extends Error {
-  constructor(message, status = 0, body = null, code = "http") {
+  constructor(message, status = 0, body2 = null, code = "http") {
     super(message);
     this.status = status;
-    this.body = body;
+    this.body = body2;
     this.code = code;
     this.name = "ApiError";
   }
@@ -527,8 +527,9 @@ class HttpClient {
     if (path instanceof URL || /^(?:https?:|data:|blob:)/i.test(String(path))) return String(path);
     return `${this.options.base || ""}${path}`;
   }
-  async run(path, options, read) {
+  async run(path, request2, read) {
     var _a2, _b2;
+    const { timeout = this.options.timeout ?? 1e4, ...options } = request2;
     const controller = new AbortController();
     const signal = options.signal || (String(options.method || "GET").toUpperCase() === "GET" ? (_b2 = (_a2 = this.options).signal) == null ? void 0 : _b2.call(_a2) : void 0);
     const forward = () => controller.abort(signal == null ? void 0 : signal.reason);
@@ -538,7 +539,7 @@ class HttpClient {
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, this.options.timeout ?? 1e4);
+    }, timeout);
     try {
       throwIfAborted(controller.signal);
       const response = await (this.options.fetch || globalThis.fetch)(this.url(path), { ...options, signal: controller.signal });
@@ -559,20 +560,20 @@ class HttpClient {
   }
   request(path, options = {}) {
     return this.run(path, options, async (response) => {
-      const body = response.status === 204 ? null : /(?:application\/json|\+json)/i.test(response.headers.get("content-type") || "") ? await response.json() : await response.text();
+      const body2 = response.status === 204 ? null : /(?:application\/json|\+json)/i.test(response.headers.get("content-type") || "") ? await response.json() : await response.text();
       if (!response.ok) {
-        const message = body && typeof body === "object" && "error" in body ? String(body.error) : typeof body === "string" && body ? body : `HTTP ${response.status}`;
-        throw new ApiError(message, response.status, body);
+        const message = body2 && typeof body2 === "object" && "error" in body2 ? String(body2.error) : typeof body2 === "string" && body2 ? body2 : `HTTP ${response.status}`;
+        throw new ApiError(message, response.status, body2);
       }
-      return body;
+      return body2;
     });
   }
   // Buffer while the timeout and cancellation handlers are still attached.
   // Asset callers retain Response APIs and their existing status handling.
   fetch(path, options = {}) {
     return this.run(path, options, async (response) => {
-      const body = [204, 205, 304].includes(response.status) ? null : await response.arrayBuffer();
-      return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+      const body2 = [204, 205, 304].includes(response.status) ? null : await response.arrayBuffer();
+      return new Response(body2, { status: response.status, statusText: response.statusText, headers: response.headers });
     });
   }
 }
@@ -2885,10 +2886,10 @@ function createDOMPurify() {
       } catch (_) {
       }
     }
-    const body = doc.body || doc.documentElement;
-    if (dirty && leadingWhitespace) body.insertBefore(document2.createTextNode(leadingWhitespace), body.childNodes[0] || null);
+    const body2 = doc.body || doc.documentElement;
+    if (dirty && leadingWhitespace) body2.insertBefore(document2.createTextNode(leadingWhitespace), body2.childNodes[0] || null);
     if (NAMESPACE === HTML_NAMESPACE) return getElementsByTagName.call(doc, WHOLE_DOCUMENT ? "html" : "body")[0];
-    return WHOLE_DOCUMENT ? doc.documentElement : body;
+    return WHOLE_DOCUMENT ? doc.documentElement : body2;
   };
   const _createNodeIterator = function _createNodeIterator2(root) {
     const doc = getOwnerDocument ? getOwnerDocument(root) : root.ownerDocument;
@@ -3206,7 +3207,7 @@ function createDOMPurify() {
   };
   DOMPurify.sanitize = function(dirty) {
     let cfg = arguments.length > 1 && arguments[1] !== void 0 ? arguments[1] : {};
-    let body = null;
+    let body2 = null;
     let importedNode = null;
     let currentNode = null;
     let returnNode = null;
@@ -3244,19 +3245,19 @@ function createDOMPurify() {
       inPlaceNodes = _collectLiveNodes(dirty);
       IN_PLACE_VISITED = setCreate();
     } else if (_isNode(dirty)) {
-      body = _initDocument("<!---->");
-      importedNode = body.ownerDocument.importNode(dirty, true);
-      if (importedNode.nodeType === NODE_TYPE.element && importedNode.nodeName === "BODY") body = importedNode;
-      else if (importedNode.nodeName === "HTML") body = importedNode;
-      else body.appendChild(importedNode);
-      _sanitizeAttachedShadowRoots(body);
+      body2 = _initDocument("<!---->");
+      importedNode = body2.ownerDocument.importNode(dirty, true);
+      if (importedNode.nodeType === NODE_TYPE.element && importedNode.nodeName === "BODY") body2 = importedNode;
+      else if (importedNode.nodeName === "HTML") body2 = importedNode;
+      else body2.appendChild(importedNode);
+      _sanitizeAttachedShadowRoots(body2);
     } else {
       if (!RETURN_DOM && !SAFE_FOR_TEMPLATES && !WHOLE_DOCUMENT && dirty.indexOf("<") === -1) return trustedTypesPolicy && RETURN_TRUSTED_TYPE ? _createTrustedHTML(dirty) : dirty;
-      body = _initDocument(dirty);
-      if (!body) return RETURN_DOM ? null : RETURN_TRUSTED_TYPE ? emptyHTML : "";
+      body2 = _initDocument(dirty);
+      if (!body2) return RETURN_DOM ? null : RETURN_TRUSTED_TYPE ? emptyHTML : "";
     }
-    if (body && FORCE_BODY) _forceRemove(body.firstChild);
-    const walkRoot = inPlace ? dirty : body;
+    if (body2 && FORCE_BODY) _forceRemove(body2.firstChild);
+    const walkRoot = inPlace ? dirty : body2;
     try {
       if (inPlace) _sanitizeAttachedShadowRoots(dirty);
       const nodeIterator = _createNodeIterator(walkRoot);
@@ -3281,16 +3282,16 @@ function createDOMPurify() {
       return dirty;
     }
     if (RETURN_DOM) {
-      if (SAFE_FOR_TEMPLATES) _scrubTemplateExpressions2(body);
+      if (SAFE_FOR_TEMPLATES) _scrubTemplateExpressions2(body2);
       if (RETURN_DOM_FRAGMENT) {
-        returnNode = createDocumentFragment.call(body.ownerDocument);
-        while (body.firstChild) returnNode.appendChild(body.firstChild);
-      } else returnNode = body;
+        returnNode = createDocumentFragment.call(body2.ownerDocument);
+        while (body2.firstChild) returnNode.appendChild(body2.firstChild);
+      } else returnNode = body2;
       if (ALLOWED_ATTR.shadowroot || ALLOWED_ATTR.shadowrootmode) returnNode = importNode.call(originalDocument, returnNode, true);
       return returnNode;
     }
-    let serializedHTML = WHOLE_DOCUMENT ? body.outerHTML : body.innerHTML;
-    if (WHOLE_DOCUMENT && ALLOWED_TAGS["!doctype"] && body.ownerDocument && body.ownerDocument.doctype && body.ownerDocument.doctype.name && regExpTest(DOCTYPE_NAME, body.ownerDocument.doctype.name)) serializedHTML = "<!DOCTYPE " + body.ownerDocument.doctype.name + ">\n" + serializedHTML;
+    let serializedHTML = WHOLE_DOCUMENT ? body2.outerHTML : body2.innerHTML;
+    if (WHOLE_DOCUMENT && ALLOWED_TAGS["!doctype"] && body2.ownerDocument && body2.ownerDocument.doctype && body2.ownerDocument.doctype.name && regExpTest(DOCTYPE_NAME, body2.ownerDocument.doctype.name)) serializedHTML = "<!DOCTYPE " + body2.ownerDocument.doctype.name + ">\n" + serializedHTML;
     if (SAFE_FOR_TEMPLATES) serializedHTML = _stripTemplateExpressions(serializedHTML);
     return trustedTypesPolicy && RETURN_TRUSTED_TYPE ? _createTrustedHTML(serializedHTML) : serializedHTML;
   };
@@ -3551,16 +3552,16 @@ function initialize$m() {
     const magnitude = 10 ** Math.floor(Math.log10(peak || 1));
     const max = metric === "cache" ? 100 : Math.max(1, Math.ceil(peak / magnitude) * magnitude);
     const x = (p) => left + (p.time - first) / span * (w - left - right), y = (v) => top + (1 - v / max) * (h - top - bottom);
-    const groups = [];
+    const groups2 = [];
     let group = [];
     for (const p of ps) {
       if (!finite(p.value)) {
-        if (group.length) groups.push(group);
+        if (group.length) groups2.push(group);
         group = [];
       } else group.push(p);
     }
-    if (group.length) groups.push(group);
-    const paths = groups.map((g) => {
+    if (group.length) groups2.push(group);
+    const paths = groups2.map((g) => {
       const d = g.map((p, i) => `${i ? "L" : "M"}${x(p).toFixed(2)},${y(p.value).toFixed(2)}`).join(" ");
       return (g.length > 1 ? `<path class="traffic-area" d="${d} L${x(g.at(-1))},${h - bottom} L${x(g[0])},${h - bottom} Z"/>` : "") + `<path class="traffic-line" d="${d}"/>` + g.map((p) => (p.count > 1 && p.peak > p.value ? `<line class="traffic-peak" x1="${x(p)}" x2="${x(p)}" y1="${y(p.value)}" y2="${y(p.peak)}"/>` : "") + `<circle class="traffic-point" cx="${x(p)}" cy="${y(p.value)}" r="${g.length === 1 ? 3 : 1.7}"><title>${time(p.time, true)} · ${rate(p.value)} ${definition.unit} · 峰值 ${rate(p.peak)} ${definition.unit}</title></circle>`).join("");
     }).join("");
@@ -4118,7 +4119,7 @@ function initialize$k() {
     }
   }
   function displayNumerals() {
-    $$2(".console-kpi .sk-val,.tec-big,.ring-center,.service-value[data-display-number]").forEach((el) => {
+    $$2(".console-kpi .sk-val,.tec-big,.ring-total,.service-value[data-display-number]").forEach((el) => {
       if (el.classList.contains("has-display-number")) {
         if (el.querySelector(".display-number")) return;
         el.classList.remove("has-display-number");
@@ -4126,7 +4127,8 @@ function initialize$k() {
       const value = el.textContent.trim(), match = value.match(/^([+\-]?\d[\d,.]*)(\s*(?:%|ms|s|KB|MB|GB|TB|万|亿))?$/);
       if (!match) return;
       el.classList.add("has-display-number");
-      el.style.setProperty("--numeral-size", `${Math.min(38, 260 / match[1].length).toFixed(2)}px`);
+      const numeralSize = el.classList.contains("ring-total") ? Math.min(24, 100 / (match[1].length + (match[2] ? 1 : 0))) : Math.min(38, 260 / match[1].length);
+      el.style.setProperty("--numeral-size", `${numeralSize.toFixed(2)}px`);
       const number = document.createElement("span");
       number.className = "display-number";
       number.textContent = match[1];
@@ -4594,6 +4596,9 @@ function initialize$h() {
   const formats = {
     srs: "SRS",
     dat: "DAT",
+    mrs: "MRS",
+    mmdb: "MMDB",
+    singbox_geosite: "DB",
     clash_yaml: "YAML",
     singbox_json: "JSON",
     txt: "TXT",
@@ -4604,7 +4609,7 @@ function initialize$h() {
   };
   function label(rule) {
     const format = formats[String(rule.detected_format || "").trim().toLowerCase()];
-    return format ? format === "SRS" ? "SRS" : format + " → SRS" : "待识别";
+    return format ? format === "SRS" ? "SRS" : format + " → SRS" : "格式未记录";
   }
   function updated(result) {
     const source = (result == null ? void 0 : result.source) || result;
@@ -4613,7 +4618,12 @@ function initialize$h() {
   function message(result) {
     const source = updated(result);
     if (!source) return "规则更新完成";
-    return `${label(source)} · ${Number(source.rule_count || 0).toLocaleString("zh-CN")} 条规则`;
+    const parts2 = [];
+    if (source.detected_format) parts2.push(label(source));
+    if (source.rule_count !== void 0 && source.rule_count !== null && Number.isFinite(Number(source.rule_count))) {
+      parts2.push(`${Number(source.rule_count).toLocaleString("zh-CN")} 条规则`);
+    }
+    return parts2.join(" · ") || ((result == null ? void 0 : result.changed) === false ? "规则未变化" : "规则更新完成");
   }
   function withMetadata(rule, original) {
     const result = { ...rule };
@@ -4627,8 +4637,9 @@ function initialize$h() {
   async function finishSave(result, refresh) {
     const source = updated(result);
     if (source == null ? void 0 : source.detected_format) return source;
-    const converted = updated(await refresh());
-    if (!(converted == null ? void 0 : converted.detected_format)) throw new Error("配置已保存，但来源尚未识别，请检查订阅地址后重试更新。");
+    const response = await refresh();
+    const converted = updated(response);
+    if (!converted || !converted.detected_format && typeof response.changed !== "boolean") throw new Error("配置已保存，但来源尚未识别，请检查订阅地址后重试更新。");
     return converted;
   }
   ruleConversionService = { label, updated, message, withMetadata, finishSave };
@@ -5154,6 +5165,11 @@ const overviewInsightsService = (() => {
     whitelist: "白名单命中",
     greylist: "灰名单命中",
     blocked: "请求屏蔽",
+    direct_list: "直连名单命中",
+    proxy_list: "代理名单命中",
+    proxy_realip_list: "代理真实 IP 名单命中",
+    geosite_cn_use_foreign_cn: "国内规则使用国外 ECS",
+    rewrite: "重定向规则命中",
     learned_realip: "已学习 RealIP",
     learned_fakeip: "已学习 FakeIP",
     geosite_cn: "国内规则命中",
@@ -5492,8 +5508,8 @@ const versionService = (() => {
         manual.disabled = checking;
         manual.textContent = checking ? "正在检查…" : "检查更新";
         const fact = (name, value) => `<div><dt>${name}</dt><dd>${escape(value)}</dd></div>`;
-        const backend = ((_a3 = document.querySelector("#brand-version-tag")) == null ? void 0 : _a3.dataset.backendVersion) || (installed == null ? void 0 : installed.backendVersion);
-        setHTML(content, `<dl class="version-facts">${fact("当前 UI", (installed == null ? void 0 : installed.uiVersion) || "未能读取")}${fact("DNS 核心", backend || "尚未读取")}${fact("GitHub 最新正式版", latest ? latest.version + (latest.backend ? " / " + latest.backend : "") : "尚未读取")}${fact("上次成功检查", date(checkedAt))}</dl><p class="version-result">${escape(checking ? "正在获取 GitHub 最新正式版…" : error ? "更新检查失败，当前版本信息仍可查看。" : (status == null ? void 0 : status.available) ? "GitHub 已发布新版本，可查看更新说明与安装包。" : (status == null ? void 0 : status.local) ? "当前为本地测试版，基于正式版 " + status.baseline + "；" + (status.comparison === null ? "请在 GitHub 核对版本。" : "基准之后暂无新正式版。") : (status == null ? void 0 : status.comparison) === 0 ? "当前 UI 已是最新正式版。" : (status == null ? void 0 : status.comparison) < 0 ? "当前 UI 版本高于 GitHub 最新正式版。" : "点击“检查更新”获取 GitHub 最新正式版。")}</p>${(latest == null ? void 0 : latest.packages.length) ? `<p class="version-note">发布包：${escape(latest.packages.join("、"))}。UI 升级包仅更新界面；更换 DNS 核心需使用完整包。</p>` : ""}${metadataError ? `<p class="version-error" role="alert">${escape(metadataError)}</p>` : ""}${error ? `<p class="version-error" role="alert">${escape(error)} 可点击“检查更新”重试，或打开 GitHub 发布页。</p>` : ""}<p class="version-note">自动检查间隔为 6 小时；手动检查立即重新请求。</p>`);
+        const backend2 = ((_a3 = document.querySelector("#brand-version-tag")) == null ? void 0 : _a3.dataset.backendVersion) || (installed == null ? void 0 : installed.backendVersion);
+        setHTML(content, `<dl class="version-facts">${fact("当前 UI", (installed == null ? void 0 : installed.uiVersion) || "未能读取")}${fact("DNS 核心", backend2 || "尚未读取")}${fact("GitHub 最新正式版", latest ? latest.version + (latest.backend ? " / " + latest.backend : "") : "尚未读取")}${fact("上次成功检查", date(checkedAt))}</dl><p class="version-result">${escape(checking ? "正在获取 GitHub 最新正式版…" : error ? "更新检查失败，当前版本信息仍可查看。" : (status == null ? void 0 : status.available) ? "GitHub 已发布新版本，可查看更新说明与安装包。" : (status == null ? void 0 : status.local) ? "当前为本地测试版，基于正式版 " + status.baseline + "；" + (status.comparison === null ? "请在 GitHub 核对版本。" : "基准之后暂无新正式版。") : (status == null ? void 0 : status.comparison) === 0 ? "当前 UI 已是最新正式版。" : (status == null ? void 0 : status.comparison) < 0 ? "当前 UI 版本高于 GitHub 最新正式版。" : "点击“检查更新”获取 GitHub 最新正式版。")}</p>${(latest == null ? void 0 : latest.packages.length) ? `<p class="version-note">发布包：${escape(latest.packages.join("、"))}。UI 升级包仅更新界面；更换 DNS 核心需使用完整包。</p>` : ""}${metadataError ? `<p class="version-error" role="alert">${escape(metadataError)}</p>` : ""}${error ? `<p class="version-error" role="alert">${escape(error)} 可点击“检查更新”重试，或打开 GitHub 发布页。</p>` : ""}<p class="version-note">自动检查间隔为 6 小时；手动检查立即重新请求。</p>`);
         dialog2.querySelector("#version-release-link").href = (latest == null ? void 0 : latest.url) || REPO + "/releases";
         updater.setRelease(installed, latest);
       }
@@ -5745,9 +5761,9 @@ function initialize$a() {
       });
     });
   }
-  function upstreams(rows, groups) {
+  function upstreams(rows, groups2) {
     const total = rows.reduce((n, r) => n + Number(r.m.q || 0), 0);
-    return `<div class="workspace-upstream-groups">${groups.map((group) => {
+    return `<div class="workspace-upstream-groups">${groups2.map((group) => {
       const items = rows.filter((r) => r.g === group), q = items.reduce((n, r) => n + Number(r.m.q || 0), 0);
       return `<section class="glass-card workspace-upstream-group"><header class="gc-head"><div><h2 class="gc-title">${esc2(ctx.groupName(group))}</h2><span class="workspace-subline">${items.filter((r) => r.u.enabled !== false).length} 个启用节点</span></div><span class="workspace-upstream-total">${number(q)} 次 · ${percent(q, total)}</span></header><div class="table-wrap"><table class="workspace-upstream-table"><thead><tr><th>启用</th><th>节点 / 协议 / 地址</th><th>请求数</th><th>平均响应</th><th>采纳率</th><th>错误</th><th>成功率</th><th>操作</th></tr></thead><tbody>${items.map(({ g, u, i, m }) => `<tr data-group="${esc2(g)}" data-index="${i}"><td><label class="switch"><input class="up-toggle" type="checkbox" aria-label="启用 ${esc2(u.tag)}" ${u.enabled !== false ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span></label></td><td><strong>${esc2(u.tag)}</strong> ${badge(u.protocol)}<span class="workspace-subline mono">${esc2(u.addr || u.server_addr || "—")}</span></td><td>${number(m.q)}<span class="workspace-subline">${percent(m.q, total)}</span></td><td>${m.latencySamples > 0 ? ctx.ms(m.latency) : "—"}</td><td>${percent(m.win, m.q)}</td><td>${m.err ? `<button type="button" class="up-error-detail-trigger" data-group="${esc2(g)}" data-index="${i}" aria-label="查看 ${esc2(u.tag)} 错误详情">${number(m.err)}</button>` : "0"}</td><td>${m.q > 0 && m.success !== null ? ctx.pct(m.success) : "—"}</td><td><div class="workspace-actions"><button type="button" class="button small up-edit">编辑</button><button type="button" class="button small danger up-delete">删除</button></div></td></tr>`).join("") || '<tr><td colspan="8" class="table-empty">暂无上游节点</td></tr>'}</tbody></table></div></section>`;
     }).join("")}</div><details class="workspace-note"><summary>统计口径</summary><p>份额按节点请求总数计算，并发可能计入多个节点。采纳率 = 采纳数 / 节点请求数；成功率与采纳率分别统计。无样本时显示“—”。</p></details>`;
@@ -6501,14 +6517,195 @@ function normalizeResponse(path, value) {
   }
   return value;
 }
+const lists = {
+  whitelist: "direct",
+  blocklist: "block",
+  greylist: "proxy",
+  force_realip: "proxy_realip",
+  ddns_domains: "ddns",
+  pcdn_domains: "pcdn",
+  pcdn_regex_v4: "pcdn_v4",
+  pcdn_regex_v6: "pcdn_v6",
+  client_ip: "clients",
+  direct_ip: "direct_cidrs",
+  rewrite: "rewrite"
+};
+const switches = {
+  switch1: { key: "request_blocking" },
+  switch5: { key: "block_special_qtypes" },
+  switch7: { key: "adguard" },
+  switch6: { key: "block_aaaa" },
+  switch13: { key: "full_cache" },
+  switch4: { key: "route_cache" },
+  switch2: { key: "client_policy", value: "listed_proxy_only" },
+  switch12: { key: "client_policy", value: "listed_direct" }
+};
+const groups = "custom_cn|custom_non_cn|geoip_cn|geosite_cn|geosite_non_cn";
+function features(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiError("功能开关返回格式无效。", 0, value, "contract");
+  }
+  const data = value;
+  for (const field of Object.values(switches)) {
+    if (typeof data[field.key] !== (field.value ? "string" : "boolean")) {
+      throw new ApiError("功能开关字段不完整。", 0, value, "contract");
+    }
+  }
+  if (!["normal", "listed_proxy_only", "listed_direct"].includes(String(data.client_policy))) {
+    throw new ApiError("客户端策略无法识别。", 0, value, "contract");
+  }
+  return data;
+}
+function body(options) {
+  const value = typeof options.body === "string" ? JSON.parse(options.body) : null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("请求需要 JSON 对象。");
+  return value;
+}
+class BackendClient {
+  constructor(http) {
+    this.http = http;
+    this.policyQueue = Promise.resolve();
+  }
+  detect() {
+    if (!this.family) {
+      this.family = this.http.request("/api/v1/features").then((value) => {
+        if (typeof value === "string" && /^\s*(?:<!doctype html|<html)/i.test(value)) return "legacy";
+        features(value);
+        return "fjgli";
+      }).catch((error) => {
+        if (error instanceof ApiError && [404, 405, 501].includes(error.status)) return "legacy";
+        this.family = void 0;
+        throw error;
+      });
+    }
+    return this.family;
+  }
+  json(path, options, method, value) {
+    const headers = new Headers(options.headers);
+    headers.set("Content-Type", "application/json");
+    return this.http.request(path, { ...options, headers, method, body: JSON.stringify(value) });
+  }
+  switchOperation(tag, action, options) {
+    const field = switches[tag];
+    if (!field) throw new Error("内核不支持此功能开关。");
+    if (action === "show") {
+      return this.http.request("/api/v1/features", options).then((value2) => {
+        const data = features(value2);
+        return (field.value ? data[field.key] === field.value : data[field.key] === true) ? "A" : "B";
+      });
+    }
+    const value = body(options).value;
+    if (!["A", "B"].includes(String(value))) throw new Error("功能开关值无效。");
+    if (!field.value) return this.json("/api/v1/features", options, "PUT", { [field.key]: value === "A" });
+    const operation = this.policyQueue.then(async () => {
+      const current = features(await this.http.request("/api/v1/features", { ...options, method: "GET", body: void 0 }));
+      if (value === "B" && current.client_policy !== field.value) return current;
+      return this.json("/api/v1/features", options, "PUT", { client_policy: value === "A" ? field.value : "normal" });
+    });
+    this.policyQueue = operation.catch(() => void 0);
+    return operation;
+  }
+  async request(path, options = {}) {
+    const [route, query = ""] = path.split("?");
+    const method = String(options.method || "GET").toUpperCase();
+    if (route === "/metrics" || route === "/api/v1/status" || route.startsWith("/api/v1/upstream/") && method === "GET" || route === "/api/v1/system/restart") {
+      return this.http.request(path, options);
+    }
+    if (await this.detect() === "legacy") return this.http.request(path, options);
+    const suffix = query ? "?" + query : "";
+    if (route === "/api/v1/upstream/config" && method === "POST") {
+      const { plugin_tag, ...value } = body(options);
+      if (plugin_tag !== void 0) {
+        if (typeof plugin_tag !== "string" || !plugin_tag || value.group !== void 0 && value.group !== plugin_tag) {
+          throw new Error("上游分组无效或冲突。");
+        }
+        value.group = plugin_tag;
+      }
+      return this.json(path, options, method, value);
+    }
+    if (route.startsWith("/api/v1/audit/")) return this.http.request(route.replace("/api/v1/audit/", "/api/v1/querylog/") + suffix, options);
+    if (route.startsWith("/api/v2/audit/")) {
+      const target = route === "/api/v2/audit/logs" ? "/api/v1/querylog/entries" : route.replace("/api/v2/audit/", "/api/v1/querylog/");
+      return this.http.request(target + suffix, options);
+    }
+    if (route === "/plugins/client_name") return this.http.request("/api/v1/client-aliases" + suffix, options);
+    let match = route.match(/^\/plugins\/(switch\d+)\/(show|post)$/);
+    if (match) return this.switchOperation(match[1], match[2], options);
+    match = route.match(/^\/plugins\/([^/]+)\/(show|post)$/);
+    if (match && lists[match[1]]) {
+      const target = "/api/v1/lists/" + lists[match[1]];
+      return match[2] === "show" ? this.http.request(target, options) : this.json(target, options, "PUT", body(options));
+    }
+    match = route.match(/^\/plugins\/cache_(main|domestic|foreign|foreign_ecs)\/(show|save|flush)$/);
+    if (match) return this.http.request(
+      "/api/v1/caches/" + match[1] + (match[2] === "show" ? "" : "/" + match[2]),
+      { ...options, method: match[2] === "show" ? "GET" : "POST" }
+    );
+    match = route.match(/^\/plugins\/(domain_stats|fakeip|realip|nodata)\/(show|save|flush)$/);
+    if (match) return this.http.request("/api/v1/" + (match[1] === "domain_stats" ? "domain-stats" : "learned/" + match[1]) + (match[2] === "show" ? "" : "/" + match[2]), { ...options, method: match[2] === "show" ? "GET" : "POST" });
+    if (route.startsWith("/plugins/requery/")) {
+      const actions = {
+        status: "status",
+        trigger: "start",
+        cancel: "cancel",
+        reset: "reset",
+        "scheduler/config": "schedule",
+        "stats/source_file_counts": "counts"
+      };
+      const action = route.slice("/plugins/requery/".length), target = actions[action];
+      if (!target) throw new Error("内核不支持此刷新任务操作。");
+      const method2 = String(options.method || "GET").toUpperCase();
+      return this.http.request(
+        "/api/v1/route-refresh/" + target + suffix,
+        { ...options, method: target === "schedule" && method2 !== "GET" ? "PUT" : method2 }
+      );
+    }
+    if (route.startsWith("/plugins/adguard/")) return this.http.request(route.replace("/plugins/adguard/", "/api/v1/adguard/") + suffix, options);
+    match = route.match(new RegExp("^/plugins/(" + groups + ")/config(?:/([^/]+))?$"));
+    if (match) return this.http.request("/api/v1/rule-groups/" + match[1] + (match[2] ? "/" + match[2] : "") + suffix, options);
+    match = route.match(new RegExp("^/plugins/(" + groups + ")/update/([^/]+)$"));
+    if (match) return this.http.request("/api/v1/rule-groups/" + match[1] + "/" + match[2] + "/update" + suffix, options);
+    match = route.match(new RegExp("^/plugins/(" + groups + ")/update-all$"));
+    if (match) {
+      const entries2 = await this.http.request("/api/v1/rule-groups/" + match[1], { ...options, method: "GET", body: void 0 });
+      if (!Array.isArray(entries2)) throw new ApiError("分流订阅返回格式无效。", 0, entries2, "contract");
+      const results = await Promise.all(entries2.filter((item) => item.enabled !== false && item.url).map(async (item) => {
+        try {
+          const result = await this.http.request("/api/v1/rule-groups/" + match[1] + "/" + encodeURIComponent(item.name) + "/update", options);
+          return { ok: true, name: item.name, result };
+        } catch (error) {
+          if (!(error instanceof ApiError) || ["timeout", "network", "invalid-json"].includes(error.code)) throw error;
+          return { ok: false, name: item.name, error };
+        }
+      }));
+      const errors = results.filter((item) => !item.ok).map((item) => {
+        var _a2;
+        return {
+          name: item.name,
+          error: item.error.message,
+          code: (_a2 = item.error.body) == null ? void 0 : _a2.code
+        };
+      });
+      return {
+        updated: results.length - errors.length,
+        failed: errors.length,
+        dataset_required: errors.filter((error) => error.code === "dataset_required").length,
+        errors
+      };
+    }
+    if (route.startsWith("/plugins/")) throw new Error("FJGLI 不支持此旧版操作，请更新界面。");
+    return this.http.request(path, options);
+  }
+}
+const backend = new BackendClient(backendHttp);
 const api = {
   url: (path) => backendHttp.url(path),
   async request(path, options = {}) {
-    const value = await backendHttp.request(path, options);
+    const value = await backend.request(path, options);
     return String(options.method || "GET").toUpperCase() === "GET" ? normalizeResponse(path, value) : value;
   },
-  json(path, method = "GET", body) {
-    return this.request(path, { method, headers: { "Content-Type": "application/json" }, body: body === void 0 ? void 0 : JSON.stringify(body) });
+  json(path, method = "GET", body2) {
+    return this.request(path, { method, headers: { "Content-Type": "application/json" }, body: body2 === void 0 ? void 0 : JSON.stringify(body2) });
   },
   metrics() {
     return this.request("/metrics");
@@ -6567,8 +6764,8 @@ const loadingPage = () => `<div class="grid grid-4 metrics-grid-mobile">${[1, 2,
 function overviewMetricCard(label, value, iconName, tone = "primary") {
   return `<div class="metric-card overview-kpi-card tone-${tone}"><span class="metric-icon">${icon$1(iconName)}</span><div class="overview-kpi-body"><span class="overview-kpi-label">${esc$1(label)}</span><div class="metric-value">${value}</div></div></div>`;
 }
-function card(title, body, { iconName = "overview", subtitle = "", actions = "", className = "" } = {}) {
-  return `<section class="card ${className}"><div class="card-header"><div class="card-title"><span class="icon">${icon$1(iconName)}</span><div><h2>${esc$1(title)}</h2>${subtitle ? `<p>${esc$1(subtitle)}</p>` : ""}</div></div><div class="card-actions">${actions}</div></div><div class="card-body">${body}</div></section>`;
+function card(title, body2, { iconName = "overview", subtitle = "", actions = "", className = "" } = {}) {
+  return `<section class="card ${className}"><div class="card-header"><div class="card-title"><span class="icon">${icon$1(iconName)}</span><div><h2>${esc$1(title)}</h2>${subtitle ? `<p>${esc$1(subtitle)}</p>` : ""}</div></div><div class="card-actions">${actions}</div></div><div class="card-body">${body2}</div></section>`;
 }
 const empty = (text2 = "暂无数据") => `<div class="empty-state"><div><div class="empty-icon">${icon$1("info")}</div><strong>${esc$1(text2)}</strong></div></div>`;
 function rankRows(items, formatter = (x) => x.key, limit = 10) {
@@ -6592,17 +6789,17 @@ function slowTypeSort(a, b) {
   return aa - bb || a.localeCompare(b);
 }
 function aggregateSlowest(items, limit = 10) {
-  const groups = /* @__PURE__ */ new Map();
+  const groups2 = /* @__PURE__ */ new Map();
   for (const x of items || []) {
     const domain = String((x == null ? void 0 : x.query_name) || "—");
     const client = String((x == null ? void 0 : x.client_ip) || "—");
     const key = `${domain.toLowerCase()}\0${client}`;
     const duration2 = Number.isFinite(+(x == null ? void 0 : x.duration_ms)) ? +x.duration_ms : 0;
     const type = slowTypeLabel(x == null ? void 0 : x.query_type);
-    let g = groups.get(key);
+    let g = groups2.get(key);
     if (!g) {
       g = { query_name: domain, client_ip: client, duration_ms: duration2, types: /* @__PURE__ */ new Map() };
-      groups.set(key, g);
+      groups2.set(key, g);
     }
     if (duration2 > g.duration_ms) {
       g.duration_ms = duration2;
@@ -6611,7 +6808,7 @@ function aggregateSlowest(items, limit = 10) {
     const prev = g.types.get(type);
     if (!prev || duration2 > prev.duration_ms) g.types.set(type, { type, duration_ms: duration2 });
   }
-  return [...groups.values()].sort((a, b) => b.duration_ms - a.duration_ms || a.query_name.localeCompare(b.query_name)).slice(0, limit);
+  return [...groups2.values()].sort((a, b) => b.duration_ms - a.duration_ms || a.query_name.localeCompare(b.query_name)).slice(0, limit);
 }
 function slowTypeSummaryHtml(g, index) {
   const types = [...g.types.keys()].sort(slowTypeSort), shown = types.slice(0, 2);
@@ -6624,11 +6821,11 @@ function slowTypeDetailRows(g) {
 }
 const OVERVIEW_SLOW_PAGE_SIZE = 10;
 const OVERVIEW_DOMAIN_PAGE_SIZE = 10;
-function slowPageRowsHtml(groups, page2) {
-  const totalPages = Math.max(1, Math.ceil(((groups == null ? void 0 : groups.length) || 0) / OVERVIEW_SLOW_PAGE_SIZE));
+function slowPageRowsHtml(groups2, page2) {
+  const totalPages = Math.max(1, Math.ceil(((groups2 == null ? void 0 : groups2.length) || 0) / OVERVIEW_SLOW_PAGE_SIZE));
   const safe2 = Math.max(0, Math.min(totalPages - 1, page2 || 0));
   const start = safe2 * OVERVIEW_SLOW_PAGE_SIZE;
-  return (groups || []).slice(start, start + OVERVIEW_SLOW_PAGE_SIZE).map((g, local) => {
+  return (groups2 || []).slice(start, start + OVERVIEW_SLOW_PAGE_SIZE).map((g, local) => {
     const i = start + local;
     return `<tr class="slow-main-row" data-slow-group="${i}"><td>${esc$1(g.query_name)}</td><td>${slowTypeSummaryHtml(g, i)}</td><td>${esc$1(clientAliases[g.client_ip] || g.client_ip)}</td><td><span class="latency-chip ${+g.duration_ms > 500 ? "bad" : ""}">${ms(g.duration_ms)}</span></td></tr>`;
   }).join("");
@@ -6691,18 +6888,18 @@ function detailPagerHtml(page2, totalItems, pageSize = OVERVIEW_DETAIL_PAGE_SIZE
   for (let i = start; i < Math.min(totalPages, start + 5); i++) pages.push(i);
   return `<div class="overview-detail-footer"><span class="overview-detail-count">第 ${cur + 1} / ${totalPages} 页 · 共 ${num(totalItems || 0)} 条</span><div class="overview-detail-pagination"><button type="button" data-detail-page="${cur - 1}" ${cur <= 0 ? "disabled" : ""}>‹</button>${pages.map((i) => `<button type="button" data-detail-page="${i}" class="${i === cur ? "active" : ""}">${i + 1}</button>`).join("")}<button type="button" data-detail-page="${cur + 1}" ${cur >= totalPages - 1 ? "disabled" : ""}>›</button></div></div>`;
 }
-function slowDetailRowsHtml(groups, page2, pageSize = OVERVIEW_DETAIL_PAGE_SIZE) {
-  const totalPages = Math.max(1, Math.ceil(((groups == null ? void 0 : groups.length) || 0) / pageSize));
+function slowDetailRowsHtml(groups2, page2, pageSize = OVERVIEW_DETAIL_PAGE_SIZE) {
+  const totalPages = Math.max(1, Math.ceil(((groups2 == null ? void 0 : groups2.length) || 0) / pageSize));
   const safe2 = Math.max(0, Math.min(totalPages - 1, page2 || 0));
   const start = safe2 * pageSize;
-  return (groups || []).slice(start, start + pageSize).map((g, local) => {
+  return (groups2 || []).slice(start, start + pageSize).map((g, local) => {
     const i = start + local;
     const types = [...g.types.keys()].sort(slowTypeSort).map(esc$1).join(" · ") || "—";
     return `<tr><td class="overview-detail-rank">${i + 1}</td><td class="overview-detail-domain" title="${esc$1(g.query_name)}">${esc$1(g.query_name)}</td><td class="overview-detail-types" title="${types}">${types}</td><td class="overview-detail-client" title="${esc$1(clientAliases[g.client_ip] || g.client_ip)}">${esc$1(clientAliases[g.client_ip] || g.client_ip)}</td><td class="overview-detail-latency"><span class="latency-chip ${+g.duration_ms > 500 ? "bad" : ""}">${ms(g.duration_ms)}</span></td></tr>`;
   }).join("");
 }
-function slowOverviewRowsHtml(groups, limit = state.overviewSlowLimit) {
-  const shown = (groups || []).slice(0, limit);
+function slowOverviewRowsHtml(groups2, limit = state.overviewSlowLimit) {
+  const shown = (groups2 || []).slice(0, limit);
   const maxDur = Math.max(1, ...shown.map((g) => +g.duration_ms || 0));
   return shown.map((g, index) => {
     const typeList = [...g.types.keys()].sort(slowTypeSort);
@@ -6736,11 +6933,11 @@ function domainDetailRowsHtml(items, page2, pageSize = OVERVIEW_DETAIL_PAGE_SIZE
     return `<tr><td class="overview-detail-rank">${rank}</td><td class="overview-detail-domain" title="${esc$1(x.key || "—")}">${esc$1(x.key || "—")}</td><td class="overview-detail-count-cell"><span>${num(count)}</span><i style="--detail-rank:${width.toFixed(2)}%"></i></td></tr>`;
   }).join("");
 }
-function openSlowDetailModal(groups) {
+function openSlowDetailModal(groups2) {
   let current = 0;
   const render = () => {
-    const body = (groups == null ? void 0 : groups.length) ? `<div class="overview-detail-table-wrap"><table class="overview-detail-table overview-detail-slow-table"><thead><tr><th>#</th><th>域名</th><th>类型</th><th>客户端</th><th>耗时</th></tr></thead><tbody>${slowDetailRowsHtml(groups, current)}</tbody></table></div>${detailPagerHtml(current, groups.length)}` : empty("暂无最慢查询数据");
-    setHTML($("#modal-content"), body);
+    const body2 = (groups2 == null ? void 0 : groups2.length) ? `<div class="overview-detail-table-wrap"><table class="overview-detail-table overview-detail-slow-table"><thead><tr><th>#</th><th>域名</th><th>类型</th><th>客户端</th><th>耗时</th></tr></thead><tbody>${slowDetailRowsHtml(groups2, current)}</tbody></table></div>${detailPagerHtml(current, groups2.length)}` : empty("暂无最慢查询数据");
+    setHTML($("#modal-content"), body2);
     $$("#modal-content [data-detail-page]").forEach((btn) => btn.onclick = () => {
       const next = +btn.dataset.detailPage;
       if (Number.isFinite(next) && next !== current) {
@@ -6757,8 +6954,8 @@ function openSlowDetailModal(groups) {
 function openDomainDetailModal(items) {
   let current = 0;
   const render = () => {
-    const body = (items == null ? void 0 : items.length) ? `<div class="overview-detail-table-wrap"><table class="overview-detail-table overview-detail-domain-table"><thead><tr><th>#</th><th>域名</th><th>查询次数</th></tr></thead><tbody>${domainDetailRowsHtml(items, current)}</tbody></table></div>${detailPagerHtml(current, items.length)}` : empty("暂无域名排行数据");
-    setHTML($("#modal-content"), body);
+    const body2 = (items == null ? void 0 : items.length) ? `<div class="overview-detail-table-wrap"><table class="overview-detail-table overview-detail-domain-table"><thead><tr><th>#</th><th>域名</th><th>查询次数</th></tr></thead><tbody>${domainDetailRowsHtml(items, current)}</tbody></table></div>${detailPagerHtml(current, items.length)}` : empty("暂无域名排行数据");
+    setHTML($("#modal-content"), body2);
     $$("#modal-content [data-detail-page]").forEach((btn) => btn.onclick = () => {
       const next = +btn.dataset.detailPage;
       if (Number.isFinite(next) && next !== current) {
@@ -7056,8 +7253,8 @@ function requeryHtml(s, c) {
   const tile = (k, v) => `<div class="mg-tile"><span>${k}</span><strong>${v}</strong></div>`;
   const statusRow = `<div class="rq-status"><span class="mg-chip"><span class="mg-lab">当前状态</span><span class="badge ${stateClass}">${stateText}</span></span><span class="mg-chip"><span class="mg-lab">定时任务</span><span class="badge ${((_c = c == null ? void 0 : c.scheduler) == null ? void 0 : _c.enabled) ? "success" : ""}">${((_d = c == null ? void 0 : c.scheduler) == null ? void 0 : _d.enabled) ? "已启用" : "未启用"}</span></span></div>`;
   const actions = `<button class="button small" id="requery-scheduler" title="定时任务设置"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h9M18 8h2M4 16h4M13 16h7"/><circle cx="15.5" cy="8" r="2"/><circle cx="10.5" cy="16" r="2"/></svg>定时设置</button>${running ? '<button class="button small danger" id="requery-cancel">取消任务</button>' : '<button class="button small primary" id="requery-trigger" title="开始全新任务"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 4.5 19 12 7 19.5Z"/></svg>全新任务</button>'}`;
-  const body = statusRow + `<div class="mg-tiles">${tile("进度", hasProgress ? `${num(pr.processed ?? 0)} / ${num(pr.total ?? 0)}` : "—")}${tile("上次处理域名", lastCount === void 0 || lastCount === null ? "—" : num(lastCount) + " 条")}${tile("上次运行", fmtDate(lastRun))}${tile("下次执行", fmtDate(s.next_run_time))}${tile("间隔", ((_e = c == null ? void 0 : c.scheduler) == null ? void 0 : _e.interval_minutes) ? num(c.scheduler.interval_minutes) + " 分钟" : "—")}</div>`;
-  return { actions, body };
+  const body2 = statusRow + `<div class="mg-tiles">${tile("进度", hasProgress ? `${num(pr.processed ?? 0)} / ${num(pr.total ?? 0)}` : "—")}${tile("上次处理域名", lastCount === void 0 || lastCount === null ? "—" : num(lastCount) + " 条")}${tile("上次运行", fmtDate(lastRun))}${tile("下次执行", fmtDate(s.next_run_time))}${tile("间隔", ((_e = c == null ? void 0 : c.scheduler) == null ? void 0 : _e.interval_minutes) ? num(c.scheduler.interval_minutes) + " 分钟" : "—")}</div>`;
+  return { actions, body: body2 };
 }
 function openRequeryScheduler(c) {
   var _a2;
@@ -7732,7 +7929,7 @@ async function renderOverview(container, context) {
       </div>
 
       <div class="col-4">
-        <div class="glass-card">
+        <div class="glass-card overview-outcomes">
           <div class="gc-head">
             <div><div class="gc-title">查询处理结果占比</div><p class="workspace-subline">当前保留日志 · 最终处理结果</p></div>
             <button type="button" class="glass-btn" id="outcome-detail-button">全部 ${allSets.length} 类</button>
@@ -7743,7 +7940,10 @@ async function renderOverview(container, context) {
                 <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="rgba(148,163,184,0.14)" stroke-width="4.8"></circle>
                 ${ringCircles}
               </svg>
-              <div class="ring-center" title="${fullNum(outcomes.total)} 次查询">${compactNum(outcomes.total)}</div>
+              <div class="ring-center" title="${fullNum(outcomes.total)} 次查询" aria-label="总查询 ${fullNum(outcomes.total)} 次">
+                <span class="ring-total">${compactNum(outcomes.total)}</span>
+                <span class="ring-caption">总查询</span>
+              </div>
             </div>
             <div class="ring-legend">
               ${ds.map((x, i) => {
@@ -8264,24 +8464,24 @@ async function readUpstreams(scope) {
     api.metrics(),
     api.request("/api/v1/upstream/ecs")
   ]));
-  const groups = Array.isArray(tags) ? tags : Object.keys(config);
+  const groups2 = Array.isArray(tags) ? tags : Object.keys(config);
   const metrics = parseProm(rawMetrics), rows = [];
-  groups.forEach((group) => (config[group] || []).forEach((upstream, index) => {
+  groups2.forEach((group) => (config[group] || []).forEach((upstream, index) => {
     rows.push({ g: group, u: upstream, i: index, m: upstreamMetrics(metrics, group, upstream.tag) });
   }));
   rows.sort((a, b) => Number(b.u.enabled !== false) - Number(a.u.enabled !== false));
-  return { config, ecs: typeof (ecs == null ? void 0 : ecs.ecs) === "string" ? ecs.ecs : "", groups, rows };
+  return { config, ecs: typeof (ecs == null ? void 0 : ecs.ecs) === "string" ? ecs.ecs : "", groups: groups2, rows };
 }
 function writeUpstreamGroup(group, candidate, ecs) {
-  const body = { plugin_tag: group, upstreams: candidate || [] };
-  if (group === "foreign_ecs" && typeof ecs === "string") body.ecs = ecs;
-  return api.json("/api/v1/upstream/config", "POST", body);
+  const body2 = { plugin_tag: group, upstreams: candidate || [] };
+  if (group === "foreign_ecs" && typeof ecs === "string") body2.ecs = ecs;
+  return api.json("/api/v1/upstream/config", "POST", body2);
 }
 async function renderUpstreams(container, context) {
   const renderScope = context.scope, page2 = container;
-  const { config, ecs, groups, rows } = await readUpstreams(renderScope);
+  const { config, ecs, groups: groups2, rows } = await readUpstreams(renderScope);
   const model = { config, ecs };
-  setHTML(page2, `<div class="view-title-row"><div><h1>DNS 管理</h1></div><button type="button" class="glass-btn primary" id="up-add">添加上游节点</button></div><div class="col-12">${workspaceService.upstreams(rows, groups)}</div>`);
+  setHTML(page2, `<div class="view-title-row"><div><h1>DNS 管理</h1></div><button type="button" class="glass-btn primary" id="up-add">添加上游节点</button></div><div class="col-12">${workspaceService.upstreams(rows, groups2)}</div>`);
   $$(".up-toggle", page2).forEach((x) => x.onchange = () => toggleUpstream(x.closest("tr"), x.checked));
   $$(".up-edit", page2).forEach((x) => x.onclick = () => openUpstreamModal(x.closest("tr")));
   $$(".up-delete", page2).forEach((x) => x.onclick = () => deleteUpstream(x.closest("tr")));
@@ -8331,7 +8531,7 @@ async function renderUpstreams(container, context) {
     const group = edit ? row.dataset.group : Object.keys(model.config || {})[0] || "domestic";
     const idx = edit ? +row.dataset.index : -1;
     const u = edit ? model.config[group][idx] : { tag: "", protocol: "udp", addr: "", enabled: true };
-    const groups2 = Object.keys(model.config || {});
+    const groups3 = Object.keys(model.config || {});
     const hasSocks = (g) => g === "foreign" || g === "foreign_ecs";
     const fieldsHtml = (g, v) => {
       const f = (id, label, value, extra = "") => `<div class="field"><label>${label}</label><input id="${id}" ${extra} value="${esc$1(value)}"></div>`;
@@ -8346,7 +8546,7 @@ async function renderUpstreams(container, context) {
     const readForm = () => ({ tag: $("#u-tag").value, protocol: $("#u-protocol").value, addr: $("#u-addr").value, dial: $("#u-dial").value, socks: $("#u-socks") ? $("#u-socks").value : "", ecs: $("#u-ecs") ? $("#u-ecs").value : model.ecs || "", timeout: $("#u-timeout").value });
     const initial = { tag: u.tag || "", protocol: u.protocol || "udp", addr: u.addr || u.server_addr || "", dial: u.dial_addr || "", socks: u.socks5 || "", ecs: model.ecs || "", timeout: u.upstream_query_timeout || 0 };
     modalOpen(edit ? "编辑上游 DNS" : "添加上游 DNS", "保存后立即生效", `<div class="grid grid-2">
-      <div class="field"><label>所属组</label><select id="u-group" ${edit ? "disabled" : ""}>${groups2.map((g) => `<option value="${esc$1(g)}" ${g === group ? "selected" : ""}>${esc$1(groupName(g))}</option>`).join("")}</select></div>
+      <div class="field"><label>所属组</label><select id="u-group" ${edit ? "disabled" : ""}>${groups3.map((g) => `<option value="${esc$1(g)}" ${g === group ? "selected" : ""}>${esc$1(groupName(g))}</option>`).join("")}</select></div>
       <span id="u-fields" style="display:contents">${fieldsHtml(group, initial)}</span>
     </div>`, async () => {
       const g = $("#u-group").value;
@@ -8774,7 +8974,7 @@ function initialize$5() {
     if (b.textContent !== label) b.textContent = label;
     b.disabled = selectableRows().length === 0;
   }
-  var groups = [], lineGroup = {}, childGroup = {};
+  var groups2 = [], lineGroup = {}, childGroup = {};
   var TITLE_RE = /^#\s*(?:标题|title)\s*[:：]\s*(.*)$/i;
   var NOTE_RE_ANY = /^#\s*(?:备注|note)\s*[:：]\s*(.*)$/i;
   var ANNO_KEY = /^(?:注意|注释|提示|匹配|仅处理|仅|另外|补充|来源)/;
@@ -8790,13 +8990,13 @@ function initialize$5() {
     var t = commentLine(r);
     if (NOTE_RE_ANY.test(t)) return "note";
     if (TITLE_RE.test(t)) return "title";
-    var body = t.replace(/^#\s*/, "").trim();
+    var body2 = t.replace(/^#\s*/, "").trim();
     if (isAnno(r)) return cur && !cur.children.length ? "gnote" : "note";
-    if (DOC_COLON.test(body) || DOC_PUNCT.test(body)) return "doc";
+    if (DOC_COLON.test(body2) || DOC_PUNCT.test(body2)) return "doc";
     return "title";
   }
   function buildGroups() {
-    groups = [];
+    groups2 = [];
     lineGroup = {};
     childGroup = {};
     var cur = null;
@@ -8816,7 +9016,7 @@ function initialize$5() {
         }
         if (role === "doc") return;
         cur = { id: r.id, title: r, notes: [], lines: [r], children: [] };
-        groups.push(cur);
+        groups2.push(cur);
         lineGroup[r.id] = cur.id;
         return;
       }
@@ -8840,7 +9040,7 @@ function initialize$5() {
     openGroupSheet({ id: row.id, title: row, notes: [], lines: [row], children: [], docOnly: true });
   }
   function groupById(id) {
-    for (var i = 0; i < groups.length; i++) if (groups[i].id === id) return groups[i];
+    for (var i = 0; i < groups2.length; i++) if (groups2[i].id === id) return groups2[i];
     return null;
   }
   function groupOf(id) {
@@ -8859,7 +9059,7 @@ function initialize$5() {
     var off = rules.filter(function(r) {
       return r.off;
     }).length;
-    var g = groups.filter(function(x) {
+    var g = groups2.filter(function(x) {
       return x.children.length;
     }).length;
     var statHTML = "共 <b>" + rules.length + "</b> 条 · 停用 <b>" + off + "</b>" + (g ? " · 分组 <b>" + g + "</b>" : "") + (dirty ? ' · <span style="color:var(--amber)">有未保存修改</span>' : "");
@@ -8897,7 +9097,7 @@ function initialize$5() {
         show[r.id] = true;
       });
     } else {
-      groups.forEach(function(g) {
+      groups2.forEach(function(g) {
         if (!hits(g.title) && !g.notes.some(hits)) return;
         show[g.id] = true;
         g.notes.forEach(function(n) {
@@ -9242,15 +9442,15 @@ function initialize$5() {
     if (!box) return;
     var curG = !fresh && row ? groupOf(row.id) : null;
     var html2 = '<option value="">（不分组）</option>';
-    groups.forEach(function(g) {
+    groups2.forEach(function(g) {
       var t = stripTitlePrefix(groupTitle(g)) || "（空标题）";
       html2 += '<option value="' + g.id + '"' + (curG && curG.id === g.id ? " selected" : "") + ">" + esc2(t.length > 28 ? t.slice(0, 28) + "…" : t) + "</option>";
     });
     setHTML(box, html2);
-    box.disabled = groups.length === 0;
+    box.disabled = groups2.length === 0;
     groupSelBase = box.value;
     hint2.className = "rv-hint";
-    hint2.textContent = groups.length ? curG ? "现在在「" + stripTitlePrefix(groupTitle(curG)) + "」里（" + curG.children.length + " 条）；选「（不分组）」就把它移出来" : "现在是单着的一条规则；选一个标题就归到那组下面" : "这个名单还没有标题，先在上面「＋ 新增 → 新增标题」建一个";
+    hint2.textContent = groups2.length ? curG ? "现在在「" + stripTitlePrefix(groupTitle(curG)) + "」里（" + curG.children.length + " 条）；选「（不分组）」就把它移出来" : "现在是单着的一条规则；选一个标题就归到那组下面" : "这个名单还没有标题，先在上面「＋ 新增 → 新增标题」建一个";
   }
   var rowMenuEl = null;
   function closeRowMenu() {
@@ -9287,7 +9487,7 @@ function initialize$5() {
     var cur = groupOf(row.id);
     var items = [{
       label: "（不分组）",
-      hint: groups.length ? "单着的一条规则" : "名单里还没有标题",
+      hint: groups2.length ? "单着的一条规则" : "名单里还没有标题",
       active: !cur,
       pick: function() {
         if (moveToGroup(row, "")) {
@@ -9297,7 +9497,7 @@ function initialize$5() {
         }
       }
     }];
-    groups.forEach(function(g) {
+    groups2.forEach(function(g) {
       items.push({
         label: stripTitlePrefix(groupTitle(g)) || "（空标题）",
         hint: g.children.length + " 条",
@@ -9329,15 +9529,15 @@ function initialize$5() {
   }
   function setCommentRole(row, role) {
     var was = row.role;
-    var body = String(row.value || "").replace(/^\s*(?:标题|title|说明|备注|note)\s*[:：]\s*/i, "");
-    var head = role === "title" ? needsTitlePrefix(body) ? "标题：" : "" : role === "doc" ? "说明：" : "备注：";
-    row.value = head + body;
+    var body2 = String(row.value || "").replace(/^\s*(?:标题|title|说明|备注|note)\s*[:：]\s*/i, "");
+    var head = role === "title" ? needsTitlePrefix(body2) ? "标题：" : "" : role === "doc" ? "说明：" : "备注：";
+    row.value = head + body2;
     row.touched = true;
     row.role = role;
     if (role === "title" && was !== "title") keepTitleEmpty(row);
     writeBack();
     renderList();
-    say(role === "title" ? "已改成标题：" + body : role === "note" ? "已改成规则备注：" + body : "已改成名单说明：" + body);
+    say(role === "title" ? "已改成标题：" + body2 : role === "note" ? "已改成规则备注：" + body2 : "已改成名单说明：" + body2);
   }
   function needsTitlePrefix(t) {
     var s = String(t || "").trim();
@@ -9443,9 +9643,9 @@ function initialize$5() {
     var inp = sheet().querySelector("#rv-value");
     var raw = inp.value, v = raw.trim(), t = curType();
     var pm = v.match(PREFIX_RE), hash = /^#\s*/.test(v);
-    var body = v.replace(/^#\s*/, "").replace(PREFIX_RE, "");
+    var body2 = v.replace(/^#\s*/, "").replace(PREFIX_RE, "");
     var pending = !!pm || hash;
-    var bad = !rawMode && !pending && !!body && !valid(body, t);
+    var bad = !rawMode && !pending && !!body2 && !valid(body2, t);
     inp.classList.toggle("bad", bad);
     var rawLabels = { client_ip: "客户端 IP", direct_ip: "IP 或网段", rewrite: "重定向条目" };
     sheet().querySelector("#rv-value-label").textContent = rawMode ? rawLabels[activeTag()] || "原文" : NAME[t];
@@ -9454,9 +9654,9 @@ function initialize$5() {
     if (bad) hint(errText(t), "bad");
     else if (pm) {
       var pt = pm[1].toLowerCase();
-      hint("按回车识别为「" + NAME[pt] + '」 · 将写入 <span class="mono">' + esc2(PREFIX[pt] + body) + "</span>" + (hash ? "（停用）" : ""), "hit");
+      hint("按回车识别为「" + NAME[pt] + '」 · 将写入 <span class="mono">' + esc2(PREFIX[pt] + body2) + "</span>" + (hash ? "（停用）" : ""), "hit");
     } else if (hash) {
-      hint('按回车按「停用」写入 <span class="mono">' + esc2("# " + PREFIX[t] + body) + "</span>", "hit");
+      hint('按回车按「停用」写入 <span class="mono">' + esc2("# " + PREFIX[t] + body2) + "</span>", "hit");
     } else if (rawMode) hint('将写入 <span class="mono">' + esc2(linePreview()) + "</span> · " + (sheetOff ? "停用" : "保留原文格式"));
     else hint('将写入 <span class="mono">' + esc2(linePreview()) + "</span> · " + (note || TYPE_TIP[t].tip), note ? "hit" : "");
     sheet().classList.toggle("dirty", isDirtySheet());
@@ -10665,7 +10865,20 @@ function initialize$4() {
   });
 }
 const ruleProfiles = [["whitelist", "白名单"], ["blocklist", "黑名单"], ["greylist", "灰名单"], ["force_realip", "强制 RealIP"], ["ddns_domains", "DDNS 域名"], ["pcdn_domains", "PCDN 域名"], ["pcdn_regex_v4", "PCDN IPv4 规则"], ["pcdn_regex_v6", "PCDN IPv6 规则"], ["client_ip", "客户端 IP"], ["direct_ip", "直连 IP"], ["rewrite", "重定向"]];
-let ruleViews, activeTab = "lists";
+let ruleViews, activeTab = "lists", diversionUpdating = false;
+const updateRule = (path) => api.request(path, { method: "POST", timeout: 3e5 });
+const updateUncertain = (error) => ["timeout", "network", "invalid-json"].includes(error == null ? void 0 : error.code);
+function updateError(error, label = "更新失败") {
+  if (updateUncertain(error)) toast("更新结果待确认", "info", "未能收到完整更新结果，服务器可能仍在处理。请稍后刷新，查看更新时间和来源错误；请勿重复提交。");
+  else toast(label, "error", error.message);
+}
+function syncDiversionUpdateState(body2) {
+  $$(".div-update,#div-update-all", body2).forEach((button2) => {
+    button2.disabled = diversionUpdating;
+  });
+  const button = $("#div-update-all", body2);
+  if (button) button.textContent = diversionUpdating ? "更新中…" : "更新全部";
+}
 async function renderRules(container, context) {
   const renderScope = context.scope, page2 = container;
   ruleViews = new LatestView(renderScope);
@@ -10690,14 +10903,14 @@ async function renderRuleTab(tab, approved = false) {
   if (!approved && (rulesWorkbenchService == null ? void 0 : rulesWorkbenchService.canLeave(() => renderRuleTab(tab, true))) === false) return;
   activeTab = tab;
   $$("[data-rule-tab]").forEach((y) => y.classList.toggle("active", y.dataset.ruleTab === tab));
-  const body = $("#rule-tab-body");
-  setHTML(body, loadingPage());
-  if (tab === "lists") return renderListRules(body);
-  if (tab === "adguard") return renderAdguard(body);
-  return renderDiversion(body);
+  const body2 = $("#rule-tab-body");
+  setHTML(body2, loadingPage());
+  if (tab === "lists") return renderListRules(body2);
+  if (tab === "adguard") return renderAdguard(body2);
+  return renderDiversion(body2);
 }
-async function renderListRules(body) {
-  if (activeTab !== "lists" || !(body == null ? void 0 : body.isConnected) || currentScope().signal.aborted) return;
+async function renderListRules(body2) {
+  if (activeTab !== "lists" || !(body2 == null ? void 0 : body2.isConnected) || currentScope().signal.aborted) return;
   const renderScope = ruleViews.begin();
   if (!ruleProfiles.some((x) => x[0] === state.ruleTag)) state.ruleTag = ruleProfiles[0][0];
   const tag = state.ruleTag, profile = ruleProfiles.find((x) => x[0] === tag) || ruleProfiles[0];
@@ -10710,24 +10923,24 @@ async function renderListRules(body) {
   }
   const menu = `<div class="rule-menu">${ruleProfiles.map(([t, n]) => `<button data-rule-tag="${t}" class="${t === tag ? "active" : ""}"><span>${n}</span><span class="rule-count"></span></button>`).join("")}</div>`;
   if (loadError) {
-    setHTML(body, `<section class="card"><div class="rule-layout">${menu}<div class="rule-editor"><div class="section-header"><div><h2>${profile[1]}</h2><p>读取失败时禁止保存，现有规则不会被覆盖。</p></div><button class="button" id="rule-retry">${icon$1("refresh")}重试</button></div><div class="error-panel"><strong>规则列表加载失败</strong><p>${esc$1(loadError.message)}</p></div></div></div></section>`);
+    setHTML(body2, `<section class="card"><div class="rule-layout">${menu}<div class="rule-editor"><div class="section-header"><div><h2>${profile[1]}</h2><p>读取失败时禁止保存，现有规则不会被覆盖。</p></div><button class="button" id="rule-retry">${icon$1("refresh")}重试</button></div><div class="error-panel"><strong>规则列表加载失败</strong><p>${esc$1(loadError.message)}</p></div></div></div></section>`);
     $$("[data-rule-tag]").forEach((x) => x.onclick = () => {
       const go = () => {
         state.ruleTag = x.dataset.ruleTag;
-        renderListRules(body);
+        renderListRules(body2);
       };
       if ((rulesWorkbenchService == null ? void 0 : rulesWorkbenchService.canLeave(go)) !== false) go();
     });
-    $("#rule-retry").onclick = () => renderListRules(body);
+    $("#rule-retry").onclick = () => renderListRules(body2);
     requestAnimationFrame(fitRuleLayoutHeight);
     return;
   }
   const trimmed = String(text2).trim();
-  setHTML(body, `<section class="card"><div class="rule-layout">${menu}<div class="rule-editor"><div class="section-header"><div><h2>${profile[1]}</h2><p>一行一条；完整读取后才允许保存</p></div><div class="section-header-actions"><button class="button small" id="rule-download">${icon$1("download")}下载列表</button><button class="button primary" id="rule-save">${icon$1("save")}保存</button></div></div><textarea id="rule-text" class="rule-textarea" spellcheck="false">${esc$1(trimmed)}</textarea><div class="rule-editor-footer"><span id="rule-lines">共 ${trimmed ? trimmed.split("\n").length : 0} 行</span></div></div></div></section>`);
+  setHTML(body2, `<section class="card"><div class="rule-layout">${menu}<div class="rule-editor"><div class="section-header"><div><h2>${profile[1]}</h2><p>一行一条；完整读取后才允许保存</p></div><div class="section-header-actions"><button class="button small" id="rule-download">${icon$1("download")}下载列表</button><button class="button primary" id="rule-save">${icon$1("save")}保存</button></div></div><textarea id="rule-text" class="rule-textarea" spellcheck="false">${esc$1(trimmed)}</textarea><div class="rule-editor-footer"><span id="rule-lines">共 ${trimmed ? trimmed.split("\n").length : 0} 行</span></div></div></div></section>`);
   $$("[data-rule-tag]").forEach((x) => x.onclick = () => {
     const go = () => {
       state.ruleTag = x.dataset.ruleTag;
-      renderListRules(body);
+      renderListRules(body2);
     };
     if ((rulesWorkbenchService == null ? void 0 : rulesWorkbenchService.canLeave(go)) !== false) go();
   });
@@ -10748,20 +10961,20 @@ async function renderListRules(body) {
   $("#rule-download").onclick = () => downloadText(`${tag}.txt`, $("#rule-text").value);
   requestAnimationFrame(fitRuleLayoutHeight);
 }
-async function renderAdguard(body) {
-  if (activeTab !== "adguard" || !(body == null ? void 0 : body.isConnected) || currentScope().signal.aborted) return;
+async function renderAdguard(body2) {
+  if (activeTab !== "adguard" || !(body2 == null ? void 0 : body2.isConnected) || currentScope().signal.aborted) return;
   const renderScope = ruleViews.begin();
   let rules = [];
   try {
     rules = (await renderScope.guard(api.request("/plugins/adguard/rules", { signal: renderScope.signal }))).slice();
   } catch (e) {
     if (renderScope.signal.aborted) return;
-    setHTML(body, `<div class="error-panel"><strong>广告规则读取失败</strong><p>${esc$1(e.message)}</p></div>`);
+    setHTML(body2, `<div class="error-panel"><strong>广告规则读取失败</strong><p>${esc$1(e.message)}</p></div>`);
     return;
   }
   rules.sort((a, b) => Number(Boolean(b.enabled)) - Number(Boolean(a.enabled)));
   const sourceErrors = rules.filter((r) => r.last_error);
-  setHTML(body, card("广告拦截规则", `${sourceErrors.length ? `<div class="error-panel">${sourceErrors.map((r) => `${esc$1(r.name)}：${esc$1(r.last_error)}`).join("；")}</div>` : ""}<div class="table-wrap adguard-table-wrap mobile-card-table"><table class="adguard-rules-table adguard-card-table"><colgroup><col class="col-enabled"><col class="col-name"><col class="col-url"><col class="col-count"><col class="col-auto"><col class="col-updated"><col class="col-actions"></colgroup><thead><tr><th>启用</th><th>名称</th><th>订阅地址</th><th>规则数</th><th>自动更新</th><th>上次更新</th><th>操作</th></tr></thead><tbody>${rules.length ? rules.map((r) => `<tr data-id="${esc$1(r.id)}"><td class="ad-enabled-cell mobile-toggle-cell"><label class="switch"><input class="ad-enable" type="checkbox" ${r.enabled ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span></label></td><td class="ad-name-cell mobile-name-cell" title="${esc$1(r.name)}"><strong>${esc$1(r.name)}</strong></td><td class="ad-url-cell mobile-url-cell" data-label="订阅地址" title="${esc$1(r.url)}"><span class="table-ellipsis mobile-ellipsis">${esc$1(r.url)}</span></td><td class="ad-count-cell mobile-count-cell" data-label="规则数">${num(r.rule_count)}</td><td class="ad-auto-cell mobile-auto-cell" data-label="自动更新">${r.auto_update ? "是" : "否"}</td><td class="ad-updated-cell mobile-updated-cell" data-label="上次更新">${fmtDate(r.last_updated)}</td><td class="ad-actions-cell mobile-actions-cell"><div class="table-row-actions card-actions"><button class="button small ad-update">更新</button><button class="button small ad-edit">编辑</button><button class="button small danger ad-delete">删除</button></div></td></tr>`).join("") : `<tr><td colspan="7" class="table-empty">暂无规则</td></tr>`}</tbody></table></div>`, { iconName: "rules", actions: '<button class="button" id="ad-update-all">更新全部</button><button class="button primary" id="ad-add">' + icon$1("plus") + "添加订阅</button>" }));
+  setHTML(body2, card("广告拦截规则", `${sourceErrors.length ? `<div class="error-panel">${sourceErrors.map((r) => `${esc$1(r.name)}：${esc$1(r.last_error)}`).join("；")}</div>` : ""}<div class="table-wrap adguard-table-wrap mobile-card-table"><table class="adguard-rules-table adguard-card-table"><colgroup><col class="col-enabled"><col class="col-name"><col class="col-url"><col class="col-count"><col class="col-auto"><col class="col-updated"><col class="col-actions"></colgroup><thead><tr><th>启用</th><th>名称</th><th>订阅地址</th><th>规则数</th><th>自动更新</th><th>上次更新</th><th>操作</th></tr></thead><tbody>${rules.length ? rules.map((r) => `<tr data-id="${esc$1(r.id)}"><td class="ad-enabled-cell mobile-toggle-cell"><label class="switch"><input class="ad-enable" type="checkbox" ${r.enabled ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span></label></td><td class="ad-name-cell mobile-name-cell" title="${esc$1(r.name)}"><strong>${esc$1(r.name)}</strong></td><td class="ad-url-cell mobile-url-cell" data-label="订阅地址" title="${esc$1(r.url)}"><span class="table-ellipsis mobile-ellipsis">${esc$1(r.url)}</span></td><td class="ad-count-cell mobile-count-cell" data-label="规则数">${num(r.rule_count)}</td><td class="ad-auto-cell mobile-auto-cell" data-label="自动更新">${r.auto_update ? "是" : "否"}</td><td class="ad-updated-cell mobile-updated-cell" data-label="上次更新">${fmtDate(r.last_updated)}</td><td class="ad-actions-cell mobile-actions-cell"><div class="table-row-actions card-actions"><button class="button small ad-update">更新</button><button class="button small ad-edit">编辑</button><button class="button small danger ad-delete">删除</button></div></td></tr>`).join("") : `<tr><td colspan="7" class="table-empty">暂无规则</td></tr>`}</tbody></table></div>`, { iconName: "rules", actions: '<button class="button" id="ad-update-all">更新全部</button><button class="button primary" id="ad-add">' + icon$1("plus") + "添加订阅</button>" }));
   const findRule = (tr) => rules.find((r) => String(r.id) === tr.dataset.id);
   $$(".ad-enable").forEach((x) => x.onchange = async () => {
     const rule = findRule(x.closest("tr"));
@@ -10770,7 +10983,7 @@ async function renderAdguard(body) {
     try {
       await updateAdguard(rule, { enabled: x.checked });
       toast(`规则“${rule.name}”已${x.checked ? "启用" : "关闭"}`);
-      await renderAdguard(body);
+      await renderAdguard(body2);
     } catch (e) {
       x.checked = !x.checked;
       toast("状态保存失败", "error", e.message);
@@ -10783,16 +10996,16 @@ async function renderAdguard(body) {
     if (!rule) return;
     x.disabled = true;
     try {
-      const r = await api.request(`/plugins/adguard/rules/${encodeURIComponent(rule.id)}/update`, { method: "POST" });
+      const r = await updateRule(`/plugins/adguard/rules/${encodeURIComponent(rule.id)}/update`);
       toast(`广告规则“${rule.name}”更新完成`, "success", `规则数：${num((r == null ? void 0 : r.rule_count) || 0)}`);
-      await renderAdguard(body);
+      await renderAdguard(body2);
     } catch (e) {
-      toast(`“${rule.name}”更新失败`, "error", e.message);
+      updateError(e, `“${rule.name}”更新失败`);
     } finally {
       x.disabled = false;
     }
   });
-  $$(".ad-edit").forEach((x) => x.onclick = () => openAdguardModal(findRule(x.closest("tr")), body));
+  $$(".ad-edit").forEach((x) => x.onclick = () => openAdguardModal(findRule(x.closest("tr")), body2));
   $$(".ad-delete").forEach((x) => x.onclick = async () => {
     const rule = findRule(x.closest("tr"));
     if (!rule || !confirm(`确定删除广告规则“${rule.name}”？`)) return;
@@ -10800,7 +11013,7 @@ async function renderAdguard(body) {
     try {
       await api.request(`/plugins/adguard/rules/${encodeURIComponent(rule.id)}`, { method: "DELETE" });
       toast("广告规则已删除");
-      await renderAdguard(body);
+      await renderAdguard(body2);
     } catch (e) {
       toast("删除失败", "error", e.message);
     } finally {
@@ -10810,37 +11023,40 @@ async function renderAdguard(body) {
   $("#ad-update-all").onclick = async () => {
     const btn = $("#ad-update-all");
     btn.disabled = true;
+    btn.textContent = "更新中…";
     try {
-      const r = await api.request("/plugins/adguard/update", { method: "POST" });
+      const r = await updateRule("/plugins/adguard/update");
       const errors = Array.isArray(r == null ? void 0 : r.errors) ? r.errors : [];
       if (errors.length) {
         toast(`广告规则更新完成，失败 ${errors.length} 条`, "error", errors.map((x) => `${x.name}：${x.error}`).join("；"));
       } else toast(`广告规则更新完成：${Number((r == null ? void 0 : r.updated_sources) || 0)} 条`);
-      await renderAdguard(body);
+      await renderAdguard(body2);
     } catch (e) {
-      toast("广告规则更新失败", "error", e.message);
+      updateError(e, "广告规则更新失败");
     } finally {
       btn.disabled = false;
+      btn.textContent = "更新全部";
     }
   };
-  $("#ad-add").onclick = () => openAdguardModal(null, body);
+  $("#ad-add").onclick = () => openAdguardModal(null, body2);
 }
 async function updateAdguard(rule, patch) {
   const next = Object.assign({}, rule, patch);
   delete next.last_error;
-  await api.json(`/plugins/adguard/rules/${rule.id}`, "PUT", next);
+  delete next.line_report;
+  await api.json(`/plugins/adguard/rules/${encodeURIComponent(rule.id)}`, "PUT", next);
 }
-function openAdguardModal(rule, body) {
+function openAdguardModal(rule, body2) {
   rule = rule || { name: "", url: "", files: "", enabled: true, auto_update: true, update_interval_hours: 24 };
-  modalOpen(rule.id ? "编辑广告规则" : "添加广告规则", "订阅下载后保存为 TXT（保留 AdGuard 语法），所有启用的订阅合并为 rules/compiled/adguard.txt。", `<div class="stack"><div class="field"><label>名称</label><input id="ad-name" value="${esc$1(rule.name)}"></div><div class="field"><label>订阅地址</label><input id="ad-url" value="${esc$1(rule.url)}" placeholder="https://example.com/adblock.txt"></div><div class="field"><label>源缓存文件（可选）</label><input id="ad-files" value="${esc$1(rule.files || "")}" placeholder="留空时从 URL 自动生成"><p class="form-note">统一保存到 rules/online/adguard/，后缀固定为 .txt；留空时从 URL 路径提取文件名，query/fragment 不会写入文件名。</p></div><div class="grid grid-2"><label class="switch"><input id="ad-enabled" type="checkbox" ${rule.enabled ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">启用</span></label><label class="switch"><input id="ad-auto" type="checkbox" ${rule.auto_update ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">自动更新</span></label></div><div class="field"><label>更新间隔（小时）</label><input id="ad-hours" type="number" min="1" value="${rule.update_interval_hours || 24}"></div></div>`, async () => {
+  modalOpen(rule.id ? "编辑广告规则" : "添加广告规则", "支持 AdGuard DNS 过滤规则；订阅下载与合并由内核完成。", `<div class="stack"><div class="field"><label>名称</label><input id="ad-name" value="${esc$1(rule.name)}"></div><div class="field"><label>订阅地址</label><input id="ad-url" value="${esc$1(rule.url)}" placeholder="https://example.com/adblock.txt"></div><div class="field"><label>源缓存文件（可选）</label><input id="ad-files" value="${esc$1(rule.files || "")}" placeholder="留空时从 URL 自动生成"><p class="form-note">统一保存到 rules/online/adguard/，后缀固定为 .txt；留空时从 URL 路径提取文件名，query/fragment 不会写入文件名。</p></div><div class="grid grid-2"><label class="switch"><input id="ad-enabled" type="checkbox" ${rule.enabled ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">启用</span></label><label class="switch"><input id="ad-auto" type="checkbox" ${rule.auto_update ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">自动更新</span></label></div><div class="field"><label>更新间隔（小时）</label><input id="ad-hours" type="number" min="1" value="${rule.update_interval_hours || 24}"></div></div>`, async () => {
     const payload = { name: $("#ad-name").value.trim(), url: $("#ad-url").value.trim(), files: $("#ad-files").value.trim(), enabled: $("#ad-enabled").checked, auto_update: $("#ad-auto").checked, update_interval_hours: +$("#ad-hours").value || 24 };
     if (!payload.name || !payload.url) throw new Error("名称和地址不能为空");
     if (rule.rule_count !== void 0) payload.rule_count = rule.rule_count;
     if (rule.last_updated) payload.last_updated = rule.last_updated;
-    if (rule.id) await api.json(`/plugins/adguard/rules/${rule.id}`, "PUT", Object.assign({}, rule, payload, { last_error: void 0 }));
+    if (rule.id) await updateAdguard(rule, payload);
     else await api.json("/plugins/adguard/rules", "POST", payload);
     toast(`广告规则已${rule.id ? "更新" : "添加"}`);
-    await renderAdguard(body);
+    await renderAdguard(body2);
   });
 }
 const diversionDefs = [
@@ -10879,45 +11095,44 @@ async function saveDiversionRule(rule, original = null) {
   if (!payload.name) throw new Error("名称不能为空");
   if (!payload.url) throw new Error("订阅地址不能为空");
   const response = await api.json(`/plugins/${target.tag}/config/${encodeURIComponent(payload.name)}`, "PUT", payload);
-  const saved = await ruleConversionService.finishSave(response, () => api.request(`/plugins/${target.tag}/update/${encodeURIComponent(payload.name)}`, { method: "POST" }));
+  const saved = await ruleConversionService.finishSave(response, () => updateRule(`/plugins/${target.tag}/update/${encodeURIComponent(payload.name)}`));
   if (original && (original.tag !== target.tag || original.name !== payload.name)) {
     await api.request(`/plugins/${original.tag}/config/${encodeURIComponent(original.name)}`, { method: "DELETE" });
   }
   return saved;
 }
-function openDiversionDatasetPrompt(rule, datasets, body, original = rule) {
+function openDiversionDatasetPrompt(rule, datasets, body2, original = rule) {
   const options = (Array.isArray(datasets) ? datasets : []).map((x) => String(x || "").trim()).filter(Boolean);
-  if (!options.length) {
-    toast("更新失败", "error", "数据源要求选择数据集，但没有返回可用数据集");
-    return;
-  }
-  modalOpen("请选择数据集 / Tag", "检测到多数据集 DAT。选择一次后会作为隐藏元数据保存，后续自动更新将直接复用。", `<div class="stack"><div class="field"><label>数据集 / Tag</label><select id="div-dataset-choice">${options.map((x) => `<option value="${esc$1(x)}" ${x === rule.dataset ? "selected" : ""}>${esc$1(x)}</option>`).join("")}</select></div><p class="form-note">此选择只在多数据集 DAT 需要时出现，不会重新加入常驻的格式或匹配设置。</p></div>`, async () => {
-    const dataset = $("#div-dataset-choice").value;
+  const typed = !options.length;
+  const field = typed ? `<input id="div-dataset-choice" value="${esc$1(rule.dataset || "")}" placeholder="例如 AS13335，多个用逗号分隔">` : `<select id="div-dataset-choice">${options.map((x) => `<option value="${esc$1(x)}" ${x === rule.dataset ? "selected" : ""}>${esc$1(x)}</option>`).join("")}</select>`;
+  modalOpen(typed ? "请填写 AS 号" : "请选择数据集 / Tag", "选择后保存到此订阅，后续自动更新直接复用。", `<div class="stack"><div class="field"><label>${typed ? "AS 号" : "数据集 / Tag"}</label>${field}</div><p class="form-note">${typed ? "ASN 数据库需要填写要提取的 AS 号。" : "多数据集来源需要选择对应的国家或分类。"}</p></div>`, async () => {
+    const dataset = $("#div-dataset-choice").value.trim();
+    if (!dataset) throw new Error(typed ? "请填写 AS 号" : "请选择数据集");
     const saved = await saveDiversionRule({ ...rule, dataset }, original);
     workspaceService.clearRuleDraft(original);
     toast("识别与转换完成", "success", ruleConversionService.message(saved));
-    await renderDiversion(body);
+    await renderDiversion(body2);
   });
 }
-async function updateDiversionRule(rule, body) {
+async function updateDiversionRule(rule, body2) {
   var _a2;
   try {
-    const result = await api.request(`/plugins/${rule.tag}/update/${encodeURIComponent(rule.name)}`, { method: "POST" });
+    const result = await updateRule(`/plugins/${rule.tag}/update/${encodeURIComponent(rule.name)}`);
     const source = ruleConversionService.updated(result);
     if (source) Object.assign(rule, source);
     toast("规则更新完成", "success", ruleConversionService.message(result));
-    await renderDiversion(body);
+    await renderDiversion(body2);
     return result;
   } catch (err) {
     if (((_a2 = err.body) == null ? void 0 : _a2.code) === "dataset_required" && Array.isArray(err.body.datasets)) {
-      openDiversionDatasetPrompt(rule, err.body.datasets, body);
+      openDiversionDatasetPrompt(rule, err.body.datasets, body2);
       return null;
     }
     throw err;
   }
 }
-async function renderDiversion(body) {
-  if (activeTab !== "diversion" || !(body == null ? void 0 : body.isConnected) || currentScope().signal.aborted) return;
+async function renderDiversion(body2) {
+  if (activeTab !== "diversion" || !(body2 == null ? void 0 : body2.isConnected) || currentScope().signal.aborted) return;
   const renderScope = ruleViews.begin();
   let all;
   try {
@@ -10942,11 +11157,12 @@ async function renderDiversion(body) {
     update_interval_hours: +i.update_interval_hours || 24
   })));
   rows.sort((a, b) => Number(b.enabled) - Number(a.enabled));
-  setHTML(body, card("在线分流规则", workspaceService.diversion(rows, errors, diversionFormatLabel), { iconName: "rules", actions: '<button class="button" id="div-update-all">更新全部</button><button class="button primary" id="div-add">' + icon$1("plus") + "添加规则</button>" }));
-  workspaceService.bindDiversion(body);
-  $$(".div-detail", body).forEach((button) => button.onclick = () => {
+  setHTML(body2, card("在线分流规则", workspaceService.diversion(rows, errors, diversionFormatLabel), { iconName: "rules", actions: '<button class="button" id="div-update-all">更新全部</button><button class="button primary" id="div-add">' + icon$1("plus") + "添加规则</button>" }));
+  workspaceService.bindDiversion(body2);
+  syncDiversionUpdateState(body2);
+  $$(".div-detail", body2).forEach((button) => button.onclick = () => {
     const el = button.closest("[data-tag][data-name]"), r = rows.find((r2) => r2.tag === el.dataset.tag && String(r2.name) === el.dataset.name);
-    if (r) workspaceService.ruleDetails(r, () => openDiversionModal(r, body), diversionFormatLabel);
+    if (r) workspaceService.ruleDetails(r, () => openDiversionModal(r, body2), diversionFormatLabel);
   });
   const findRow = (tr) => rows.find((r) => r.tag === tr.dataset.tag && String(r.name) === tr.dataset.name);
   $$(".div-enable").forEach((x) => x.onchange = async () => {
@@ -10958,7 +11174,7 @@ async function renderDiversion(body) {
       await saveDiversionRule(next, rule);
       rule.enabled = x.checked;
       toast(`规则“${rule.name}”已${x.checked ? "启用" : "关闭"}，配置已保存`);
-      await renderDiversion(body);
+      await renderDiversion(body2);
     } catch (e) {
       x.checked = !x.checked;
       toast("状态保存失败", "error", e.message);
@@ -10967,20 +11183,21 @@ async function renderDiversion(body) {
     }
   });
   $$(".div-update").forEach((x) => x.onclick = async () => {
+    if (diversionUpdating) return;
     const rule = findRow(x.closest("[data-tag][data-name]"));
     if (!rule) return;
     x.disabled = true;
     try {
-      await updateDiversionRule(rule, body);
+      await updateDiversionRule(rule, body2);
     } catch (e) {
-      toast("更新失败", "error", e.message);
+      updateError(e);
     } finally {
       x.disabled = false;
     }
   });
   $$(".div-edit").forEach((x) => x.onclick = () => {
     const rule = findRow(x.closest("[data-tag][data-name]"));
-    if (rule) openDiversionModal(rule, body);
+    if (rule) openDiversionModal(rule, body2);
   });
   $$(".div-delete").forEach((x) => x.onclick = async () => {
     if (!confirm("确定删除此在线规则？配置文件中的对应项目也会被删除。")) return;
@@ -10989,22 +11206,23 @@ async function renderDiversion(body) {
     try {
       await api.request(`/plugins/${tr.dataset.tag}/config/${encodeURIComponent(tr.dataset.name)}`, { method: "DELETE" });
       toast("规则及对应配置已删除");
-      await renderDiversion(body);
+      await renderDiversion(body2);
     } catch (e) {
       toast("删除失败", "error", e.message);
     } finally {
       x.disabled = false;
     }
   });
-  $("#div-add").onclick = () => openDiversionModal(null, body);
+  $("#div-add").onclick = () => openDiversionModal(null, body2);
   $("#div-update-all").onclick = async () => {
+    if (diversionUpdating) return;
     const targets = rows.filter((r) => r.enabled && r.url);
     if (!targets.length) {
       toast("没有可更新的已启用规则", "info");
       return;
     }
-    const btn = $("#div-update-all");
-    btn.disabled = true;
+    diversionUpdating = true;
+    syncDiversionUpdateState(body2);
     try {
       const byTag = /* @__PURE__ */ new Map();
       targets.forEach((r) => {
@@ -11015,13 +11233,13 @@ async function renderDiversion(body) {
       for (const [tag, group] of byTag) {
         const def = diversionDefByTag(tag);
         if (def) {
-          jobs.push(api.request(`/plugins/${tag}/update-all`, { method: "POST" }).then((data) => ({ kind: "batch", count: group.length, data }), (error) => ({ kind: "failed", count: group.length, error })));
+          jobs.push(updateRule(`/plugins/${tag}/update-all`).then((data) => ({ kind: "batch", count: group.length, data }), (error) => ({ kind: "failed", count: group.length, error, label: def.label })));
         } else {
-          group.forEach((r) => jobs.push(api.request(`/plugins/${r.tag}/update/${encodeURIComponent(r.name)}`, { method: "POST" }).then((data) => ({ kind: "single", count: 1, data }))));
+          group.forEach((r) => jobs.push(updateRule(`/plugins/${r.tag}/update/${encodeURIComponent(r.name)}`).then((data) => ({ kind: "single", count: 1, data }), (error) => ({ kind: "failed", count: 1, error, label: r.name }))));
         }
       }
       const result = await Promise.allSettled(jobs);
-      let failed = 0, datasetNeeded = 0, completed = 0, details = [];
+      let failed = 0, uncertain = 0, datasetNeeded = 0, completed = 0, details = [];
       result.forEach((x) => {
         var _a2, _b2, _c, _d, _e, _f, _g, _h;
         if (x.status === "rejected") {
@@ -11032,8 +11250,13 @@ async function renderDiversion(body) {
         }
         const item = x.value;
         if (item.kind === "failed") {
-          failed += item.count;
-          details.push(((_d = item.error) == null ? void 0 : _d.message) || "更新失败");
+          if (updateUncertain(item.error)) {
+            uncertain += item.count;
+            details.push(`${item.label}：未收到更新结果，服务器可能仍在处理，请稍后刷新查看更新时间`);
+          } else {
+            failed += item.count;
+            details.push(`${item.label}：${((_d = item.error) == null ? void 0 : _d.message) || "更新失败"}`);
+          }
           return;
         }
         completed += item.kind === "batch" ? Number(((_e = item.data) == null ? void 0 : _e.updated) || 0) : item.count;
@@ -11044,16 +11267,18 @@ async function renderDiversion(body) {
         }
       });
       const detailText = details.join("；");
-      if (datasetNeeded) toast(`更新完成 ${completed} 条；${datasetNeeded} 条需要单独选择数据集`, "error", detailText);
+      if (uncertain) toast(`已更新 ${completed} 条；${uncertain} 条结果待确认${failed ? `；失败 ${failed} 条` : ""}${datasetNeeded ? `；${datasetNeeded} 条需要选择数据集` : ""}`, failed || datasetNeeded ? "error" : "info", detailText + "；请勿重复提交更新任务。");
+      else if (datasetNeeded) toast(`更新完成 ${completed} 条；${datasetNeeded} 条需要单独选择数据集`, "error", detailText);
       else if (failed) toast(`更新任务完成，失败 ${failed} 条`, "error", detailText);
       else toast(`已更新 ${completed} 条在线分流规则`);
-      await renderDiversion(body);
+      await renderDiversion(body2);
     } finally {
-      btn.disabled = false;
+      diversionUpdating = false;
+      syncDiversionUpdateState(body2);
     }
   };
 }
-function openDiversionModal(rule, body) {
+function openDiversionModal(rule, body2) {
   const original = rule ? { ...rule } : null;
   rule = rule || { name: "", type: "custom_cn", url: "", files: "", enabled: true, dataset: "", auto_update: true, update_interval_hours: 24 };
   rule.dataset = String(rule.dataset || "");
@@ -11065,13 +11290,13 @@ function openDiversionModal(rule, body) {
       saved = await saveDiversionRule(payload, original);
     } catch (err) {
       if (((_a2 = err.body) == null ? void 0 : _a2.code) === "dataset_required" && Array.isArray(err.body.datasets)) {
-        return () => openDiversionDatasetPrompt({ ...payload, tag: payload.type }, err.body.datasets, body, original);
+        return () => openDiversionDatasetPrompt({ ...payload, tag: payload.type }, err.body.datasets, body2, original);
       }
       throw err;
     }
     workspaceService.clearRuleDraft(original);
     toast("保存与转换完成", "success", ruleConversionService.message(saved));
-    await renderDiversion(body);
+    await renderDiversion(body2);
   });
   workspaceService.trackRuleDraft(original);
 }
@@ -11157,12 +11382,12 @@ function proxyConfigBase(configured = "", apiBase = "", origin = location.origin
   url.pathname = url.pathname.replace(/\/$/, "").replace(/\/api\/proxy-config$/, "") + "/api/proxy-config/";
   return url.href;
 }
-async function request(path, { method = "GET", body, signal } = {}) {
+async function request(path, { method = "GET", body: body2, signal } = {}) {
   const settings = window.LOCALDNS_UI_CONFIG || {};
   const base = proxyConfigBase(settings.proxyConfigBase, settings.apiBase);
   const client = new HttpClient({ base, timeout: path === "save" ? 105e3 : path === "check" ? 55e3 : 2e4 });
   try {
-    return await client.request(path, { method, signal, credentials: "omit", cache: "no-store", headers: body === void 0 ? {} : { "Content-Type": "application/json" }, body: body === void 0 ? void 0 : JSON.stringify(body) });
+    return await client.request(path, { method, signal, credentials: "omit", cache: "no-store", headers: body2 === void 0 ? {} : { "Content-Type": "application/json" }, body: body2 === void 0 ? void 0 : JSON.stringify(body2) });
   } catch (error) {
     if (path === "fetch" && error instanceof ApiError && [404, 405].includes(error.status)) {
       const failure = new Error("当前配置服务不支持 HTTP 获取，请安装 1.6.0 或更新的配套服务后重试。");
@@ -12225,12 +12450,12 @@ function initialize$1() {
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.clip();
-      const body = ctx.createRadialGradient(cx - r * 0.43, cy - r * 0.85, r * 0.03, cx + r * 0.15, cy + r * 0.15, r * 1.3);
-      body.addColorStop(0, light ? "rgba(124,96,60,.13)" : "rgba(166,126,73,.24)");
-      body.addColorStop(0.28, light ? "rgba(155,137,112,.06)" : "rgba(83,65,42,.11)");
-      body.addColorStop(0.7, light ? "rgba(230,235,244,.02)" : "rgba(8,10,12,.05)");
-      body.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = body;
+      const body2 = ctx.createRadialGradient(cx - r * 0.43, cy - r * 0.85, r * 0.03, cx + r * 0.15, cy + r * 0.15, r * 1.3);
+      body2.addColorStop(0, light ? "rgba(124,96,60,.13)" : "rgba(166,126,73,.24)");
+      body2.addColorStop(0.28, light ? "rgba(155,137,112,.06)" : "rgba(83,65,42,.11)");
+      body2.addColorStop(0.7, light ? "rgba(230,235,244,.02)" : "rgba(8,10,12,.05)");
+      body2.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = body2;
       ctx.fillRect(0, 0, w, h);
       ctx.restore();
       for (let i = 0; i < 7200; i++) {

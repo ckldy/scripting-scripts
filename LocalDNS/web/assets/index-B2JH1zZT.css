@@ -4320,9 +4320,64 @@ html[data-skin=claude]:not([data-theme=light-glass]):not(#\#):not(#\#):not(#\#):
 
 .tec-big:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) .display-unit{font-size:14px}
 
-.ring-center.has-display-number:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#){font-size:32px;justify-content:center;gap:3px}
+.overview-outcomes:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) .outbound-donut-body{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:20px;
+  padding-block:8px;
+}
 
-.ring-center:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) .display-unit{font-size:12px}
+.overview-outcomes:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) .ring-wrap{
+  flex:0 0 144px;
+  width:144px;
+  height:144px;
+}
+
+.overview-outcomes:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) .ring-wrap>svg{display:block;width:100%;height:100%}
+
+.overview-outcomes:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) .ring-center{
+  inset:27%;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:4px;
+  min-width:0;
+  font-weight:400;
+}
+
+.overview-outcomes:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) .ring-total{
+  display:inline-flex;
+  align-items:baseline;
+  justify-content:center;
+  gap:2px;
+  font-family:var(--font-numeral);
+  font-size:min(24px,var(--numeral-size,20px));
+  font-weight:400;
+  line-height:1.1;
+  white-space:nowrap;
+}
+
+.overview-outcomes:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) .ring-total .display-number{font-size:min(24px,var(--numeral-size,20px))}
+
+.overview-outcomes:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) .ring-total .display-unit{font-size:11px}
+
+.overview-outcomes:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) .ring-caption{
+  font-family:var(--font-sans);
+  font-size:11px;
+  line-height:1.4;
+  color:var(--text-2);
+  white-space:nowrap;
+}
+
+.overview-outcomes:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) .ring-legend{flex:1 1 232px;min-width:0;gap:4px}
+
+.overview-outcomes:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) .outcome-item.rl-item{grid-template-columns:minmax(0,1fr) 6ch 5ch;gap:8px;min-height:36px}
+
+.overview-outcomes:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) .outcome-item .rl-name{white-space:normal;overflow-wrap:anywhere}
+
+@media(max-width:600px){.overview-outcomes:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) .outcome-item.rl-item{min-height:44px}}
 
 .service-value:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#) .display-number,.overview-duration-num:not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#):not(#\#){font-family:var(--font-numeral);font-size:28px;font-weight:400;font-variant-numeric:lining-nums proportional-nums;line-height:1.05;letter-spacing:-.015em}
 
@@ -7864,10 +7919,6 @@ body[data-console-route="rules"] .rv-list{height:auto!important}
 
 @media(max-width:600px){
   .overview-slow-table .overview-slow-type,.overview-slow-table .overview-slow-client,.overview-slow-table th:nth-child(3),.overview-slow-table th:nth-child(4),.slow-duration-bar{display:none!important}
-}
-
-@media(max-width:360px){
-  .console-donut .ring-center{--numeral-size:23px!important}
 }
 
 @media(max-width:600px){.shared-ui-actions button,.appearance-panel .identity-actions button{min-height:44px!important}}

@@ -1,12 +1,19 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.7.0 (Build 20261021)`  
+> **当前版本**：`v1.9.0 (Build 20261022)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.18.19` / 内核 `FJGAC`）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.22.3` / 内核 `FJGLI`）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地高性能 DNS 服务与安全管理系统。
 
 v1.6.0 去伪存真、彻底瘦身，砍掉无法在 DNS 网络层生效的虚假 L7 代理与伪切片清洗，回归纯粹、极致、稳定的 DNS 核心与 18.5 万条广告拦截基础设施。
+
+### v1.9.0 同步上游 FJGLI / UI 2026.10.22.3
+- **前端全量跟随上游打包 SPA**：`app-DOuhu87M.js` + `index-B2JH1zZT.css`（其余字体/图标/编辑器/`chart.umd.min.js` 与上一版逐字节一致，仅精确替换 2 个打包文件 + 3 个元数据文件）。
+- **核心族探测保持 legacy 兼容**：新版 UI 会先请求 `/api/v1/features` 判断核心族；本移植端不实现该接口（返回 404），UI 自动回落到旧插件 API，现有页面（概览/日志/规则/上游/广告/缓存/刷新任务）行为不变。
+- **上游保存兼容 `group`**：后端 `/api/v1/upstream/config` 同时接受 `group` 与 `plugin_tag`，对齐上游 2026.10.22.2 的字段迁移。
+- **在线分流保存不再误报**：上游 2026.10.22.3 接受仅返回 `changed: true/false` 的成功结果，未记录格式时显示“格式未记录”。
+- **本地定制保留**：`web/assets/livepulse.js`（1s KPI / 2s CPU·内存就地脉冲）继续挂载；`config.js` 继续使用同源 `proxyConfigBase`。
 
 ### v1.7.0 参考 SmartDNS 深度优化
 - **智能测速选最快 IP（P0）**：对上游返回的多个 A/AAAA 使用 `node:net` 做 TCP 握手测速（`tcp:443,tcp:80`），按 RTT 重排并返回访问最快的地址；支持 `response-mode`、`max-reply-ip-num`，测速结果 60s 复用，并发上限 8 保护 32 socket 配额。
@@ -50,7 +57,7 @@ v1.6.0 去伪存真、彻底瘦身，砍掉无法在 DNS 网络层生效的虚�
 - **电脑 / 局域网设备接入**：局域网设备可将安全 DNS 指向当前手机 IP，打造家庭级 DNS 防火墙。
 - **Scripting 原生全局 VPN 隧道**：深度调用 Scripting 系统级 `VPN` API，在原生仪表盘提供一键启闭与状态实时联动。
 
-### 3. 上游 FJGAC / UI 2026.10.18.19 清单工作台与配置协同
+### 3. 上游 FJGLI / UI 2026.10.22.3 管理操作复核与配置协同
 - **全新清单工作台**：合入上游最新清单工作台修复，解决编辑后取消逻辑、未保存判断、Ctrl+S 快捷保存与草稿隔离机制；备注、分组、新增项注释均参与草稿状态跟踪，批量粘贴去重并保持 `#` 注释停用状态。
 - **服务端持久化身份设置与代理面板 (`/api/proxy-config/interface/*`)**：支持服务端持久化保存自定义显示名称、Logo 与代理面板入口地址，跨设备刷新无缝同步。
 - **名单工作台备份与历史恢复服务 (`/api/proxy-config/rule-backups`)**：保存前重新读取名单并在服务端建立历史快照（每份名单最多保留 20 份），支持一键调出备份弹窗安全载入草稿并核对生效。

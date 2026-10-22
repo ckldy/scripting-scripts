@@ -19,7 +19,7 @@ async function fetchDiversionWithFallback(url: string): Promise<string> {
   for (const u of candidateUrls) {
     try {
       const resp = await fetch(u, {
-        headers: { 'User-Agent': 'LocalDNS/FJGIR' },
+        headers: { 'User-Agent': 'LocalDNS/FJGLI' },
         signal: AbortSignal.timeout(8000),
       });
       if (resp.ok) {

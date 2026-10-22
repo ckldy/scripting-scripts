@@ -2,9 +2,9 @@
   "name": "LocalDNS",
   "icon": "shield.lefthalf.filled",
   "color": "#6366f1",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "author": "vcncv",
-  "description": "本地 DNS 与安全服务系统，v1.8.0 同步上游 FJGIR / UI 2026.10.21.2 打包版控制台（新增审计日志目录设置），参考 SmartDNS 深度优化：智能测速选最快 IP (TCP 握手 RTT 排序)、DoT/TCP-DNS 多协议上游、LRU/持久化/预取/负缓存缓存增强、结果 IP 治理 (blacklist/ip-alias 等)、per-client 规则与分组、domain-set/ip-set 命名集合、DNS64、本地记录注入与 force-qtype-SOA。保留 18.5 万条 AdGuard 广告拦截、四级缓存、Happy Eyeballs 竞速与 Apple 原生加密 DNS 描述文件。注：Scripting 无 UDP，UDP 上游以 DoT/TCP 等价替代。致敬 yyhoworks/LocalDNS 与 R 大，由 vcncv 移植构建。",
+  "description": "本地 DNS 与安全服务系统，v1.9.0 同步上游 FJGLI / UI 2026.10.22.3 打包版控制台（在线分流保存复核、上游 group 字段适配），参考 SmartDNS 深度优化：智能测速选最快 IP (TCP 握手 RTT 排序)、DoT/TCP-DNS 多协议上游、LRU/持久化/预取/负缓存缓存增强、结果 IP 治理 (blacklist/ip-alias 等)、per-client 规则与分组、domain-set/ip-set 命名集合、DNS64、本地记录注入与 force-qtype-SOA。保留 18.5 万条 AdGuard 广告拦截、四级缓存、Happy Eyeballs 竞速与 Apple 原生加密 DNS 描述文件。注：Scripting 无 UDP，UDP 上游以 DoT/TCP 等价替代。致敬 yyhoworks/LocalDNS 与 R 大，由 vcncv 移植构建。",
   "remoteResource": {
     "url": "https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/LocalDNS.zip"
   }

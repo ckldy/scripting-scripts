@@ -486,7 +486,7 @@ export class LocalDnsServer {
 
       return jsonResponse({
         status: 'online',
-        version: 'FJGIR',
+        version: 'FJGLI',
         upstream_stats: upstreamStats,
         rules: {
           geosite_cn: fileCounts.geosite_cn || 0,
@@ -507,8 +507,10 @@ export class LocalDnsServer {
       }
       if (method === 'POST') {
         const body = parseJsonBody(req);
-        if (body.plugin_tag && Array.isArray(body.upstreams)) {
-          store.setUpstreamGroup(body.plugin_tag, body.upstreams);
+        // FJGLI 使用 group 字段，旧核心使用 plugin_tag；两者都接受。
+        const group = body.group || body.plugin_tag;
+        if (group && Array.isArray(body.upstreams)) {
+          store.setUpstreamGroup(group, body.upstreams);
         }
         if (body.ecs !== undefined) {
           store.setUpstreamEcs(body.ecs);

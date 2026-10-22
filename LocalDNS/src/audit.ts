@@ -384,7 +384,7 @@ export class AuditManager {
 
     lines.push('# HELP localdns_info Information about LocalDNS version.');
     lines.push('# TYPE localdns_info gauge');
-    lines.push('localdns_info{version="FJGIR"} 1');
+    lines.push('localdns_info{version="FJGLI"} 1');
 
     lines.push('# HELP localdns_runtime_info Information about runtime.');
     lines.push('# TYPE localdns_runtime_info gauge');
