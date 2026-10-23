@@ -4,11 +4,143 @@
 import { Script, Path } from "scripting"
 
 declare const fetch: any
+declare const DownloadManager: any
+
+const activeDownloadTasks = new Map<string, any>()
+
+let dlQueueInstance: any = null
+async function getDlQueue(): Promise<any> {
+  if (!dlQueueInstance) {
+    dlQueueInstance = await DownloadManager.open({
+      identifier: "music_downloads_mgr",
+      mode: "foreground",
+      maxConcurrentTasks: 2,
+      allowsCellularAccess: true,
+      timeoutIntervalForRequest: 60,
+    })
+  }
+  return dlQueueInstance
+}
+
+async function nativeDownloadFile(params: any, webView: WebViewController): Promise<any> {
+  const id = String(params?.__id || "")
+  const url = String(params?.url || "")
+  let filename = String(params?.filename || "")
+  if (!url) return { ok: false, error: "缺少下载地址" }
+  filename = filename.replace(/[\\/:*?"<>|\r\n\t]/g, "_").trim()
+  if (!filename) filename = "song_" + Date.now() + ".mp3"
+
+  try {
+    const queue = await getDlQueue()
+    const targetPath = Path.join(DOWNLOADS_DIR, filename)
+
+    if (FileManager.existsSync(targetPath)) {
+      try { FileManager.removeSync(targetPath) } catch (eRem) {}
+    }
+
+    try {
+      const oldTask = await queue.getTaskByURL(url)
+      if (oldTask) await oldTask.remove({ deleteFile: true })
+    } catch (eOld) {}
+
+    const hdrs: Record<string, string> = {
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      "Accept": "*/*",
+    }
+    if (params?.headers && typeof params.headers === "object") {
+      Object.keys(params.headers).forEach((k) => {
+        if (!/^(host|content-length|range)$/i.test(k)) hdrs[k] = String(params.headers[k])
+      })
+    }
+
+    const task = await queue.download({
+      url: url,
+      destination: targetPath,
+      headers: hdrs,
+      priority: 0.8,
+    })
+
+    if (id) {
+      activeDownloadTasks.set(id, task)
+      task.onProgress = (p: any) => {
+        try {
+          const fraction = typeof p?.fractionCompleted === "number" ? p.fractionCompleted : 0
+          const completed = Number(p?.completedBytes) || 0
+          const total = Number(p?.totalBytes) || 0
+          const speed = Number(p?.bytesPerSecond) || 0
+          webView.evaluateJavaScript(
+            `window.__aqDlProgress && window.__aqDlProgress(${JSON.stringify(id)}, ${JSON.stringify({
+              fraction,
+              completed,
+              total,
+              speed,
+            })})`,
+          ).catch(() => {})
+        } catch (e) {}
+      }
+    }
+
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("下载超时 (75s)")), 75000)
+    })
+    const finalPath = (await Promise.race([task.waitUntilFinished(), timeoutPromise])) as string
+
+    if (!finalPath || !FileManager.existsSync(finalPath)) {
+      throw new Error("下载完成但未检测到目标文件")
+    }
+
+    const size = FileManager.statSync(finalPath).size
+    if (size < 1000) {
+      try { FileManager.removeSync(finalPath) } catch (e) {}
+      throw new Error("下载文件为空或损坏")
+    }
+
+    const actualName = Path.basename(finalPath)
+    const mime = FileManager.mimeType(finalPath) || ""
+
+    return {
+      ok: true,
+      filename: actualName,
+      localUrl: "/downloads/" + encodeURIComponent(actualName),
+      size: size,
+      mime: mime,
+    }
+  } catch (e: any) {
+    console.warn("[nativeDownload] " + e)
+    return { ok: false, error: String(e?.message || e) }
+  } finally {
+    if (id) activeDownloadTasks.delete(id)
+  }
+}
 
 /** localStorage 按 origin（含端口）隔离，随机端口会让设置活不过一次重启；
  *  所以设置另存为本地文件，启动时通过 /settings.js 下发给页面。 */
 const WEB_PORT = 17853
 const SETTINGS_FILE = Path.join(FileManager.appGroupDocumentsDirectory, "music_settings.json")
+const DOWNLOADS_DIR = Path.join(FileManager.appGroupDocumentsDirectory, "music_downloads")
+if (!FileManager.existsSync(DOWNLOADS_DIR)) {
+  try { FileManager.createDirectorySync(DOWNLOADS_DIR, true) } catch (e) {}
+}
+const DOWNLOADS_RECORD_FILE = Path.join(FileManager.appGroupDocumentsDirectory, "music_downloads_record.json")
+
+function readSavedDownloads(): any[] {
+  try {
+    if (!FileManager.existsSync(DOWNLOADS_RECORD_FILE)) return []
+    const arr = JSON.parse(FileManager.readAsStringSync(DOWNLOADS_RECORD_FILE))
+    return Array.isArray(arr) ? arr : []
+  } catch (e) {
+    return []
+  }
+}
+
+function writeSavedDownloads(list: any[]): boolean {
+  try {
+    FileManager.writeAsStringSync(DOWNLOADS_RECORD_FILE, JSON.stringify(Array.isArray(list) ? list : []))
+    return true
+  } catch (e) {
+    return false
+  }
+}
 
 function readSavedSettings(): Record<string, string> {
   try {
@@ -48,7 +180,8 @@ function writeSavedSettings(obj: any): boolean {
 function settingsScript(): string {
   return (
     "window.__AQ_SETTINGS=" + JSON.stringify(readSavedSettings()) + ";" +
-    "window.__AQ_HAS_SAVED=" + (hasSavedSettings() ? "true" : "false") + ";"
+    "window.__AQ_HAS_SAVED=" + (hasSavedSettings() ? "true" : "false") + ";" +
+    "window.__AQ_DOWNLOADS_RECORD=" + JSON.stringify(readSavedDownloads()) + ";"
   )
 }
 
@@ -221,6 +354,7 @@ async function main() {
       } catch (eP) { ok = false }
       return jsonResponse(JSON.stringify({ ok }))
     })
+    s.registerFilesFromDirectory("/downloads/:file", DOWNLOADS_DIR)
     s.registerFilesFromDirectory("/:file", webDir, { defaults: ["index.html"] })
     return s
   }
@@ -273,6 +407,67 @@ async function main() {
         )
       } catch (e) {}
     })()
+    return null
+  })
+
+  // 原生下载桥（使用原生 DownloadManager 流式写入，无内存膨胀与主线程卡死）
+  await webView.addScriptMessageHandler("aqDownload", (params: any) => {
+    const id = String(params?.__id || "")
+    ;(async () => {
+      const res = await nativeDownloadFile(params, webView)
+      try {
+        await webView.evaluateJavaScript(
+          `window.__aqDownloadCbs && window.__aqDownloadCbs[${JSON.stringify(id)}] && window.__aqDownloadCbs[${JSON.stringify(id)}](${JSON.stringify(res)})`,
+        )
+      } catch (eEval) {}
+    })()
+    return null
+  })
+
+  // 原生取消下载任务桥
+  await webView.addScriptMessageHandler("aqCancelDownload", (params: any) => {
+    const id = String(params?.__id || "")
+    if (id && activeDownloadTasks.has(id)) {
+      const task = activeDownloadTasks.get(id)
+      try {
+        task.cancel().catch(() => {})
+        task.remove({ deleteFile: true }).catch(() => {})
+      } catch (e) {}
+      activeDownloadTasks.delete(id)
+    }
+    return null
+  })
+
+  // 原生删除已下载音频文件桥
+  await webView.addScriptMessageHandler("aqDeleteDownload", (params: any) => {
+    const id = String(params?.__id || "")
+    const filename = String(params?.filename || "").replace(/[\\/:*?"<>|]/g, "_").trim()
+    let ok = false
+    if (filename) {
+      try {
+        const filePath = Path.join(DOWNLOADS_DIR, filename)
+        if (FileManager.existsSync(filePath)) {
+          FileManager.removeSync(filePath)
+          ok = true
+        }
+      } catch (e) {
+        console.warn("[aqDeleteDownload]", e)
+      }
+    }
+    try {
+      webView.evaluateJavaScript(
+        `window.__aqDeleteCbs && window.__aqDeleteCbs[${JSON.stringify(id)}] && window.__aqDeleteCbs[${JSON.stringify(id)}](${JSON.stringify({ ok })})`,
+      )
+    } catch (e) {}
+    return null
+  })
+
+  // 同步已下载记录到本地磁盘
+  await webView.addScriptMessageHandler("aqSaveDownloadsRecord", (params: any) => {
+    try {
+      const list = params?.list
+      if (Array.isArray(list)) writeSavedDownloads(list)
+    } catch (e) {}
     return null
   })
 
@@ -397,6 +592,72 @@ async function main() {
             resolve(null);
           }
         });
+      };
+      // 注入原生下载桥与进度桥
+      window.__aqDownloadCbs = window.__aqDownloadCbs || {};
+      window.__aqDlProgressCbs = window.__aqDlProgressCbs || {};
+      window.__aqDlProgress = function (id, data) {
+        if (window.__aqDlProgressCbs && window.__aqDlProgressCbs[id]) {
+          try { window.__aqDlProgressCbs[id](data); } catch (e) {}
+        }
+      };
+      window.__aqCancelDownload = function (id) {
+        try {
+          window.webkit.messageHandlers.aqCancelDownload.postMessage({ __id: id });
+        } catch (e) {}
+      };
+      window.__aqDownloadFile = function (url, filename, headers, customId) {
+        return new Promise(function (resolve) {
+          var seq = (window.__aqDlSeq = (window.__aqDlSeq || 0) + 1);
+          var id = customId || ("aqdl_" + Date.now() + "_" + seq);
+          var timer = setTimeout(function () {
+            delete window.__aqDownloadCbs[id];
+            delete window.__aqDlProgressCbs[id];
+            resolve({ ok: false, error: "下载超时" });
+          }, 85000);
+          window.__aqDownloadCbs[id] = function (res) {
+            clearTimeout(timer);
+            delete window.__aqDownloadCbs[id];
+            delete window.__aqDlProgressCbs[id];
+            resolve(res || { ok: false, error: "未返回结果" });
+          };
+          try {
+            window.webkit.messageHandlers.aqDownload.postMessage({
+              __id: id, url: url, filename: filename, headers: headers || {},
+            });
+          } catch (e) {
+            clearTimeout(timer);
+            delete window.__aqDownloadCbs[id];
+            delete window.__aqDlProgressCbs[id];
+            resolve({ ok: false, error: String(e) });
+          }
+        });
+      };
+      // 注入原生删除桥
+      window.__aqDeleteCbs = window.__aqDeleteCbs || {};
+      window.__aqDeleteFile = function (filename) {
+        return new Promise(function (resolve) {
+          var seq = (window.__aqDelSeq = (window.__aqDelSeq || 0) + 1);
+          var id = "aqdel_" + Date.now() + "_" + seq;
+          window.__aqDeleteCbs[id] = function (res) {
+            delete window.__aqDeleteCbs[id];
+            resolve(res || { ok: false });
+          };
+          try {
+            window.webkit.messageHandlers.aqDeleteDownload.postMessage({
+              __id: id, filename: filename,
+            });
+          } catch (e) {
+            delete window.__aqDeleteCbs[id];
+            resolve({ ok: false });
+          }
+        });
+      };
+      // 注入同步下载记录桥
+      window.__aqSyncDownloadsRecord = function (list) {
+        try {
+          window.webkit.messageHandlers.aqSaveDownloadsRecord.postMessage({ list: list || [] });
+        } catch (e) {}
       };
     })();
   `)

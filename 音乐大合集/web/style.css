@@ -233,7 +233,8 @@ html.dark .np:not(.immersive)::before {
 .np.np-ui-light .np-tools button { color: rgba(255, 255, 255, 0.78) !important; }
 .np.np-ui-light .np-tools button.on,
 .np.np-ui-light .np-tools button:active,
-.np.np-ui-light .np-tools button.liked { color: #fff !important; }
+.np.np-ui-light .np-tools button.liked,
+.np.np-ui-light .np-tools button.downloaded { color: #fff !important; }
 /* 进度条未播轨随对比度；已播段/圆点统一红色（不跟字色变黑白） */
 .np.np-ui-light .np-seek input[type=range] {
   background: linear-gradient(to right, var(--np-accent, #fa2d48) var(--seek-p, 0%), rgba(255,255,255,0.28) var(--seek-p, 0%)) !important;
@@ -305,7 +306,8 @@ html.dark .np:not(.immersive)::before {
 .np.np-ui-dark .np-tools button { color: rgba(28, 28, 30, 0.72) !important; }
 .np.np-ui-dark .np-tools button.on,
 .np.np-ui-dark .np-tools button:active,
-.np.np-ui-dark .np-tools button.liked { color: var(--pink) !important; }
+.np.np-ui-dark .np-tools button.liked,
+.np.np-ui-dark .np-tools button.downloaded { color: var(--pink) !important; }
 /* 亮底：未播轨深色保证可见；已播/圆点统一红色 */
 .np.np-ui-dark .np-seek input[type=range] {
   background: linear-gradient(to right, var(--np-accent, #fa2d48) var(--seek-p, 0%), rgba(28,28,30,0.22) var(--seek-p, 0%)) !important;
@@ -983,6 +985,34 @@ html.dark .song-src[data-plat="bilibili"] { --src-c: #ff8cb0; }
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding-bottom: 8px;
+}
+
+/* 已下载面板专属增强 */
+.dl-panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px 8px;
+  border-bottom: 0.5px solid var(--separator);
+  margin-bottom: 4px;
+}
+.dl-play-all {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: none; background: rgba(250,45,72,0.12); color: var(--pink);
+  font-size: 13px; font-weight: 600; padding: 5px 12px;
+  border-radius: 16px; cursor: pointer;
+}
+.dl-play-all svg { width: 14px; height: 14px; fill: currentColor; }
+.dl-stat { font-size: 12px; color: var(--label-3); }
+.song-dl-del {
+  border: none; background: transparent; color: var(--label-3);
+  padding: 6px; margin-left: 2px; cursor: pointer; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.song-dl-del:active { color: var(--pink); transform: scale(0.9); }
+.song-dl-del svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; }
+.song-tag-dl {
+  font-size: 10px; padding: 1px 4px; border-radius: 4px;
+  background: rgba(250,45,72,0.1); color: var(--pink);
+  margin-right: 4px; font-weight: 500; display: inline-block;
 }
 
 /* —— Settings simple —— */
@@ -2687,8 +2717,8 @@ html.dark .np-glow-base { background: rgba(235, 235, 245, 0.16); }
   font-size: 11px; display: flex; flex-direction: column; align-items: center;
   justify-content: center;
   gap: 3px; cursor: pointer; font-family: inherit;
-  min-width: 46px; min-height: 46px;
-  padding: 5px 4px;
+  min-width: 0; min-height: 44px;
+  padding: 4px 2px;
   border-radius: 12px;
   -webkit-tap-highlight-color: rgba(250,45,72,0.15);
   flex: 1;
@@ -2698,12 +2728,21 @@ html.dark .np-glow-base { background: rgba(235, 235, 245, 0.16); }
   pointer-events: auto !important;
 }
 .np-tools button.on,
-.np-tools button.liked {
+.np-tools button.liked,
+.np-tools button.downloaded {
   color: var(--pink);
 }
-.np-tools button.liked svg {
+.np-tools button.liked svg,
+.np-tools button.downloaded svg {
   fill: var(--pink);
   stroke: var(--pink);
+}
+.np-tools button.downloading svg {
+  animation: npDlSpin 1s linear infinite;
+}
+@keyframes npDlSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 .np-tools button:active { opacity: 0.45; transform: scale(0.92); }
 .np-tools svg {
@@ -3018,6 +3057,97 @@ html.dark .sheet[data-queue-sheet] {
 .sheet button.danger { color: var(--pink); }
 .sheet-cancel {
   display: none !important;
+}
+
+/* —— 下载进度卡片 —— */
+.dl-prog-card {
+  padding: 18px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dl-prog-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dl-prog-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+.dl-prog-pct {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--pink);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.dl-prog-sub {
+  font-size: 12px;
+  color: var(--label-2);
+  margin-top: -6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dl-prog-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(120, 120, 128, 0.16);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+.dl-prog-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #ff2d55, #ff375f);
+  border-radius: 999px;
+  transition: width 0.25s ease-out;
+}
+.dl-prog-meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+.dl-prog-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+.dl-prog-actions button {
+  flex: 1;
+  padding: 11px 12px !important;
+  border-radius: 12px !important;
+  border: none !important;
+  font-size: 14px !important;
+  cursor: pointer;
+  text-align: center;
+}
+.dl-prog-btn-cancel {
+  background: rgba(255, 59, 48, 0.12) !important;
+  color: #ff3b30 !important;
+  font-weight: 600 !important;
+}
+.dl-prog-btn-cancel:active {
+  opacity: 0.7;
+}
+.dl-prog-btn-close {
+  background: rgba(120, 120, 128, 0.14) !important;
+  color: var(--label) !important;
+  font-weight: 500 !important;
+}
+.dl-prog-btn-close:active {
+  opacity: 0.7;
 }
 
 /* —— 播放页：音源文件信息 —— */

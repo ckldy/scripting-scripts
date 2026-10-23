@@ -154,7 +154,15 @@ try{var t=localStorage.getItem("aq_theme")||"light";function _aqIsNight(){var h=
     fav: lsJSON("aq_fav", []),
     favPl: lsJSON("aq_fav_pl", []),
     recent: lsJSON("aq_recent", []),
-    dl: lsJSON("aq_dl", []),
+    dl: (function () {
+      var fromLs = lsJSON("aq_dl", []);
+      if (fromLs && fromLs.length) return fromLs;
+      if (window.__AQ_DOWNLOADS_RECORD && Array.isArray(window.__AQ_DOWNLOADS_RECORD) && window.__AQ_DOWNLOADS_RECORD.length) {
+        saveJSON("aq_dl", window.__AQ_DOWNLOADS_RECORD);
+        return window.__AQ_DOWNLOADS_RECORD;
+      }
+      return [];
+    })(),
     queue: [],
     idx: -1,
     playMode: ls("aq_mode", "list"), /* list | single | shuffle */
@@ -8403,10 +8411,17 @@ function paintNow(song) {
     return "dl_" + keyOf(song);
   }
   function safeFilename(song, ext) {
-    var name = (song.name || "song") + " - " + (song.artist || "unknown");
-    name = String(name).replace(/[\\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim();
-    if (name.length > 80) name = name.slice(0, 80);
-    return name + "." + (ext || "mp3");
+    var name = (song.name || "song").trim();
+    var artist = (song.artist || song.singer || "unknown").trim();
+    var id = String(song.songmid || song.id || "").trim();
+    var base = name + " - " + artist;
+    base = String(base).replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim();
+    if (base.length > 60) base = base.slice(0, 60);
+    if (id) {
+      var shortId = id.slice(-6);
+      base = base + "_" + shortId;
+    }
+    return base + "." + (ext || "mp3");
   }
   async function idbPutFile(id, blob, meta) {
     var db = await dlDb();
@@ -8536,91 +8551,410 @@ function paintNow(song) {
     return "none";
   }
 
-  /** 播放前：若本地下载库有文件，返回 blob URL */
-  async function getLocalPlayUrl(song) {
-    if (!song) return null;
-    var id = dlKey(song);
-    var rec = await idbGetFile(id);
-    if (!rec || !rec.blob) return null;
-    try {
-      return URL.createObjectURL(rec.blob);
-    } catch (e) {
-      return null;
-    }
+  var _dlDownloading = {}; // key -> taskId
+  var _dlProgressMap = {};  // key -> { fraction, completed, total, speed, taskId, song }
+  var _curProgressSheetKey = null;
+
+  function fmtBytes(bytes) {
+    bytes = Number(bytes) || 0;
+    if (bytes <= 0) return "0 B";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / 1024 / 1024).toFixed(1) + " MB";
   }
 
-  async function download(song) {
-    if (!song) return;
-    toast("正在获取音频…");
-    var url = await resolvePlay(song);
-    if (!url) { toast("无下载地址"); return; }
+  function fmtSpeed(bytesPerSec) {
+    bytesPerSec = Number(bytesPerSec) || 0;
+    if (bytesPerSec <= 0) return "-- KB/s";
+    if (bytesPerSec < 1024 * 1024) return (bytesPerSec / 1024).toFixed(1) + " KB/s";
+    return (bytesPerSec / 1024 / 1024).toFixed(1) + " MB/s";
+  }
 
-    var ext = "mp3";
-    if (/flac/i.test(url)) ext = "flac";
-    else if (/m4a|mp4|aac/i.test(url)) ext = "m4a";
-    var filename = safeFilename(song, ext);
-    var id = dlKey(song);
+  function isSongDownloaded(song) {
+    if (!song) return false;
+    var k = keyOf(song);
+    return (S.dl || []).some(function (x) { return keyOf(x) === k; });
+  }
 
-    try {
-      var ctrl = new AbortController();
-      var to = setTimeout(function () { ctrl.abort(); }, 60000);
-      var res = await fetch(url, { mode: "cors", credentials: "omit", signal: ctrl.signal });
-      clearTimeout(to);
-      if (!res.ok) throw new Error("http " + res.status);
-      var blob = await res.blob();
-      if (!blob || blob.size < 1000) throw new Error("empty blob");
-      if (blob.type && /flac/i.test(blob.type)) {
-        filename = safeFilename(song, "flac");
-      }
+  function isSongDownloading(song) {
+    if (!song) return false;
+    return !!_dlDownloading[keyOf(song)];
+  }
 
-      // 1) 写入 App 内数据库 → 「已下载」列表可离线播
-      try {
-        await idbPutFile(id, blob, { filename: filename, song: song });
-      } catch (eIdb) {
-        console.warn("idb put fail", eIdb);
-      }
+  /** 动态更新正在展示的下载进度弹窗中的数值与进度条 */
+  function updateDlProgressSheet(k) {
+    if (_curProgressSheetKey !== k) return;
+    var prog = _dlProgressMap[k];
+    if (!prog) return;
 
-      var entry = Object.assign({}, song, {
-        local: true,
-        localId: id,
-        localName: filename,
-        localSize: blob.size,
-      });
-      var k = keyOf(song);
-      S.dl = [entry].concat(S.dl.filter(function (x) { return keyOf(x) !== k; })).slice(0, 80);
-      saveJSON("aq_dl", S.dl);
-      updateLibCounts();
+    var pctEl = $("#dlProgPct");
+    var barEl = $("#dlProgBar");
+    var sizeEl = $("#dlProgSize");
+    var speedEl = $("#dlProgSpeed");
 
-      // 2) 导出到系统目录 / 分享
-      var how = await exportBlobToDevice(blob, filename);
-      if (how === "anchor") {
-        toast("已保存到系统「下载」文件夹 · App 内也可离线播");
-      } else if (how === "picker") {
-        toast("已保存到你选择的位置");
-      } else if (how === "share") {
-        toast("请选择「存储到文件」保存到手机");
-      } else if (how === "cancel") {
-        toast("已加入 App 内「已下载」（未导出到系统）");
+    var pct = Math.min(100, Math.max(0, Math.floor((prog.fraction || 0) * 100)));
+    if (pctEl) pctEl.textContent = pct + "%";
+    if (barEl) barEl.style.width = pct + "%";
+
+    if (sizeEl) {
+      if (prog.total > 0) {
+        sizeEl.textContent = fmtBytes(prog.completed) + " / " + fmtBytes(prog.total);
+      } else if (prog.completed > 0) {
+        sizeEl.textContent = fmtBytes(prog.completed);
       } else {
-        toast("已加入 App 内「已下载」，可离线播放");
+        sizeEl.textContent = "准备中…";
       }
-      return;
-    } catch (e) {
-      console.warn("download fail", e);
     }
-
-    // CORS 失败：打开直链，提示用户长按保存；列表仍记录元数据（在线播）
-    try {
-      window.open(url, "_blank", "noopener");
-      toast("跨域限制，已打开链接，请用浏览器「下载/另存为」");
-    } catch (e2) {
-      toast("下载失败，请换音源或音质重试");
+    if (speedEl) {
+      speedEl.textContent = fmtSpeed(prog.speed);
     }
-    var k2 = keyOf(song);
-    S.dl = [song].concat(S.dl.filter(function (x) { return keyOf(x) !== k2; })).slice(0, 80);
-    saveJSON("aq_dl", S.dl);
-    updateLibCounts();
   }
+
+  /** 取消指定歌曲的下载任务 */
+  function cancelDownloadSong(song) {
+    if (!song) return;
+    var k = keyOf(song);
+    var prog = _dlProgressMap[k];
+    if (prog && prog.taskId && typeof window.__aqCancelDownload === "function") {
+      try { window.__aqCancelDownload(prog.taskId); } catch (e) {}
+    }
+    delete _dlDownloading[k];
+    delete _dlProgressMap[k];
+    if (_curProgressSheetKey === k) {
+      _curProgressSheetKey = null;
+      closeSheet();
+    }
+    updateDlBtn();
+    toast("已取消下载");
+  }
+
+  /** 打开下载进度弹窗卡片 */
+  function openDlProgressSheet(song) {
+    if (!song) return;
+    var k = keyOf(song);
+    var prog = _dlProgressMap[k] || { fraction: 0, completed: 0, total: 0, speed: 0 };
+    _curProgressSheetKey = k;
+
+    var body = $("#sheetBody");
+    var mask = $("#sheetMask");
+    if (!body || !mask) return;
+    resetSheetBodyStyles(body);
+    body.innerHTML = "";
+    try { document.body.classList.add("sheet-open"); } catch (e0) {}
+
+    var pct = Math.min(100, Math.max(0, Math.floor((prog.fraction || 0) * 100)));
+    var sizeText = (prog.total > 0) ? (fmtBytes(prog.completed) + " / " + fmtBytes(prog.total)) : (prog.completed > 0 ? fmtBytes(prog.completed) : "准备中…");
+    var speedText = fmtSpeed(prog.speed);
+
+    var card = document.createElement("div");
+    card.className = "dl-prog-card";
+    card.innerHTML =
+      '<div class="dl-prog-header">' +
+        '<div class="dl-prog-title">正在下载 《' + (song.name || "歌曲") + '》</div>' +
+        '<div class="dl-prog-pct" id="dlProgPct">' + pct + '%</div>' +
+      '</div>' +
+      '<div class="dl-prog-sub">' + (song.artist || song.singer || "未知歌手") + '</div>' +
+      '<div class="dl-prog-track"><div class="dl-prog-bar" id="dlProgBar" style="width:' + pct + '%"></div></div>' +
+      '<div class="dl-prog-meta-row">' +
+        '<span id="dlProgSize">' + sizeText + '</span>' +
+        '<span id="dlProgSpeed">' + speedText + '</span>' +
+      '</div>' +
+      '<div class="dl-prog-actions">' +
+        '<button type="button" class="dl-prog-btn-cancel" id="btnDlProgCancel">取消下载</button>' +
+        '<button type="button" class="dl-prog-btn-close" id="btnDlProgClose">后台继续</button>' +
+      '</div>';
+
+    card.querySelector("#btnDlProgCancel").onclick = function (ev) {
+      if (ev) { try { ev.stopPropagation(); } catch (e) {} }
+      cancelDownloadSong(song);
+    };
+    card.querySelector("#btnDlProgClose").onclick = function (ev) {
+      if (ev) { try { ev.stopPropagation(); } catch (e) {} }
+      _curProgressSheetKey = null;
+      closeSheet();
+    };
+
+    body.appendChild(card);
+    mask.classList.add("open");
+    pushSheetHistory();
+  }
+
+  /** 刷新播放页下载按钮状态 */
+  function updateDlBtn() {
+    var btn = $("#npDownload");
+    var label = $("#npDlLabel");
+    if (!btn) return;
+    var song = S.queue && S.idx >= 0 ? S.queue[S.idx] : null;
+    if (!song) {
+      btn.classList.remove("downloaded", "downloading");
+      if (label) label.textContent = "下载";
+      return;
+    }
+    var k = keyOf(song);
+    if (isSongDownloading(song)) {
+      btn.classList.remove("downloaded");
+      btn.classList.add("downloading");
+      var prog = _dlProgressMap[k];
+      var pct = (prog && prog.fraction > 0) ? Math.min(99, Math.floor(prog.fraction * 100)) : 0;
+      if (label) label.textContent = pct > 0 ? (pct + "%") : "下载中…";
+    } else if (isSongDownloaded(song)) {
+      btn.classList.remove("downloading");
+      btn.classList.add("downloaded");
+      if (label) label.textContent = "已下载";
+    } else {
+      btn.classList.remove("downloaded", "downloading");
+      if (label) label.textContent = "下载";
+    }
+  }
+
+  function cleanSongForStorage(song) {
+    if (!song) return null;
+    return {
+      name: String(song.name || "未知歌曲"),
+      artist: String(song.artist || song.singer || "未知歌手"),
+      songmid: String(song.songmid || song.id || ""),
+      id: String(song.id || song.songmid || ""),
+      album: String(song.album || ""),
+      cover: String(song.cover || ""),
+      source: String(song.source || "qq"),
+      interval: Number(song.interval) || 0,
+      local: true,
+      localUrl: String(song.localUrl || ""),
+      localName: String(song.localName || ""),
+      localSize: Number(song.localSize) || 0,
+      localExt: String(song.localExt || "mp3"),
+      quality: String(song.quality || "standard"),
+      downloadTime: Number(song.downloadTime) || Date.now(),
+    };
+  }
+
+  /** 开始下载指定歌曲 */
+  async function startDownloadSong(song) {
+    if (!song) return;
+    var k = keyOf(song);
+    if (_dlDownloading[k]) {
+      openDlProgressSheet(song);
+      return;
+    }
+    var taskId = "aqdl_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+    _dlDownloading[k] = taskId;
+    _dlProgressMap[k] = {
+      fraction: 0,
+      completed: 0,
+      total: 0,
+      speed: 0,
+      taskId: taskId,
+      song: song,
+    };
+    updateDlBtn();
+    toast("开始获取音频并下载…");
+
+    window.__aqDlProgressCbs = window.__aqDlProgressCbs || {};
+    window.__aqDlProgressCbs[taskId] = function (prog) {
+      if (!_dlProgressMap[k]) return;
+      _dlProgressMap[k].fraction = prog.fraction || 0;
+      _dlProgressMap[k].completed = prog.completed || 0;
+      _dlProgressMap[k].total = prog.total || 0;
+      _dlProgressMap[k].speed = prog.speed || 0;
+      updateDlBtn();
+      updateDlProgressSheet(k);
+    };
+
+    try {
+      // 1) 获取音频直链
+      var curSong = S.queue && S.idx >= 0 ? S.queue[S.idx] : null;
+      var isCur = curSong && keyOf(curSong) === k;
+      var rawUrl = "";
+      if (isCur && audio && (audio.currentSrc || audio.src)) {
+        var curSrc = String(audio.currentSrc || audio.src);
+        if (/^https?:\/\//i.test(curSrc) && !/\/downloads\//i.test(curSrc) && !/127\.0\.0\.1/i.test(curSrc) && !/localhost/i.test(curSrc)) {
+          rawUrl = curSrc;
+        }
+      }
+      if (!rawUrl) {
+        rawUrl = await resolvePlay(song);
+      }
+      if (!rawUrl) {
+        throw new Error("未能获取到可用的音频下载链接，请尝试换源");
+      }
+
+      // 2) 确定后缀名
+      var ext = "mp3";
+      if (/\.flac/i.test(rawUrl)) ext = "flac";
+      else if (/\.m4a/i.test(rawUrl) || /\.aac/i.test(rawUrl)) ext = "m4a";
+      else if (S.playQ === "flac" || S.playQ === "hires" || S.playQ === "master") ext = "flac";
+      var filename = safeFilename(song, ext);
+
+      // 3) 原生下载桥（使用原生 DownloadManager 流式写入，无内存膨胀与主线程卡死）
+      var downloaded = false;
+      var dlEntry = null;
+
+      if (typeof window.__aqDownloadFile === "function") {
+        var hdrs = {};
+        if (typeof isBiliSong === "function" && isBiliSong(song)) {
+          hdrs["Referer"] = "https://www.bilibili.com/video/" + ((song && (song.bvid || song.aid)) || "");
+          hdrs["User-Agent"] = typeof BILI_UA !== "undefined" ? BILI_UA : "Mozilla/5.0";
+        }
+        var res = await window.__aqDownloadFile(rawUrl, filename, hdrs, taskId);
+        if (res && res.ok) {
+          downloaded = true;
+          var baseInfo = cleanSongForStorage(song) || {};
+          dlEntry = Object.assign(baseInfo, {
+            local: true,
+            localUrl: res.localUrl,
+            localName: res.filename,
+            localSize: res.size || 0,
+            localMime: res.mime || "",
+            localExt: ext,
+            quality: S.playQ || song.quality || "standard",
+            downloadTime: Date.now(),
+          });
+        } else {
+          throw new Error((res && res.error) || "原生下载失败");
+        }
+      } else {
+        // 纯网页环境兜底
+        var ctrl = new AbortController();
+        var to = setTimeout(function () { ctrl.abort(); }, 60000);
+        var fRes = await fetch(rawUrl, { mode: "cors", credentials: "omit", signal: ctrl.signal });
+        clearTimeout(to);
+        if (!fRes.ok) throw new Error("HTTP " + fRes.status);
+        var blob = await fRes.blob();
+        if (!blob || blob.size < 1000) throw new Error("下载文件为空");
+        if (blob.type && /flac/i.test(blob.type)) filename = safeFilename(song, "flac");
+        await idbPutFile(dlKey(song), blob, { filename: filename, song: song });
+        downloaded = true;
+        var baseInfo2 = cleanSongForStorage(song) || {};
+        dlEntry = Object.assign(baseInfo2, {
+          local: true,
+          localId: dlKey(song),
+          localName: filename,
+          localSize: blob.size,
+          quality: S.playQ || song.quality || "standard",
+          downloadTime: Date.now(),
+        });
+      }
+
+      if (downloaded && dlEntry) {
+        S.dl = [dlEntry].concat((S.dl || []).filter(function (x) { return keyOf(x) !== k; })).slice(0, 200);
+        saveJSON("aq_dl", S.dl);
+        if (typeof window.__aqSyncDownloadsRecord === "function") {
+          window.__aqSyncDownloadsRecord(S.dl.map(cleanSongForStorage).filter(Boolean));
+        }
+        updateLibCounts();
+        updateDlBtn();
+        var panel = $("#libPanel-dl");
+        var block = document.querySelector('.lib-block[data-lib="dl"]');
+        if (panel && block && block.classList.contains("open")) {
+          fillLibPanel("dl");
+        }
+        if (_curProgressSheetKey === k) {
+          _curProgressSheetKey = null;
+          closeSheet();
+        }
+        toast("《" + (song.name || "歌曲") + "》已下载完成，可在资料库找到");
+      }
+    } catch (err) {
+      console.warn("[startDownloadSong] error:", err);
+      toast("下载失败：" + ((err && err.message) || "网络异常"));
+    } finally {
+      delete _dlDownloading[k];
+      delete _dlProgressMap[k];
+      if (window.__aqDlProgressCbs) delete window.__aqDlProgressCbs[taskId];
+      if (_curProgressSheetKey === k) {
+        _curProgressSheetKey = null;
+        closeSheet();
+      }
+      updateDlBtn();
+    }
+  }
+
+  /** 删除已下载文件与记录 */
+  async function removeDownloadedSong(song) {
+    if (!song) return;
+    var k = keyOf(song);
+    var item = (S.dl || []).find(function (x) { return keyOf(x) === k; });
+    if (item && item.localName && typeof window.__aqDeleteFile === "function") {
+      try { await window.__aqDeleteFile(item.localName); } catch (e) {}
+    }
+    try { await idbDelFile(dlKey(song)); } catch (e2) {}
+    S.dl = (S.dl || []).filter(function (x) { return keyOf(x) !== k; });
+    saveJSON("aq_dl", S.dl);
+    if (typeof window.__aqSyncDownloadsRecord === "function") {
+      window.__aqSyncDownloadsRecord(S.dl.map(cleanSongForStorage).filter(Boolean));
+    }
+    updateLibCounts();
+    updateDlBtn();
+    var panel = $("#libPanel-dl");
+    var block = document.querySelector('.lib-block[data-lib="dl"]');
+    if (panel && block && block.classList.contains("open")) {
+      fillLibPanel("dl");
+    }
+    toast("已从已下载中移除");
+  }
+
+  /** 播放页下载按钮点击处理 */
+  function onNpDownloadTap() {
+    var song = S.queue && S.idx >= 0 ? S.queue[S.idx] : null;
+    if (!song) {
+      toast("当前没有正在播放的歌曲");
+      return;
+    }
+    if (isSongDownloading(song)) {
+      openDlProgressSheet(song);
+      return;
+    }
+    if (isSongDownloaded(song)) {
+      var body = $("#sheetBody");
+      var mask = $("#sheetMask");
+      if (!body || !mask) return;
+      resetSheetBodyStyles(body);
+      body.innerHTML = "";
+      try { document.body.classList.add("sheet-open"); } catch (e0) {}
+
+      var tip = document.createElement("div");
+      tip.style.padding = "16px 16px 8px";
+      tip.style.fontSize = "13px";
+      tip.style.color = "var(--label-2)";
+      tip.style.textAlign = "center";
+      tip.textContent = "《" + (song.name || "歌曲") + "》已在「已下载」中";
+      body.appendChild(tip);
+
+      [
+        {
+          t: "重新下载",
+          fn: function () { startDownloadSong(song); },
+        },
+        {
+          t: "删除已下载文件",
+          style: "color:var(--pink);font-weight:600",
+          fn: function () { removeDownloadedSong(song); },
+        },
+        {
+          t: "取消",
+          fn: function () {},
+        },
+      ].forEach(function (it) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.textContent = it.t;
+        if (it.style) b.setAttribute("style", it.style);
+        b.onclick = function (ev) {
+          if (ev) { try { ev.stopPropagation(); } catch (e0) {} }
+          closeSheet();
+          it.fn();
+        };
+        body.appendChild(b);
+      });
+      mask.classList.add("open");
+      pushSheetHistory();
+      return;
+    }
+    startDownloadSong(song);
+  }
+
+  // 兼容别名
+  var download = startDownloadSong;
 
 
   function syncLikeButtons(song) {
@@ -8708,7 +9042,7 @@ function paintNow(song) {
     var s = (song && song.source) || S.platform || "qq";
     return map[s] || String(s).toUpperCase();
   }
-  function songRow(song, list) {
+  function songRow(song, list, viewType) {
     var el = document.createElement("div");
     el.className = "song";
     el.innerHTML =
@@ -8730,8 +9064,13 @@ function paintNow(song) {
     if (plat === "tx") plat = "qq";
     srcEl.textContent = srcLabelOf(song);
     srcEl.setAttribute("data-plat", plat);
-    el.querySelector(".song-sub-text").textContent =
-      (song.artist || song.singer || song.singername || "未知") + (song.album ? " · " + song.album : "");
+    var subText = (song.artist || song.singer || song.singername || "未知") + (song.album ? " · " + song.album : "");
+    if (viewType === "dl" && song.localSize) {
+      var mb = (song.localSize / 1024 / 1024).toFixed(1) + "MB";
+      var qTag = (song.quality || "").toUpperCase();
+      subText = (qTag ? qTag + " · " : "") + mb + " · " + subText;
+    }
+    el.querySelector(".song-sub-text").textContent = subText;
     var durEl = el.querySelector(".song-dur");
     var sec = songDurationSec(song);
     durEl.textContent = sec > 0 ? fmt(sec) : "";
@@ -8744,8 +9083,21 @@ function paintNow(song) {
       e.preventDefault();
       toggleFav(song);
     });
+    if (viewType === "dl") {
+      var delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "song-dl-del";
+      delBtn.title = "删除已下载文件";
+      delBtn.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+      delBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        e.preventDefault();
+        removeDownloadedSong(song);
+      });
+      el.querySelector(".song-side").appendChild(delBtn);
+    }
     el.addEventListener("click", function (e) {
-      if (e.target.closest(".song-like")) return;
+      if (e.target.closest(".song-like") || e.target.closest(".song-dl-del")) return;
       play(song, list);
     });
     return el;
@@ -11764,11 +12116,19 @@ function renderHomePlaylists(list) {
     [
       { t: "播放", fn: function () { play(song, list); } },
       { t: S.fav.some(function (x) { return keyOf(x) === keyOf(song); }) ? "取消喜欢" : "喜欢", fn: function () { toggleFav(song); } },
-      { t: "下载", fn: function () { download(song); } },
+      {
+        t: isSongDownloaded(song) ? "删除已下载" : "下载",
+        style: isSongDownloaded(song) ? "color:var(--pink)" : "",
+        fn: function () {
+          if (isSongDownloaded(song)) removeDownloadedSong(song);
+          else startDownloadSong(song);
+        },
+      },
     ].forEach(function (it) {
       var b = document.createElement("button");
       b.type = "button";
       b.textContent = it.t;
+      if (it.style) b.setAttribute("style", it.style);
       b.onclick = function (ev) {
         if (ev) { try { ev.stopPropagation(); } catch (e0) {} }
         closeSheet();
@@ -11786,6 +12146,7 @@ function renderHomePlaylists(list) {
   var sheetHistoryPushed = false;
   var _sheetIgnorePop = 0;
   function closeSheet(fromPop) {
+    _curProgressSheetKey = null;
     var mask = $("#sheetMask");
     var body = $("#sheetBody");
     // 若正在下滑关闭动画中，保留 transform/opacity，避免瞬间回弹残影
@@ -11907,6 +12268,40 @@ function renderHomePlaylists(list) {
           }
         });
         panel.appendChild(row);
+      });
+      return;
+    }
+    if (type === "dl") {
+      panel.innerHTML = "";
+      var list = S.dl || [];
+      if (!list.length) {
+        panel.innerHTML =
+          '<div class="empty" style="padding:24px 0 16px;text-align:center">' +
+            '<div style="font-size:14px;color:var(--label-2);font-weight:500">暂无已下载音乐</div>' +
+            '<div style="font-size:12px;color:var(--label-3);margin-top:4px">在播放页点击「下载」即可保存到这里离线听</div>' +
+          '</div>';
+        return;
+      }
+      var totalBytes = list.reduce(function (sum, item) { return sum + (Number(item.localSize) || 0); }, 0);
+      var sizeStr = totalBytes > 0 ? (totalBytes / 1024 / 1024).toFixed(1) + " MB" : "";
+
+      var head = document.createElement("div");
+      head.className = "dl-panel-head";
+      head.innerHTML =
+        '<button type="button" class="dl-play-all">' +
+          '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>' +
+          '<span>全部播放</span>' +
+        '</button>' +
+        '<span class="dl-stat">共 ' + list.length + ' 首' + (sizeStr ? " · " + sizeStr : "") + '</span>';
+
+      head.querySelector(".dl-play-all").addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        if (list.length > 0) play(list[0], list);
+      });
+      panel.appendChild(head);
+
+      list.forEach(function (s) {
+        panel.appendChild(songRow(s, list, "dl"));
       });
       return;
     }
@@ -12548,6 +12943,14 @@ function renderHomePlaylists(list) {
     qEl.onclick = onQ;
     qEl.ontouchend = onQ;
   }
+  var dlEl = $("#npDownload");
+  if (dlEl && !dlEl._bound) {
+    dlEl._bound = true;
+    var onDl = withTapLock("download", 400, function () { onNpDownloadTap(); });
+    dlEl.onclick = onDl;
+    dlEl.ontouchend = onDl;
+  }
+  updateDlBtn();
   try { bindNpMore(); } catch (eMore) { console.warn(eMore); }
   var queueEl = $("#npQueue");
   if (queueEl) {
@@ -12574,11 +12977,12 @@ function renderHomePlaylists(list) {
   $("#npPlay") && ($("#npPlay").onclick = function (e) { e.stopPropagation(); toggle(); });
   $("#npNext") && ($("#npNext").onclick = function (e) { e.stopPropagation(); next(); });
   $("#npPrev") && ($("#npPrev").onclick = function (e) { e.stopPropagation(); prev(); });
-  // 播放时刷新喜欢状态
+  // 播放时刷新喜欢状态与下载状态
   var _paint = paintNow;
   paintNow = function (song) {
     _paint(song);
     updateFavBtn();
+    updateDlBtn();
   };
 
   on($("#qInput"), "input", function () {
@@ -14771,5 +15175,5 @@ function renderHomePlaylists(list) {
   // 启动读完已保存设置后再允许回写，避免每次启动都重写设置文件
   setTimeout(function () { _bootDone = true; }, 0);
 
-  window.AQ = { S: S, play: play, searchQQ: searchQQ, searchPlaylists: searchPlaylists, resolvePlay: resolvePlay, go: go, coverUrl: coverUrl, isFmApp: isFmApp, syncPlatBtn: syncPlatBtn, hasNativeHttpBridge: hasNativeHttpBridge, isWebToAppBridge: isWebToAppBridge, canShowPlatformSwitch: canShowPlatformSwitch, nativeHttpRequest: nativeHttpRequest, adapterRequest: adapterRequest };
+  window.AQ = { S: S, play: play, searchQQ: searchQQ, searchPlaylists: searchPlaylists, resolvePlay: resolvePlay, go: go, coverUrl: coverUrl, isFmApp: isFmApp, syncPlatBtn: syncPlatBtn, hasNativeHttpBridge: hasNativeHttpBridge, isWebToAppBridge: isWebToAppBridge, canShowPlatformSwitch: canShowPlatformSwitch, nativeHttpRequest: nativeHttpRequest, adapterRequest: adapterRequest, startDownloadSong: startDownloadSong, removeDownloadedSong: removeDownloadedSong, isSongDownloaded: isSongDownloaded };
 })();

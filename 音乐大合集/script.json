@@ -20,8 +20,8 @@
     "ja" : "",
     "ru" : ""
   },
-  "version" : "1.1.0",
-  "description" : "宝宝巴士音乐播放器",
+  "version" : "1.2.0",
+  "description" : "多源聚合音乐播放器，支持在线/离线播放与下载管理",
   "permissions" : null,
   "entry" : "index.tsx",
   "color" : "rgba(255, 45, 72, 1)",
