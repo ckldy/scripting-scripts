@@ -486,7 +486,7 @@ export class LocalDnsServer {
 
       return jsonResponse({
         status: 'online',
-        version: 'FJGLI',
+        version: 'FJH7T',
         upstream_stats: upstreamStats,
         rules: {
           geosite_cn: fileCounts.geosite_cn || 0,
@@ -507,7 +507,7 @@ export class LocalDnsServer {
       }
       if (method === 'POST') {
         const body = parseJsonBody(req);
-        // FJGLI 使用 group 字段，旧核心使用 plugin_tag；两者都接受。
+        // FJH7T 使用 group 字段，旧核心使用 plugin_tag；两者都接受。
         const group = body.group || body.plugin_tag;
         if (group && Array.isArray(body.upstreams)) {
           store.setUpstreamGroup(group, body.upstreams);
@@ -1174,7 +1174,7 @@ $httpClient.get({
       const tag = parts[0];
       const name = decodeURIComponent(parts[1] || '');
 
-      const isDiversionTag = ['custom_cn', 'custom_non_cn', 'geoip_cn', 'geosite_cn', 'geosite_non_cn'].includes(tag);
+      const isDiversionTag = ['custom_cn', 'custom_non_cn', 'geoip_cn', 'geoip_non_cn', 'geosite_cn', 'geosite_non_cn'].includes(tag);
       if (isDiversionTag) {
         let allSources = store.getDiversionSources();
         if (method === 'PUT') {
@@ -1220,7 +1220,7 @@ $httpClient.get({
       const tag = sub.replace('/config', '');
 
       // Diversion sources config: /plugins/:tag/config
-      const isDiversionTag = ['custom_cn', 'custom_non_cn', 'geoip_cn', 'geosite_cn', 'geosite_non_cn'].includes(tag);
+      const isDiversionTag = ['custom_cn', 'custom_non_cn', 'geoip_cn', 'geoip_non_cn', 'geosite_cn', 'geosite_non_cn'].includes(tag);
       if (isDiversionTag) {
         const allSources = store.getDiversionSources();
         if (method === 'GET') {

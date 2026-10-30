@@ -9,9 +9,8 @@
   <link rel="preload" href="assets/fonts/noto-serif-sc-ui.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/instrument-serif-numerals.woff2" as="font" type="font/woff2" crossorigin>
   <script src="/ui/config.js"></script>
-  <script src="/ui/assets/js/chart.umd.min.js"></script>
-  <script type="module" crossorigin src="/ui/assets/app-DOuhu87M.js"></script>
-  <link rel="stylesheet" crossorigin href="/ui/assets/index-B2JH1zZT.css">
+  <script type="module" crossorigin src="/ui/assets/app-CrSEI1zm.js"></script>
+  <link rel="stylesheet" crossorigin href="/ui/assets/index-Bv4RNw_V.css">
   <script src="/ui/assets/livepulse.js" defer></script>
 </head>
 <body>
@@ -27,7 +26,7 @@
       <div class="brand-box">
         <div class="brand-logo" id="brand-logo-slot"><img id="brand-mark" src="assets/img/logo-04-light.png?v=20261015-2" alt="" width="36" height="36" /></div>
         <span class="brand-name">LocalDNS</span>
-        <span class="brand-ver" id="brand-version-tag" data-backend-version="FJGLI">FJGLI</span>
+        <span class="brand-ver" id="brand-version-tag" data-backend-version="FJH7T">FJH7T</span>
         <button class="icon-button sidebar-collapse" id="sidebar-collapse" aria-label="折叠侧栏" style="display:none"></button>
       </div>
 
@@ -35,7 +34,7 @@
         <div class="cmd-search-bar" role="search">
           <div class="cmd-search-left">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-            <input type="text" id="global-search-input" aria-label="全局搜索" placeholder="搜索域名、客户端或页面" />
+            <input type="text" id="global-search-input" aria-label="全局搜索" placeholder="搜索域名、客户端 IP 或页面…" />
           </div>
           <span class="kbd-tag">Enter</span>
         </div>
@@ -184,13 +183,13 @@
               </div>
 
               <div class="bcp-row">
-                <div class="bcp-row-head"><label for="slider-alpha">面板遮盖度（越低越透）</label><strong class="mono" id="val-alpha">48%</strong></div>
-                <input type="range" class="bcp-slider" id="slider-alpha" min="25" max="92" value="48" />
+                <div class="bcp-row-head"><label for="slider-alpha">面板遮盖度（越低越透）</label><strong class="mono" id="val-alpha">55%</strong></div>
+                <input type="range" class="bcp-slider" id="slider-alpha" min="55" max="92" value="55" />
               </div>
 
               <div class="bcp-row">
                 <div class="bcp-row-head"><label for="slider-dimmer">背景暗化遮罩</label><strong class="mono" id="val-dimmer">22%</strong></div>
-                <input type="range" class="bcp-slider" id="slider-dimmer" min="0" max="88" value="22" />
+                <input type="range" class="bcp-slider" id="slider-dimmer" min="15" max="88" value="22" />
               </div>
             </div>
 
@@ -266,6 +265,9 @@
             <strong style="font-weight:600;color:var(--text-1)"><span data-localdns-name>LocalDNS</span> 在线</strong>
             <small id="api-endpoint-label" style="color:var(--text-3)">:53</small>
           </div>
+          <button type="button" class="sidebar-restart-btn" id="sidebar-restart-button" title="重启 DNS 内核" aria-label="重启 DNS 内核">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>
+          </button>
         </div>
       </aside>
 
@@ -309,7 +311,7 @@
       <p id="proxy-panel-note" class="proxy-panel-note">点击图标打开面板。本机修改可通过“外观 → 品牌与字体”导出共享配置。</p>
       <button type="button" class="button small" id="proxy-panel-retry" hidden>重新读取配置</button>
       <p id="proxy-panel-error" class="proxy-panel-error" role="alert" hidden></p>
-      <div class="proxy-panel-actions"><button type="button" class="button" data-route="proxy-config" data-proxy-panel-close>编辑配置</button><button type="button" class="button" data-proxy-panel-close>取消</button><button type="submit" class="button primary">应用到本机</button></div>
+      <div class="proxy-panel-actions"><a class="button" data-proxy-panel-link target="_blank" rel="noopener noreferrer" data-proxy-panel-close>打开面板</a><button type="button" class="button" data-route="proxy-config" data-proxy-panel-close>编辑配置</button><button type="button" class="button" data-proxy-panel-close>取消</button><button type="submit" class="button primary">应用到本机</button></div>
     </form>
   </section>
 

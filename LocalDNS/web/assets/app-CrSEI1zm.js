@@ -110,10 +110,6 @@ function initialize$r() {
     root.style.setProperty("--font-numeral", family("numeral"));
     root.style.setProperty("--font-sans", family("body"));
     root.dataset.numeral = current.numeral;
-    if (window.Chart) {
-      window.Chart.defaults.font.family = family("body");
-      Object.values(window.Chart.instances || {}).forEach((chart2) => chart2.update("none"));
-    }
     sync();
     window.dispatchEvent(new Event("localdns-font-selection"));
   }
@@ -209,6 +205,33 @@ function initialize$r() {
   });
   typographyService = { setup, registerFonts, forgetFont, sharedReady, getSelection: () => ({ ...current }) };
 }
+let pageLabel = "";
+function appName() {
+  var _a2;
+  return (((_a2 = document.querySelector(".brand-name")) == null ? void 0 : _a2.textContent) || "").trim() || "LocalDNS";
+}
+function syncDocumentTitle() {
+  const app = appName();
+  document.title = pageLabel ? `${pageLabel} · ${app}` : `${app} 控制台`;
+}
+function setPageLabel(label) {
+  pageLabel = label;
+  syncDocumentTitle();
+}
+function markPageHeading(root) {
+  const heading = (
+    /** @type {HTMLElement | null} */
+    root.querySelector("h1")
+  );
+  if (heading && !heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+  return heading;
+}
+function focusPageHeading(root) {
+  const heading = markPageHeading(root);
+  if (!heading) return false;
+  heading.focus({ preventScroll: true });
+  return document.activeElement === heading;
+}
 let identityService;
 function initialize$q() {
   "use strict";
@@ -299,7 +322,7 @@ function initialize$q() {
       if (element.textContent !== current.name) element.textContent = current.name;
       element.title = current.name;
     }
-    document.title = current.name + " 控制台";
+    syncDocumentTitle();
     const favicon = document.querySelector("#dynamic-favicon");
     if (favicon) {
       favicon.removeAttribute("type");
@@ -311,8 +334,13 @@ function initialize$q() {
       restart.title = "重启 " + current.name;
       restart.setAttribute("aria-label", restart.title);
     }
+    const sidebarRestart = document.querySelector("#sidebar-restart-button");
+    if (sidebarRestart) {
+      sidebarRestart.title = "重启 " + current.name + " 内核";
+      sidebarRestart.setAttribute("aria-label", sidebarRestart.title);
+    }
     const sidebar = document.querySelector("#sidebar-status strong");
-    if (sidebar) sidebar.textContent = current.name + (document.querySelector("#sidebar-status .offline") ? " 连接异常" : " 运行正常");
+    if (sidebar) sidebar.textContent = current.name + (document.querySelector("#sidebar-status .offline") ? " 离线" : " 在线");
   }
   function setup() {
     const field = document.querySelector("#identity-name"), url = document.querySelector("#identity-logo-url"), file = document.querySelector("#identity-logo-file");
@@ -320,20 +348,22 @@ function initialize$q() {
     const status = document.querySelector("#identity-status"), preview = document.querySelector("#identity-preview");
     let uploaded = "", loading = false, generation = 0;
     const show = (message, error = false) => {
-      status.textContent = message;
-      status.dataset.state = error ? "error" : "saved";
+      if (status) {
+        status.textContent = message;
+        status.dataset.state = error ? "error" : "saved";
+      }
     };
     function syncFields() {
       field.value = current.name;
-      url.value = current.logo.startsWith("data:") ? "" : current.logo;
+      if (url) url.value = current.logo.startsWith("data:") ? "" : current.logo;
       uploaded = current.logo.startsWith("data:") ? current.logo : "";
-      file.value = "";
+      if (file) file.value = "";
       setImage(preview, current.logo || defaultLogo(), defaultLogo());
     }
     let revision = "", ready = false;
     const saveButton = document.querySelector("#identity-save"), resetButton = document.querySelector("#identity-reset"), retryButton = document.querySelector("#identity-retry");
     const enable = (value) => {
-      for (const item of [field, url, file, saveButton, resetButton]) item.disabled = !value;
+      for (const item of [field, url, file, saveButton, resetButton]) if (item) item.disabled = !value;
     };
     let legacy = null;
     try {
@@ -342,13 +372,26 @@ function initialize$q() {
     } catch {
     }
     async function refresh() {
+      var _a2, _b2, _c;
       enable(false);
       show("正在读取共享配置…");
-      retryButton.hidden = true;
+      if (retryButton) retryButton.hidden = true;
       try {
         const result = await loadSection("localdns", legacy, key);
-        current = result.value ? { name: name(result.value.name, defaults.name), logo: logo(result.value.logo) } : { ...defaults };
         revision = result.revision;
+        try {
+          current = result.value ? { name: name(result.value.name, defaults.name), logo: logo(result.value.logo) } : { ...defaults };
+        } catch (validationError) {
+          current = { ...defaults };
+          ready = true;
+          apply3();
+          syncFields();
+          field.value = String(((_a2 = result.value) == null ? void 0 : _a2.name) ?? "");
+          uploaded = ((_b2 = result.value) == null ? void 0 : _b2.logo) && String(result.value.logo).startsWith("data:") ? String(result.value.logo) : "";
+          if (url) url.value = uploaded ? "" : String(((_c = result.value) == null ? void 0 : _c.logo) ?? "");
+          show(validationError.message + " 已载入服务器上的原始值，请修正后保存。", true);
+          return;
+        }
         ready = true;
         apply3();
         syncFields();
@@ -356,7 +399,7 @@ function initialize$q() {
       } catch (error) {
         ready = false;
         show(error.message, true);
-        retryButton.hidden = false;
+        if (retryButton) retryButton.hidden = false;
       } finally {
         enable(ready);
       }
@@ -364,8 +407,8 @@ function initialize$q() {
     syncFields();
     apply3();
     refresh();
-    retryButton.onclick = refresh;
-    file.onchange = async () => {
+    if (retryButton) retryButton.onclick = refresh;
+    if (file) file.onchange = async () => {
       const selected = file.files[0];
       if (!selected) return;
       const id = ++generation;
@@ -384,13 +427,13 @@ function initialize$q() {
         if (id === generation) loading = false;
       }
     };
-    url.oninput = () => {
+    if (url) url.oninput = () => {
       ++generation;
       loading = false;
       uploaded = "";
-      file.value = "";
+      if (file) file.value = "";
     };
-    saveButton.onclick = async () => {
+    if (saveButton) saveButton.onclick = async () => {
       if (!ready) return;
       if (loading) {
         show("Logo 正在读取，请稍候。");
@@ -399,9 +442,12 @@ function initialize$q() {
       enable(false);
       const version = generation;
       try {
-        const next = { name: name(field.value, defaults.name), logo: logo(uploaded || url.value) };
+        const next = { name: name(field.value, defaults.name), logo: logo(uploaded || (url ? url.value : "")) };
         if (next.logo) await image(next.logo);
-        if (version !== generation) return;
+        if (version !== generation) {
+          show("内容已更改，请重新保存。", true);
+          return;
+        }
         const result = await saveSection("localdns", next, revision);
         current = result.value;
         revision = result.revision;
@@ -410,12 +456,12 @@ function initialize$q() {
         show("已应用到当前浏览器；点击下方“导出共享配置”同步到服务器。");
       } catch (error) {
         show(error.message, true);
-        retryButton.hidden = false;
+        if (retryButton) retryButton.hidden = false;
       } finally {
         enable(ready);
       }
     };
-    resetButton.onclick = async () => {
+    if (resetButton) resetButton.onclick = async () => {
       if (!ready) return;
       enable(false);
       ++generation;
@@ -429,7 +475,7 @@ function initialize$q() {
         show("默认名称与 Logo 已应用到当前浏览器。");
       } catch (error) {
         show(error.message, true);
-        retryButton.hidden = false;
+        if (retryButton) retryButton.hidden = false;
       } finally {
         enable(ready);
       }
@@ -562,7 +608,8 @@ class HttpClient {
     return this.run(path, options, async (response) => {
       const body2 = response.status === 204 ? null : /(?:application\/json|\+json)/i.test(response.headers.get("content-type") || "") ? await response.json() : await response.text();
       if (!response.ok) {
-        const message = body2 && typeof body2 === "object" && "error" in body2 ? String(body2.error) : typeof body2 === "string" && body2 ? body2 : `HTTP ${response.status}`;
+        const looksLikeHtml = typeof body2 === "string" && (/^\s*</.test(body2) || /<html/i.test(body2));
+        const message = body2 && typeof body2 === "object" && "error" in body2 ? String(body2.error) : typeof body2 === "string" && body2 && !looksLikeHtml ? body2 : `HTTP ${response.status}`;
         throw new ApiError(message, response.status, body2);
       }
       return body2;
@@ -750,7 +797,7 @@ function initialize$p() {
         try {
           if (!/\.(ttf|otf|woff2?)$/i.test(file.name)) throw new Error("仅支持 ttf、otf、woff、woff2");
           if (!file.size || file.size > 64 * 1048576) throw new Error("单个文件需大于 0 且不超过 64 MB");
-          if (records.concat(additions).reduce((sum, record2) => sum + record2.size, 0) + file.size > 128 * 1048576) throw new Error("字体总量不能超过 128 MB");
+          if (records.filter((record2) => !record2.shared).concat(additions).reduce((sum, record2) => sum + record2.size, 0) + file.size > 128 * 1048576) throw new Error("本机字体总量不能超过 128 MB");
           const id = "up" + (((_a2 = crypto.randomUUID) == null ? void 0 : _a2.call(crypto).replaceAll("-", "")) || Date.now().toString(36) + Math.random().toString(36).slice(2)), data = await file.arrayBuffer();
           const face = new FontFace(`LocalDNSUploaded_${id}`, data);
           await face.load();
@@ -946,10 +993,10 @@ function initialize$o() {
     const field = panel.querySelector("#proxy-panel-url");
     const error = panel.querySelector("#proxy-panel-error");
     const nameField = panel.querySelector("#proxy-panel-name"), preview = panel.querySelector("#proxy-panel-preview"), logoStatus = panel.querySelector("#proxy-logo-status");
-    let returnFocus = opener, sequence = 0, revision = "", ready = false, loadError = "";
+    let returnFocus = opener, sequence = 0, revision = "", ready = false, loadError = "", draft = null;
     const submit = form.querySelector("[type=submit]"), retry = panel.querySelector("#proxy-panel-retry");
     const enable = (value) => {
-      for (const item of [nameField, field, submit]) item.disabled = !value;
+      for (const item of [nameField, field, submit]) if (item) item.disabled = !value;
     };
     let legacy = null;
     try {
@@ -958,12 +1005,25 @@ function initialize$o() {
     } catch {
     }
     async function refresh() {
+      var _a3, _b3;
       enable(false);
       retry.hidden = true;
       try {
         const result = await identity.loadSection("proxy", legacy, STORAGE_KEY);
-        config = configFrom(result.value || DEFAULT);
         revision = result.revision;
+        try {
+          config = configFrom(result.value || DEFAULT);
+          draft = null;
+        } catch (validationError) {
+          draft = { name: String(((_a3 = result.value) == null ? void 0 : _a3.name) ?? ""), url: String(((_b3 = result.value) == null ? void 0 : _b3.url) ?? "") };
+          ready = true;
+          loadError = validationError.message + " 已载入服务器上的原始值，请修正后保存。";
+          error.textContent = loadError;
+          error.hidden = false;
+          sync();
+          if (!panel.hidden) open(returnFocus);
+          return;
+        }
         ready = true;
         loadError = "";
         sync();
@@ -1018,12 +1078,13 @@ function initialize$o() {
         return;
       }
       returnFocus = origin;
-      error.hidden = ready;
+      error.hidden = ready && !draft;
       error.textContent = loadError || "正在读取服务器设置…";
       retry.hidden = ready || !loadError;
+      enable(ready);
       field.removeAttribute("aria-invalid");
-      field.value = config.url;
-      nameField.value = config.name;
+      field.value = draft ? draft.url : config.url;
+      nameField.value = draft ? draft.name : config.name;
       previewLogo();
       panel.hidden = false;
       opener.setAttribute("aria-expanded", "true");
@@ -1036,20 +1097,43 @@ function initialize$o() {
       event.preventDefault();
       error.hidden = true;
       field.removeAttribute("aria-invalid");
-      if (!ready) return;
+      if (!ready) {
+        error.textContent = "设置尚未读取完成，请先点重试";
+        error.hidden = false;
+        retry.hidden = false;
+        if (submit) submit.disabled = true;
+        place();
+        return;
+      }
       const generation = sequence;
       enable(false);
+      const discarded = () => {
+        if (!panel.hidden) {
+          error.textContent = "保存期间内容有变化，请重新保存";
+          error.hidden = false;
+          place();
+        } else notify("保存期间内容有变化，请重新保存", "error");
+      };
       try {
         const next = configFrom({ name: nameField.value, url: field.value });
         if (generation !== sequence || panel.hidden) return;
         const result = await identity.saveSection("proxy", next, revision);
+        if (generation !== sequence || panel.hidden) {
+          discarded();
+          return;
+        }
         config = configFrom(result.value);
         revision = result.revision;
+        draft = null;
+        loadError = "";
         sync();
         close();
         notify("面板地址已应用到当前浏览器");
       } catch (failure) {
-        if (generation !== sequence || panel.hidden) return;
+        if (generation !== sequence || panel.hidden) {
+          discarded();
+          return;
+        }
         error.textContent = failure.message;
         error.hidden = false;
         retry.hidden = false;
@@ -1103,7 +1187,10 @@ function initialize$n() {
   "use strict";
   const base = new URL("./", document.baseURI);
   const keys = { localdns: "localdns-identity-v1", proxy: "localdns-proxy-panel-v1", typography: "localdns-typography-v1" };
-  const defaults = { version: 1, localdns: { name: "LocalDNS", logo: "" }, proxy: { name: "代理面板", url: "" }, typography: { heading: "serif", numeral: "serif", body: "plex" }, fonts: [] };
+  const defaults = { version: 1, localdns: { name: "LocalDNS", logo: "" }, proxy: { name: "代理面板", url: "" }, typography: { heading: "serif", numeral: "serif", body: "plex" }, fonts: (
+    /** @type {{ id: string, name: string, size: number, path: string, shared?: boolean }[]} */
+    []
+  ) };
   let config = structuredClone(defaults), error = "";
   const read = (key) => {
     try {
@@ -1132,16 +1219,26 @@ function initialize$n() {
       if (!response.ok) throw new Error("共享配置读取失败");
       const value = await response.json();
       if (value.version !== 1 || !Array.isArray(value.fonts) || value.fonts.length > 128) throw new Error("共享配置格式无效");
-      const fonts = value.fonts.map((font) => {
-        if (!/^up[a-z0-9_-]+$/i.test(font.id) || typeof font.name !== "string" || !Number.isFinite(font.size) || font.size <= 0 || font.size > 67108864) throw new Error("共享字体清单无效");
-        asset(font.path);
-        return { ...font, name: font.name.slice(0, 200), shared: true };
-      });
+      const fonts = (
+        /** @type {{ id: string, name: string, size: number, path: string, shared: boolean }[]} */
+        value.fonts.map(
+          /** @param {{ id: string, name: string, size: number, path: string }} font */
+          (font) => {
+            if (!/^up[a-z0-9_-]+$/i.test(font.id) || typeof font.name !== "string" || !Number.isFinite(font.size) || font.size <= 0 || font.size > 67108864) throw new Error("共享字体清单无效");
+            asset(font.path);
+            return { ...font, name: font.name.slice(0, 200), shared: true };
+          }
+        )
+      );
       if (new Set(fonts.map((f) => f.id)).size !== fonts.length || fonts.reduce((sum, f) => sum + f.size, 0) > 134217728) throw new Error("共享字体数量或容量无效");
       config = { version: 1, localdns: value.localdns || defaults.localdns, proxy: value.proxy || defaults.proxy, typography: value.typography || defaults.typography, fonts };
       return config;
     } catch (failure) {
-      error = failure.name === "AbortError" ? "服务器共享配置读取超时" : failure.message;
+      const f = (
+        /** @type {any} */
+        failure
+      );
+      error = f.name === "AbortError" ? "服务器共享配置读取超时" : f instanceof SyntaxError || f.name === "SyntaxError" ? "共享配置格式无效，已使用默认值" : f.message;
       return config;
     } finally {
       clearTimeout(timer);
@@ -1170,9 +1267,14 @@ function initialize$n() {
       for (const key of Object.values(keys)) preferences.removeItem(key);
       location.reload();
     } catch {
-      const status = document.querySelector("#shared-ui-status");
-      status.textContent = "浏览器禁止修改站点存储，无法清除本机设置。";
-      status.dataset.state = "error";
+      const status = (
+        /** @type {HTMLElement | null} */
+        document.querySelector("#shared-ui-status")
+      );
+      if (status) {
+        status.textContent = "浏览器禁止修改站点存储，无法清除本机设置。";
+        status.dataset.state = "error";
+      }
     }
   }
   const crcTable = Uint32Array.from({ length: 256 }, (_, i) => {
@@ -1189,7 +1291,10 @@ function initialize$n() {
     const parts2 = [], central = [];
     let offset = 0, centralSize = 0;
     for (const [path, data] of files) {
-      const name = new TextEncoder().encode(path), bytes = data instanceof Uint8Array ? data : new Uint8Array(data), sum = crc(bytes);
+      const name = new TextEncoder().encode(path), bytes = (
+        /** @type {Uint8Array<ArrayBuffer>} */
+        data instanceof Uint8Array ? data : new Uint8Array(data)
+      ), sum = crc(bytes);
       const head = new Uint8Array(30 + name.length), h = new DataView(head.buffer);
       h.setUint32(0, 67324752, true);
       h.setUint16(4, 20, true);
@@ -1227,9 +1332,15 @@ function initialize$n() {
   }
   async function exportBundle() {
     await ready;
-    const files = [];
+    const files = (
+      /** @type {[string, ArrayBuffer | Uint8Array][]} */
+      []
+    );
     const identity = identityService.getValue(), proxy = (proxyPanelService == null ? void 0 : proxyPanelService.getValue()) || await section("proxy");
-    const value = { version: 1, localdns: { ...identity }, proxy: { name: proxy.name, url: proxy.url }, typography: typographyService.getSelection(), fonts: [] };
+    const value = { version: 1, localdns: { ...identity }, proxy: { name: proxy.name, url: proxy.url }, typography: typographyService.getSelection(), fonts: (
+      /** @type {{ id: string, name: string, size: number, path: string }[]} */
+      []
+    ) };
     if (identity.logo.startsWith("data:") || identity.logo.startsWith(new URL("custom/assets/", base).href) || identity.logo.startsWith("custom/assets/")) {
       const blob = await (await assetHttp.fetch(identity.logo.startsWith("custom/") ? new URL(identity.logo, base) : identity.logo)).blob();
       const ext = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" }[blob.type];
@@ -1239,7 +1350,7 @@ function initialize$n() {
     }
     const fonts = await fontsService.exportRecords();
     for (const font of fonts) {
-      const ext = font.name.split(".").pop().toLowerCase(), path = "fonts/" + font.id + "." + ext;
+      const rawExt = font.name.split(".").pop().toLowerCase(), ext = ["woff2", "woff", "ttf", "otf"].includes(rawExt) ? rawExt : "bin", path = "fonts/" + font.id + "." + ext;
       files.push([path, font.data]);
       value.fonts.push({ id: font.id, name: font.name, size: font.data.byteLength, path: "custom/" + path });
     }
@@ -1252,8 +1363,15 @@ function initialize$n() {
   }
   function setup() {
     var _a2;
-    const button = document.querySelector("#export-shared-ui"), status = document.querySelector("#shared-ui-status");
+    const button = (
+      /** @type {HTMLButtonElement | null} */
+      document.querySelector("#export-shared-ui")
+    ), status = (
+      /** @type {HTMLElement | null} */
+      document.querySelector("#shared-ui-status")
+    );
     button == null ? void 0 : button.addEventListener("click", async () => {
+      if (!button || !status) return;
       button.disabled = true;
       status.textContent = "正在打包名称、Logo 与字体…";
       try {
@@ -1261,7 +1379,8 @@ function initialize$n() {
         status.textContent = "配置包已导出；导入服务器后，其他设备刷新即可同步。";
         status.dataset.state = "saved";
       } catch (failure) {
-        status.textContent = "导出失败：" + failure.message;
+        status.textContent = "导出失败：" + /** @type {any} */
+        failure.message;
         status.dataset.state = "error";
       } finally {
         button.disabled = false;
@@ -1269,7 +1388,7 @@ function initialize$n() {
     });
     (_a2 = document.querySelector("#use-shared-ui")) == null ? void 0 : _a2.addEventListener("click", follow);
     ready.then(() => {
-      if (error) {
+      if (error && status) {
         status.textContent = error + "，当前使用默认值或本机设置；可刷新重试。";
         status.dataset.state = "error";
       }
@@ -3376,22 +3495,27 @@ function insertHTML(element, position, value) {
 function escapeHTML(value = "") {
   return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
 }
+function sampleValue(raw) {
+  if (raw === "+Inf" || raw === "Inf") return Infinity;
+  if (raw === "-Inf") return -Infinity;
+  return Number(raw);
+}
 function parseProm(text2) {
   const out = [];
   String(text2 || "").split("\n").forEach((line) => {
     line = line.trim();
     if (!line || line.startsWith("#")) return;
-    const m = line.match(/^([a-zA-Z_:][\w:]*)({([^}]*)})?\s+([^\s]+)$/);
+    const m = line.match(/^([a-zA-Z_:][\w:]*)({([^}]*)})?\s+([^\s{]+)(?:\s+\d+)?$/);
     if (!m) return;
     const labels = {};
     if (m[3]) {
       const re = /(\w+)="((?:\\.|[^"])*)"/g;
       let x;
       while (x = re.exec(m[3])) {
-        labels[x[1]] = x[2].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+        labels[x[1]] = x[2].replace(/\\(.)/g, (_match, ch) => ch === "n" ? "\n" : ch);
       }
     }
-    out.push({ name: m[1], labels, value: Number(m[4]) });
+    out.push({ name: m[1], labels, value: sampleValue(m[4]) });
   });
   return out;
 }
@@ -3403,12 +3527,52 @@ let trafficService;
 function initialize$m() {
   const finite = (n) => typeof n === "number" && Number.isFinite(n);
   const nonnegative = (n) => finite(n) && n >= 0;
+  const esc2 = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const definitions = {
-    qps: { label: "QPS", unit: "QPS", note: "每秒 DNS 请求数 · 按实际采样秒数计算", count: "区间请求", empty: "正在建立查询采样基线，通常约 2 秒后显示数据" },
-    cache: { label: "缓存命中率", unit: "%", note: "主缓存命中数 ÷ 主缓存查询数 · 区间均值按查询数加权", count: "缓存查询", empty: "所选时段暂无有效缓存查询，或核心未提供主缓存计数" },
-    latency: { label: "平均延迟", unit: "ms", note: "上游实际响应的平均耗时 · 不包含缓存命中请求", count: "上游响应", empty: "所选时段暂无上游响应，或核心未提供延迟计数" }
+    anomaly: { label: "延迟与异常", unit: "ms", note: "上游真实竞速耗时 · 慢查询(>100ms)单独标注", count: "失败与慢查询", empty: "正在建立延迟与异常基线，通常约 2 秒后显示数据" },
+    qps: { label: "请求量与缓存命中率", unit: "QPS", note: "左轴每秒请求数 · 右轴主缓存命中率", count: "区间请求", empty: "正在建立查询采样基线，通常约 2 秒后显示数据" },
+    // Hidden from the tab row but still used for series and summaries: the cache
+    // rate is drawn on the request tab's right axis, and latency is the very
+    // series the anomaly view plots.
+    cache: { label: "缓存命中率", unit: "%", note: "主缓存命中数 ÷ 主缓存查询数 · 区间均值按查询数加权", count: "缓存查询", empty: "所选时段暂无有效缓存查询，或核心未提供主缓存计数", hidden: true },
+    latency: { label: "平均延迟", unit: "ms", note: "上游实际响应的平均耗时 · 不包含缓存命中请求", count: "上游响应", empty: "所选时段暂无上游响应，或核心未提供延迟计数", hidden: true }
+  };
+  const visibleMetrics = () => Object.entries(definitions).filter(([, item]) => !item.hidden);
+  const axisCeiling = (value) => {
+    if (!finite(value) || value <= 0) return 10;
+    const scale = 10 ** Math.floor(Math.log10(value)), ratio = value / scale;
+    const step = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find((item) => item >= ratio - 1e-9) || 10;
+    return step * scale;
+  };
+  const smoothPath = (pts, top = 0, bottom = Infinity) => {
+    if (!pts.length) return "";
+    const between = (a, b, v) => {
+      const lo = Math.min(a, b), hi = Math.max(a, b);
+      return Math.min(bottom, Math.max(top, Math.min(hi, Math.max(lo, v))));
+    };
+    let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+      const c1x = p1[0] + (p2[0] - p0[0]) * 0.16, c1y = between(p1[1], p2[1], p1[1] + (p2[1] - p0[1]) * 0.16);
+      const c2x = p2[0] - (p3[0] - p1[0]) * 0.16, c2y = between(p1[1], p2[1], p2[1] - (p3[1] - p1[1]) * 0.16);
+      d += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+    }
+    return d;
+  };
+  const runs = (points) => {
+    const groups2 = [];
+    let group = [];
+    for (const p of points) {
+      if (!finite(p.value)) {
+        if (group.length) groups2.push(group);
+        group = [];
+      } else group.push(p);
+    }
+    if (group.length) groups2.push(group);
+    return groups2;
   };
   function parse(text2) {
+    var _a2;
     const metrics = parseProm(text2);
     const get = (name, tag) => {
       const found = metrics.filter((p) => p.name === name && (tag === void 0 || p.labels.tag === tag));
@@ -3425,12 +3589,32 @@ function initialize$m() {
     }
     const latency = [...upstreams].sort(([a], [b]) => a.localeCompare(b));
     const valid = latency.length > 0 && latency.every(([, p]) => nonnegative(p.sum) && nonnegative(p.count));
+    const p50 = /* @__PURE__ */ new Map();
+    for (const p of metrics) {
+      if (p.name !== "localdns_upstream_response_latency_milliseconds" || ((_a2 = p.labels) == null ? void 0 : _a2.quantile) !== "0.5") continue;
+      const rest = Object.fromEntries(Object.entries(p.labels).filter(([k]) => k !== "quantile"));
+      if (nonnegative(p.value)) p50.set(JSON.stringify(Object.entries(rest).sort(([a], [b]) => a.localeCompare(b))), p.value);
+    }
+    let weighted = 0, weightSum = 0, plain = 0, seen2 = 0;
+    for (const [key, row] of latency) {
+      const count = (row == null ? void 0 : row.count) ?? 0;
+      const value = p50.get(key);
+      if (value === void 0) continue;
+      plain += value;
+      seen2++;
+      if (count > 0) {
+        weighted += value * count;
+        weightSum += count;
+      }
+    }
+    const latencyNow = weightSum > 0 ? weighted / weightSum : seen2 ? plain / seen2 : null;
     return {
       total: get("localdns_queries_total"),
       start: get("process_start_time_seconds"),
       cacheQueries: get("localdns_cache_query_total", "cache_main"),
       cacheHits: get("localdns_cache_hit_total", "cache_main"),
-      upstreams: valid ? latency.map(([key, p]) => [key, p.sum, p.count]) : null
+      upstreams: valid ? latency.map(([key, p]) => [key, p.sum, p.count]) : null,
+      latencyNow
     };
   }
   function raw(sample, now) {
@@ -3442,7 +3626,8 @@ function initialize$m() {
       start: nonnegative(sample.start) ? sample.start : null,
       cacheQueries: nonnegative(sample.cacheQueries) ? sample.cacheQueries : null,
       cacheHits: nonnegative(sample.cacheHits) ? sample.cacheHits : null,
-      upstreams
+      upstreams,
+      latencyNow: nonnegative(sample.latencyNow) ? sample.latencyNow : null
     };
   }
   function record2(series, sample, now = Date.now()) {
@@ -3460,64 +3645,69 @@ function initialize$m() {
     next.cacheHitsDelta = valid ? difference(next.cacheHits, previous.cacheHits) : null;
     next.cache = next.cacheQueriesDelta > 0 && next.cacheHitsDelta !== null && next.cacheHitsDelta <= next.cacheQueriesDelta ? next.cacheHitsDelta / next.cacheQueriesDelta * 100 : null;
     next.responseCount = next.responseSum = next.latency = null;
-    if (valid && next.upstreams && previous.upstreams && next.upstreams.length === previous.upstreams.length) {
+    if (valid && next.upstreams && previous.upstreams) {
+      const before = new Map(previous.upstreams.map(([key, s, c]) => [key, [s, c]]));
       let count = 0, sum = 0, consistent = true;
-      next.upstreams.forEach(([key, s, c], i) => {
-        const old = previous.upstreams[i];
-        if (key !== old[0] || s < old[1] || c < old[2]) consistent = false;
-        else {
-          sum += s - old[1];
-          count += c - old[2];
+      for (const [key, s, c] of next.upstreams) {
+        const old = before.get(key);
+        if (!old) continue;
+        if (s < old[0] || c < old[1]) {
+          consistent = false;
+          break;
         }
-      });
+        sum += s - old[0];
+        count += c - old[1];
+      }
       if (consistent && count > 0) {
         next.responseCount = count;
         next.responseSum = sum;
         next.latency = sum / count;
       }
     }
+    if (nonnegative(next.latencyNow)) next.latency = next.latencyNow;
     for (const key of ["qps", "cache", "latency"]) if (!nonnegative(next[key])) next[key] = null;
     series.push(next);
-    while (series.length > 21602 || ((_a2 = series[0]) == null ? void 0 : _a2.time) < now - 864e5) series.shift();
+    while (series.length > 120962 || ((_a2 = series[0]) == null ? void 0 : _a2.time) < now - 6048e5) series.shift();
     return true;
   }
   function weight(p, metric) {
-    return metric === "cache" ? p.cacheQueriesDelta : metric === "latency" ? p.responseCount : p.elapsed;
+    return metric === "cache" ? p.cacheQueriesDelta : metric === "latency" ? 1 : p.elapsed;
   }
   function numerator(p, metric) {
-    return metric === "cache" ? p.cacheHitsDelta * 100 : metric === "latency" ? p.responseSum : p.delta;
+    return metric === "cache" ? p.cacheHitsDelta * 100 : metric === "latency" ? p.latency : p.delta;
   }
   function summary(series, minutes = 60, now = Date.now(), metric = "qps") {
-    if (!definitions[metric]) metric = "qps";
+    const baseMetric = metric === "anomaly" || !definitions[metric] ? "qps" : metric;
     const cutoff = now - minutes * 6e4;
     const rows = series.filter((p) => p.time >= cutoff && p.time <= now);
-    const points = rows.map((p) => ({ ...p, value: p.time - p.elapsed * 1e3 >= cutoff ? p[metric] : null }));
-    const valid = points.filter((p) => nonnegative(p.value) && p.elapsed > 0 && weight(p, metric) > 0);
+    const points = rows.map((p) => ({ ...p, value: p.time - p.elapsed * 1e3 >= cutoff ? p[baseMetric] : null }));
+    const valid = points.filter((p) => nonnegative(p.value) && weight(p, baseMetric) > 0 && (baseMetric === "latency" || p.elapsed > 0));
     const requests = points.filter((p) => p.qps !== null && p.time - p.elapsed * 1e3 >= cutoff).reduce((n, p) => n + p.delta, 0);
-    const denominator = valid.reduce((n, p) => n + weight(p, metric), 0);
-    const total = valid.reduce((n, p) => n + numerator(p, metric), 0);
+    const denominator = valid.reduce((n, p) => n + weight(p, baseMetric), 0);
+    const total = valid.reduce((n, p) => n + numerator(p, baseMetric), 0);
     const latest = series.at(-1), stale = !!latest && now - latest.time > 9e4;
     const firstIndex = points.findIndex((p) => nonnegative(p.value));
     return {
       points: firstIndex < 0 ? [] : points.slice(firstIndex),
       samples: valid.length,
       requests,
-      count: metric === "qps" ? requests : denominator,
+      count: baseMetric === "qps" ? requests : denominator,
       seconds: valid.reduce((n, p) => n + p.elapsed, 0),
       average: denominator ? total / denominator : null,
       peak: valid.reduce((peak, p) => peak === null ? p.value : Math.max(peak, p.value), null),
-      current: latest && !stale && now >= latest.time && nonnegative(latest[metric]) ? latest[metric] : null,
+      current: latest && !stale && now >= latest.time && nonnegative(latest[baseMetric]) ? latest[baseMetric] : null,
       stale,
       interval: (latest == null ? void 0 : latest.elapsed) || 0
     };
   }
   function aggregate(points, metric = "qps", limit = 480) {
+    const baseMetric = metric === "anomaly" ? "qps" : metric;
     if (!points.length) return [];
     const first = points[0].time, step = Math.max(1, Math.ceil((points.at(-1).time - first + 1) / limit));
     const buckets = /* @__PURE__ */ new Map();
     let gap = false;
     for (const p of points) {
-      const value = Object.hasOwn(p, "value") ? p.value : p.qps;
+      const value = Object.hasOwn(p, "value") ? p.value : p[baseMetric];
       if (!nonnegative(value)) {
         gap = true;
         continue;
@@ -3528,8 +3718,8 @@ function initialize$m() {
       b.breakBefore || (b.breakBefore = gap);
       b.time = p.time;
       b.elapsed += p.elapsed;
-      b.total += numerator(p, metric);
-      b.weight += weight(p, metric);
+      b.total += numerator(p, baseMetric);
+      b.weight += weight(p, baseMetric);
       b.peak = Math.max(b.peak, value);
       b.count++;
       gap = false;
@@ -3544,13 +3734,15 @@ function initialize$m() {
   }
   const rate = (n) => finite(n) ? n.toLocaleString("zh-CN", { maximumFractionDigits: 2 }) : "—";
   const time = (n, date = false) => new Date(n).toLocaleString("zh-CN", date ? { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false } : { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-  function chart2(points, width = 660, metric = "qps", inspected = null) {
-    const ps = aggregate(points, metric), definition = definitions[metric];
-    const w = Math.max(280, Math.round(width)), h = 216, left = 48, right = 16, top = 26, bottom = 30;
+  const shortClock = (n, date = false) => new Date(n).toLocaleString("zh-CN", date ? { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false } : { hour: "2-digit", minute: "2-digit", hour12: false });
+  function chart(points, width = 660, metric = "qps", inspected = null, secondary = null) {
+    const baseMetric = metric === "anomaly" ? "qps" : metric;
+    const ps = aggregate(points, baseMetric), definition = definitions[baseMetric] || definitions.qps;
+    const w = Math.max(280, Math.round(width)), h = 216, left = 48, right = secondary ? 58 : 16, top = 26, bottom = 30;
     const first = points[0].time, last = points.at(-1).time, span = last - first || 1;
     const peak = ps.reduce((n, p) => finite(p.value) ? Math.max(n, p.peak) : n, 0);
     const magnitude = 10 ** Math.floor(Math.log10(peak || 1));
-    const max = metric === "cache" ? 100 : Math.max(1, Math.ceil(peak / magnitude) * magnitude);
+    const max = baseMetric === "cache" ? 100 : Math.max(1, Math.ceil(peak / magnitude) * magnitude);
     const x = (p) => left + (p.time - first) / span * (w - left - right), y = (v) => top + (1 - v / max) * (h - top - bottom);
     const groups2 = [];
     let group = [];
@@ -3568,12 +3760,53 @@ function initialize$m() {
     const tick = (v) => v >= 1e4 ? v.toLocaleString("zh-CN", { notation: "compact", maximumFractionDigits: 1 }) : v >= 1e3 ? v.toLocaleString("zh-CN", { maximumFractionDigits: 0 }) : rate(v);
     const grids = [0, max / 2, max].map((v) => `<line class="traffic-grid" x1="${left}" x2="${w - right}" y1="${y(v)}" y2="${y(v)}"/><text x="${left - 8}" y="${y(v) + 4}" text-anchor="end">${tick(v)}</text>`).join("");
     const ticks = first === last ? [first] : [first, ...w >= 480 ? [(first + last) / 2] : [], last];
-    return `<div class="traffic-plot" tabindex="0" role="group" aria-label="${definition.label}趋势，单位 ${definition.unit}。左右方向键查看采样，Escape 关闭提示。"><svg class="console-chart traffic-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="${definition.label}，${time(first, true)} 至 ${time(last, true)}，单位 ${definition.unit}"><title>按实际采样显示，断采不连线；长范围按请求量汇总并保留峰值</title><text class="traffic-axis-unit" x="${left}" y="14">${definition.unit}</text>${grids}${paths}${ticks.map((t, i) => `<text x="${left + (t - first) / span * (w - left - right)}" y="${h - 7}" text-anchor="${i === 0 ? "start" : i === ticks.length - 1 ? "end" : "middle"}">${time(t, span >= 432e5)}</text>`).join("")}<line class="traffic-inspect-line" x1="0" x2="0" y1="${top}" y2="${h - bottom}" visibility="hidden"/></svg><output class="traffic-tooltip" hidden></output><span class="sr-only traffic-live" aria-live="polite"></span></div>`;
+    const showBars = metric === "qps";
+    const slot = (w - left - right) / Math.max(1, ps.length);
+    const barW = Math.max(1.6, Math.min(16, slot * 0.62));
+    const bars = showBars ? ps.filter((p) => finite(p.value)).map((p) => {
+      const bx = x(p) - barW / 2, by = y(p.value);
+      return `<rect class="traffic-bar" x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0.6, h - bottom - by).toFixed(1)}" rx="${Math.min(3, barW / 2).toFixed(1)}"><title>${time(p.time, true)} · ${rate(p.value)} ${definition.unit}</title></rect>`;
+    }).join("") : "";
+    const secondaryPath = secondary && secondary.length > 1 ? runs(secondary).map((g) => `<path class="traffic-line-alt" d="${smoothPath(g.map((p) => [left + (p.time - first) / span * (w - left - right), top + (1 - Math.min(100, Math.max(0, p.value)) / 100) * (h - top - bottom)]), top, h - bottom)}"/>`).join("") : "";
+    const rightAxis = secondary ? [0, 50, 100].map((v) => `<text class="traffic-axis-alt" x="${w - right + 8}" y="${(top + (1 - v / 100) * (h - top - bottom) + 4).toFixed(1)}" text-anchor="start">${v}%</text>`).join("") : "";
+    return `<div class="traffic-plot" tabindex="0" role="group" aria-label="${definition.label}趋势，单位 ${definition.unit}。左右方向键查看采样，Escape 关闭提示。"><svg class="console-chart traffic-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="${definition.label}，${time(first, true)} 至 ${time(last, true)}，单位 ${definition.unit}"><title>按实际采样显示，断采不连线；长范围按请求量汇总并保留峰值</title>${grids}${bars}${secondaryPath}${rightAxis}${showBars ? "" : paths}${ticks.map((t, i) => `<text x="${left + (t - first) / span * (w - left - right)}" y="${h - 7}" text-anchor="${i === 0 ? "start" : i === ticks.length - 1 ? "end" : "middle"}">${time(t, span >= 432e5)}</text>`).join("")}<line class="traffic-inspect-line" x1="0" x2="0" y1="${top}" y2="${h - bottom}" visibility="hidden"/></svg><output class="traffic-tooltip" hidden></output><span class="sr-only traffic-live" aria-live="polite"></span></div>`;
+  }
+  function latencyChart(points, width) {
+    const w = Math.max(280, Math.round(width)), h = 216, left = 52, right = 62, top = 30, bottom = 30;
+    const valid = points.filter((p) => finite(p.value));
+    if (!valid.length) return "";
+    const first = points[0].time, last = points.at(-1).time, span = Math.max(1, last - first);
+    const peakValue = valid.reduce((n, p) => Math.max(n, p.value), 0);
+    const max = axisCeiling(Math.max(peakValue * 1.15, 10));
+    const x = (p) => left + (p.time - first) / span * (w - left - right);
+    const y = (v) => top + (1 - Math.min(v, max) / max) * (h - top - bottom);
+    const baseline = h - bottom;
+    const groups2 = runs(points);
+    const area = groups2.filter((g) => g.length > 1).map((g) => smoothPath(g.map((p) => [x(p), y(p.value)]), top, baseline) + ` L${x(g.at(-1)).toFixed(1)},${baseline} L${x(g[0]).toFixed(1)},${baseline} Z`).join("");
+    const lines = groups2.map((g) => smoothPath(g.map((p) => [x(p), y(p.value)]), top, baseline)).join("");
+    const steps = max % 2 === 0 ? [0, 0.5, 1] : [0, 1];
+    const grid = steps.map((f) => {
+      const v = max * f;
+      return `<line class="traffic-grid" x1="${left}" x2="${w - right}" y1="${y(v)}" y2="${y(v)}"/><text x="${left - 8}" y="${y(v) + 4}" text-anchor="end">${Math.round(v)}</text>`;
+    }).join("");
+    const threshold = max >= 110 ? `<line class="traffic-threshold" x1="${left}" x2="${w - right}" y1="${y(100)}" y2="${y(100)}"/>` + (Math.abs(y(100) - y(valid.at(-1).value)) < 26 ? "" : `<text class="traffic-threshold-label" x="${w - right + 8}" y="${y(100) + 4}" text-anchor="start">100ms</text>`) : "";
+    const peak = valid.reduce((best, p) => p.value > best.value ? p : best, valid[0]);
+    const slow = peak.value >= 100;
+    const cx = x(peak), cy = y(peak.value), label = `${rate(peak.value)}ms · ${time(peak.time)}`;
+    const boxW = label.length * 6.4 + 16;
+    const boxX = Math.min(w - right - boxW, Math.max(left, cx - boxW / 2));
+    const boxY = Math.max(top, cy - 46);
+    const callout = `<line class="traffic-peak" x1="${cx.toFixed(1)}" x2="${cx.toFixed(1)}" y1="${(cy - 8).toFixed(1)}" y2="${Math.min(cy - 22, boxY + 22).toFixed(1)}"/><circle class="traffic-peak-dot${slow ? " is-slow" : ""}" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="4"/><rect class="traffic-callout-box${slow ? " is-slow" : ""}" x="${boxX.toFixed(1)}" y="${boxY.toFixed(1)}" width="${boxW.toFixed(1)}" height="20" rx="6"/><text class="traffic-callout-text" x="${(boxX + boxW / 2).toFixed(1)}" y="${(boxY + 14).toFixed(1)}" text-anchor="middle">${esc2(label)}</text>`;
+    const lastPoint = valid.at(-1);
+    const ticks = first === last ? [first] : [first, (first + last) / 2, last];
+    return `<div class="traffic-plot" tabindex="0" role="group" aria-label="延迟与异常趋势，单位 ms。左右方向键查看采样，Escape 关闭提示。"><svg class="console-chart traffic-chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="延迟与异常，${time(first, true)} 至 ${time(last, true)}"><title>按实际采样显示，断采不连线</title><defs><linearGradient id="traffic-lat-grad" x1="0" y1="0" x2="0" y2="1"><stop class="traffic-grad-top" offset="0%"/><stop class="traffic-grad-bottom" offset="100%"/></linearGradient></defs><text class="traffic-axis-unit" x="${left}" y="16">上游 p50 (ms)</text>` + grid + threshold + `<path class="traffic-area" d="${area}" fill="url(#traffic-lat-grad)"/><path class="traffic-line" d="${lines}"/>` + callout + `<circle class="traffic-point" cx="${x(lastPoint).toFixed(1)}" cy="${y(lastPoint.value).toFixed(1)}" r="3.4"/><text class="traffic-last-value" x="${w - right + 8}" y="${(y(lastPoint.value) + 4).toFixed(1)}" text-anchor="start">${rate(lastPoint.value)}ms</text>` + ticks.map((t, i) => `<text x="${left + (t - first) / span * (w - left - right)}" y="${h - 8}" text-anchor="${i === 0 ? "start" : i === ticks.length - 1 ? "end" : "middle"}">${shortClock(t, span >= 432e5)}</text>`).join("") + `<line class="traffic-inspect-line" x1="0" x2="0" y1="${top}" y2="${baseline}" visibility="hidden"/></svg><output class="traffic-tooltip" hidden></output><span class="sr-only traffic-live" aria-live="polite"></span></div>`;
   }
   function inspect(container, points, metric) {
     const plot = container.querySelector(".traffic-plot");
-    if (!plot) return;
-    const ps = aggregate(points, metric).filter((p) => finite(p.value)), svg2 = plot.querySelector("svg"), tip = plot.querySelector("output"), line = plot.querySelector(".traffic-inspect-line");
+    if (!plot || !points.length) return;
+    const baseMetric = metric === "anomaly" ? "qps" : metric;
+    const ps = aggregate(points, baseMetric).filter((p) => finite(p.value)), svg2 = plot.querySelector("svg"), tip = plot.querySelector("output"), line = plot.querySelector(".traffic-inspect-line");
+    if (!ps.length || !svg2 || !tip || !line) return;
     let index = -1, pinned = false;
     function show(i, announce = false) {
       index = Math.max(0, Math.min(ps.length - 1, i));
@@ -3585,7 +3818,7 @@ function initialize$m() {
       line.setAttribute("x2", x);
       line.setAttribute("visibility", "visible");
       tip.hidden = false;
-      tip.textContent = `${time(p.from, true)}—${time(p.time, true)} · ${rate(p.value)} ${definitions[metric].unit}${p.count > 1 ? ` · 峰值 ${rate(p.peak)} ${definitions[metric].unit}` : ""}`;
+      tip.textContent = `${time(p.from, true)}—${time(p.time, true)} · ${rate(p.value)} ${(definitions[baseMetric] || definitions.qps).unit}${p.count > 1 ? ` · 峰值 ${rate(p.peak)} ${(definitions[baseMetric] || definitions.qps).unit}` : ""}`;
       if (announce) plot.querySelector(".traffic-live").textContent = tip.textContent;
     }
     function hide() {
@@ -3629,11 +3862,31 @@ function initialize$m() {
   }
   function render(container, series, minutes, now = Date.now(), state2 = {}) {
     var _a2, _b2, _c, _d;
-    const metric = definitions[state2.metric] ? state2.metric : "qps", definition = definitions[metric], s = summary(series, minutes, now, metric);
+    const metric = definitions[state2.metric] && !definitions[state2.metric].hidden ? state2.metric : "anomaly";
+    const definition = definitions[metric], s = summary(series, minutes, now, metric);
     const focus = container.contains(document.activeElement) ? (_a2 = document.activeElement) == null ? void 0 : _a2.dataset.trafficMetric : null;
     const plotFocused = ((_b2 = document.activeElement) == null ? void 0 : _b2.classList.contains("traffic-plot")) && container.contains(document.activeElement);
-    const item = (label, value, unit) => `<div><dt>${label}</dt><dd>${value}<small>${unit}</small></dd></div>`;
-    setHTML(container, `<div class="traffic-metric-tabs" role="group" aria-label="选择 DNS 趋势指标">${Object.entries(definitions).map(([key, d]) => `<button type="button" data-traffic-metric="${key}" aria-pressed="${metric === key}">${d.label}</button>`).join("")}</div><p class="traffic-metric-note">${definition.note}</p><dl class="traffic-summary">${item("最近采样", rate(s.current), definition.unit)}${item("区间均值", rate(s.average), definition.unit)}${item("区间峰值", rate(s.peak), definition.unit)}${item(definition.count, s.samples ? rate(s.count) : "—", "次")}</dl>` + (s.samples ? chart2(s.points, container.clientWidth, metric) : `<div class="console-chart-empty">${state2.loading && !series.length ? "正在读取 DNS 采样，本机历史在后台恢复…" : definition.empty}<br>${series.length && metric === "qps" ? "已读取查询计数，正在等待下一次采样" : "未采集和无有效请求的区间不补零"}</div>`) + `<div class="traffic-caption"><span>${s.stale ? "采样暂时中断，正在自动重试" : s.samples ? `有效采样 ${rate(s.seconds)} 秒 · 最近间隔 ${rate(s.interval)} 秒` : "概览可见时每 5 秒采样"}</span><span>本浏览器保留 24 小时 · 当前 ${{ 15: "15 分钟", 60: "1 小时", 360: "6 小时", 1440: "24 小时" }[minutes] || minutes + " 分钟"}</span></div><p class="traffic-storage-note">${state2.storageError ? "本机历史存储暂不可用，新增采样仅临时保留。" : "刷新后可继续查看本机历史。"}关闭网页、切换页面或后台休眠期间留空。</p>`);
+    const empty2 = (hint) => state2.loading && !series.length ? '<div class="traffic-skeleton" role="status" aria-label="正在读取 DNS 采样"></div>' : `<div class="console-chart-empty">${definition.empty}<br>${hint}</div>`;
+    let summaryHtml = "", chartHtml, legendHtml = "", alarm = false;
+    if (metric === "anomaly") {
+      const ctx = state2.overviewContext || {};
+      const latS = summary(series, minutes, now, "latency");
+      const failVal = finite(ctx.failCount) ? ctx.failCount : 0;
+      const slowVal = finite(ctx.slowOver100Count) ? ctx.slowOver100Count : 0;
+      const bad = failVal > 0 || slowVal > 0;
+      alarm = bad;
+      summaryHtml = `<span class="traffic-health-pill${bad ? " is-bad" : ""}"${failVal > 0 ? ' data-traffic-health="1" data-route="logs" role="button" tabindex="0" title="点击查看查询日志"' : ""}><i class="traffic-health-dot${bad ? " is-bad" : ""}"></i>解析健康 · ${bad ? `${failVal} 失败 · ${slowVal} 慢查` : "正常"}</span>`;
+      const latPoints = latS.points.length ? aggregate(latS.points, "latency") : [];
+      chartHtml = latPoints.length ? latencyChart(latPoints, container.clientWidth) : empty2(series.length ? "已读取查询计数，正在等待下一次采样" : "未采集和无有效请求的区间不补零");
+    } else {
+      const cacheS = summary(series, minutes, now, "cache");
+      const cachePoints = cacheS.points.length ? aggregate(cacheS.points, "cache") : [];
+      legendHtml = `<div class="traffic-legend"><span><i class="is-bar"></i>请求量</span><span><i class="is-cache"></i>缓存命中率</span></div>`;
+      chartHtml = s.samples ? chart(s.points, container.clientWidth, metric, null, cachePoints) : empty2(series.length ? "已读取查询计数，正在等待下一次采样" : "未采集和无有效请求的区间不补零");
+    }
+    setHTML(container, `<div class="traffic-head"><div class="traffic-metric-tabs" role="group" aria-label="选择 DNS 趋势指标">${visibleMetrics().map(([key, d]) => `<button type="button" data-traffic-metric="${key}" aria-pressed="${metric === key}">${d.label}</button>`).join("")}</div>${summaryHtml}</div>${legendHtml}${chartHtml}<div class="traffic-caption"><span>${s.stale ? "采样暂时中断，正在自动重试" : s.samples ? `有效采样 ${rate(s.seconds)} 秒 · 最近间隔 ${rate(s.interval)} 秒` : "概览可见时每 5 秒采样"}</span><span>本浏览器保留 7 天 · 当前 ${{ 15: "15 分钟", 60: "1 小时", 360: "6 小时", 1440: "24 小时", 10080: "7 天" }[minutes] || minutes + " 分钟"}</span></div><p class="traffic-storage-note">${state2.storageError ? "本机历史存储暂不可用，新增采样仅临时保留。" : "刷新后可继续查看本机历史。"}关闭网页、切换页面或后台休眠期间留空。</p>`);
+    const card2 = container.closest(".glass-card");
+    if (card2) card2.classList.toggle("traffic-alarm", alarm);
     if (state2.error) {
       const error = document.createElement("div");
       error.className = "traffic-read-error";
@@ -3652,7 +3905,7 @@ function initialize$m() {
     if (definitions[focus]) (_c = container.querySelector(`[data-traffic-metric="${focus}"]`)) == null ? void 0 : _c.focus({ preventScroll: true });
     if (plotFocused) (_d = container.querySelector(".traffic-plot")) == null ? void 0 : _d.focus({ preventScroll: true });
   }
-  trafficService = { parse, raw, record: record2, summary, aggregate, chart: chart2, render, definitions };
+  trafficService = { parse, raw, record: record2, summary, aggregate, chart, render, definitions };
 }
 class TrafficRepository {
   constructor(factory = () => globalThis.indexedDB) {
@@ -3713,7 +3966,7 @@ class TrafficRepository {
   load(source, now = Date.now()) {
     return this.transaction("readonly", (store, done) => {
       const rows = [];
-      const query = IDBKeyRange.bound([source, Math.floor((now - 864e5) / 5e3)], [source, Math.floor(now / 5e3)]);
+      const query = IDBKeyRange.bound([source, Math.floor((now - 6048e5) / 5e3)], [source, Math.floor(now / 5e3)]);
       const cursor = store.openCursor(query);
       cursor.onsuccess = () => {
         const item = cursor.result;
@@ -3721,7 +3974,7 @@ class TrafficRepository {
           done(rows.sort((a, b) => Number(a.time) - Number(b.time)));
           return;
         }
-        if (Number(item.value.time) >= now - 864e5 && Number(item.value.time) <= now && rows.length < 22e3) rows.push(item.value);
+        if (Number(item.value.time) >= now - 6048e5 && Number(item.value.time) <= now && rows.length < 121e3) rows.push(item.value);
         item.continue();
       };
     });
@@ -3733,7 +3986,7 @@ class TrafficRepository {
       existing.onsuccess = () => {
         if (!existing.result || Number(existing.result.time) < time) store.put({ ...sample, source, slot });
       };
-      const expired = store.index("time").openCursor(IDBKeyRange.upperBound(now - 864e5, true));
+      const expired = store.index("time").openCursor(IDBKeyRange.upperBound(now - 6048e5, true));
       expired.onsuccess = () => {
         const item = expired.result;
         if (item) {
@@ -3749,7 +4002,7 @@ const trafficRepository = new TrafficRepository();
 let trafficClientService;
 function initialize$l() {
   const series = [];
-  let range = 60, metric = "qps", pending = null, lastAttempt = 0, error = "", storageError = "", loading = true, mountedScope, breakNext = true;
+  let range = 60, metric = "anomaly", overviewContext = null, pending = null, lastAttempt = 0, error = "", storageError = "", loading = true, mountedScope, breakNext = true;
   const overview = () => !location.hash || location.hash === "#/overview" || location.hash === "#overview";
   const base = () => {
     var _a2;
@@ -3757,6 +4010,7 @@ function initialize$l() {
   };
   const source = base().href.replace(/\/$/, "");
   const ready = trafficRepository.load(source).then((rows) => {
+    for (const row of rows) if (!("latencyNow" in row)) row.upstreams = null;
     const combined = rows.concat(series.map((p) => trafficService.raw(p, p.time))).sort((a, b) => a.time - b.time);
     series.length = 0;
     for (const row of combined) trafficService.record(series, row, row.time);
@@ -3770,10 +4024,14 @@ function initialize$l() {
     if (!(container == null ? void 0 : container.isConnected)) return;
     range = minutes;
     container.dataset.trafficMinutes = String(minutes);
-    trafficService.render(container, series, minutes, Date.now(), { metric, error, storageError, loading });
+    trafficService.render(container, series, minutes, Date.now(), { metric, error, storageError, loading, overviewContext });
   }
   function redraw() {
     for (const container of document.querySelectorAll(".traffic-chart-body")) draw(container, Number(container.dataset.trafficMinutes) || range);
+  }
+  function setOverviewContext(ctx) {
+    overviewContext = ctx;
+    redraw();
   }
   async function refresh(force = false) {
     const scope = currentScope();
@@ -3848,7 +4106,7 @@ function initialize$l() {
     draw(container, minutes);
     start();
   }
-  trafficClientService = { render: draw, refresh, start, mount: mount2, ready };
+  trafficClientService = { render: draw, refresh, start, mount: mount2, ready, setOverviewContext };
 }
 let shellInterfaceService;
 function initialize$k() {
@@ -3861,7 +4119,7 @@ function initialize$k() {
   const labels = { r1: "国内域名", r2: "白名单与自定义", r3: "海外域名", r4: "FakeIP 与灰名单", r5: "广告与追踪拦截", r6: "黑名单与类型过滤", g1: "国内解析组", g2: "海外解析组", g3: "海外 ECS 组", g4: "代理解析组", g5: "本地拦截" };
   const activeTag = () => {
     var _a2;
-    return (_a2 = $2(".rule-menu button.active")) == null ? void 0 : _a2.dataset.ruleTag;
+    return (_a2 = $2(".rule-menu [data-rule-tag].active")) == null ? void 0 : _a2.dataset.ruleTag;
   };
   function persistDrafts() {
     try {
@@ -3921,11 +4179,23 @@ function initialize$k() {
     if (health) {
       health.classList.toggle("offline", connected === false);
       $2("#service-summary-title", health).textContent = connected === false ? "DNS 服务连接已断开" : connected === true ? "DNS 服务运行中" : "正在读取服务状态";
-      $2(".service-connection", health).textContent = connected === null ? "连接中" : connected ? "已连接" : "已断开";
+      const badge = $2(".service-connection", health);
+      if (badge) badge.textContent = connected === null ? "连接中" : connected ? "已连接" : "已断开";
       $2("[data-service-check]", health).setAttribute("d", connected === false ? "m8 8 8 8m0-8-8 8" : "m7 12 3 3 7-7");
     }
   }
-  function recordMetrics() {
+  function recordMetrics(metrics) {
+    if (!metrics || typeof metrics !== "object") return;
+    const point = {};
+    for (const key of ["total", "latency", "cache", "clients", "domains", "blocked"]) {
+      const value = Number(metrics[key]);
+      if (Number.isFinite(value)) point[key] = value;
+    }
+    if (!Object.keys(point).length) return;
+    const last = series[series.length - 1];
+    if (last && Object.keys(point).every((key) => last[key] === point[key])) return;
+    series.push(point);
+    if (series.length > 120) series.splice(0, series.length - 120);
   }
   function tinyPath(values, width = 100, height = 32) {
     const min = Math.min(...values), max = Math.max(...values), span = max - min || 1;
@@ -3935,14 +4205,13 @@ function initialize$k() {
     trafficClientService.mount(container, minutes);
   }
   function overview() {
-    var _a2, _b2, _c;
+    var _a2, _b2;
     const main = $2("#page-content");
     if ($2(".console-kpi", main) || !$2(".spark-kpi-card", main)) return;
-    (_a2 = $2("#btn-overview-custom-bg")) == null ? void 0 : _a2.remove();
-    const title = $2(".view-title-row"), short = document.createElement("details");
+    const title = $2(".view-title-row"), shortSub = (title == null ? void 0 : title.dataset.shortcutsSummary) || "客户端分流 / 缓存 / 广告屏蔽", short = document.createElement("details");
     short.className = "console-shortcuts";
     short.open = shortcutsOpen;
-    setHTML(short, '<summary><strong>快捷控制</strong><span>客户端分流 / 缓存 / 广告屏蔽</span></summary><div class="console-shortcut-grid"></div>');
+    setHTML(short, `<summary><strong>快捷控制</strong><span>${escape(shortSub)}</span></summary><div class="console-shortcut-grid"></div>`);
     short.addEventListener("toggle", () => shortcutsOpen = short.open);
     $$2(".control-bar-card", main).forEach((card2) => {
       const old = card2.parentElement;
@@ -3967,21 +4236,25 @@ function initialize$k() {
     const service = $2(".console-service-summary", main);
     if (service) {
       $$2(".console-kpi", main).forEach((kpi) => service.append(kpi));
-      (_b2 = $2(".view-title-row>div:first-child>.mono", main)) == null ? void 0 : _b2.remove();
+      (_a2 = $2(".view-title-row>div:first-child>.mono", main)) == null ? void 0 : _a2.remove();
     }
     const topo = $2(".topology-glass-card");
     topo.parentElement.classList.add("console-topology");
-    if (!$2(".console-topology-heading", topo)) insertHTML(topo, "afterbegin", '<div class="console-topology-heading"><h2>DNS 解析路径</h2><span>选择节点锁定路径，再查看详情或相关查询 · 连线为解析路径示意</span></div>');
+    if (!$2(".console-topology-heading", topo)) insertHTML(topo, "afterbegin", '<div class="console-topology-heading"><h2>DNS 解析路径</h2><span>点击分支或节点锁定上下游全链路 · 支持一键折叠 0 流量空闲分支</span></div>');
     const trend = $2(".traffic-chart-body");
     trend.closest(".col-8").classList.add("console-trend");
     const head = $2(".gc-head", trend.closest(".glass-card"));
-    setHTML($2(".gc-title", head), 'DNS 趋势<span class="console-chart-sub">切换指标查看趋势 · 历史保存在当前浏览器</span>');
-    const range = head.lastElementChild;
+    setHTML($2(".gc-title", head), "响应延迟与解析异常");
+    let range = $2(".console-range", head);
+    if (!range) {
+      range = document.createElement("div");
+      head.append(range);
+    }
     range.className = "console-range";
     range.removeAttribute("style");
     range.setAttribute("role", "group");
     range.setAttribute("aria-label", "DNS 趋势时间范围");
-    setHTML(range, [[15, "15 分钟"], [60, "1 小时"], [360, "6 小时"], [1440, "24 小时"]].map(([m, label]) => `<button type="button" data-chart-range="${m}" aria-pressed="${trafficRange === m}">${label}</button>`).join(""));
+    setHTML(range, [[15, "15 分钟"], [60, "1 小时"], [1440, "24 小时"], [10080, "7 天"]].map(([m, label]) => `<button type="button" data-chart-range="${m}" aria-pressed="${trafficRange === m}">${label}</button>`).join(""));
     drawTraffic(trend);
     $$2("[data-chart-range]", head).forEach((b) => b.onclick = () => {
       trafficRange = +b.dataset.chartRange;
@@ -4002,7 +4275,7 @@ function initialize$k() {
     });
     trafficResize = chartResize;
     chartResize.observe(trend);
-    (_c = $2(".outbound-donut-body")) == null ? void 0 : _c.closest(".col-4").classList.add("console-donut");
+    (_b2 = $2(".outbound-donut-body")) == null ? void 0 : _b2.closest(".col-4").classList.add("console-donut");
     $$2(".uniform-4rows").forEach((e) => {
       var _a3;
       return (_a3 = e.closest(".col-4")) == null ? void 0 : _a3.classList.add("console-lower");
@@ -4072,6 +4345,22 @@ function initialize$k() {
       }
     });
   }
+  function ruleMenuOptions(tag) {
+    const menu = $2(".rule-menu");
+    let items = [];
+    try {
+      items = JSON.parse((menu == null ? void 0 : menu.dataset.ruleOptions) || "[]");
+    } catch {
+    }
+    if (!Array.isArray(items) || !items.length) items = $$2(".rule-menu [data-rule-tag]").map((b) => {
+      var _a2;
+      return { tag: b.dataset.ruleTag, label: ((_a2 = b.querySelector("span")) == null ? void 0 : _a2.textContent) || b.textContent.trim(), group: "" };
+    });
+    const option = (x) => `<option value="${escape(x.tag)}" ${x.tag === tag ? "selected" : ""}>${escape(x.label)}</option>`;
+    const groups2 = [...new Set(items.map((x) => x.group || ""))];
+    if (groups2.length < 2 || groups2.every((g) => !g)) return items.map(option).join("");
+    return groups2.map((g) => `<optgroup label="${escape(g)}">${items.filter((x) => (x.group || "") === g).map(option).join("")}</optgroup>`).join("");
+  }
   function ruleState() {
     const el = $2(".console-rule-state"), tag = activeTag();
     if (!el) return;
@@ -4098,7 +4387,7 @@ function initialize$k() {
       if (!$2(".console-rule-select")) {
         const select = document.createElement("div");
         select.className = "console-rule-select";
-        setHTML(select, '<label for="console-list-select">名单类别</label><select id="console-list-select">' + $$2(".rule-menu button").map((b) => `<option value="${escape(b.dataset.ruleTag)}" ${b.dataset.ruleTag === tag ? "selected" : ""}>${escape(b.querySelector("span").textContent)}</option>`).join("") + "</select>");
+        setHTML(select, '<label for="console-list-select">名单类别</label><select id="console-list-select">' + ruleMenuOptions(tag) + "</select>");
         $2(".rule-editor").prepend(select);
         $2("select", select).onchange = (e) => {
           var _a2;
@@ -4158,7 +4447,7 @@ function initialize$k() {
         const b = document.createElement("button");
         b.type = "button";
         b.className = "glass-btn console-restart";
-        b.textContent = "重启服务";
+        setHTML(b, '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 2v8"/><path d="M6.8 4.8a8 8 0 1 0 10.4 0"/></svg><span>重启内核</span>');
         b.onclick = () => $2("#restart-button").click();
         (_a2 = $2("#management-service-controls")) == null ? void 0 : _a2.append(b);
       }
@@ -4373,17 +4662,20 @@ function initialize$j() {
       titleSpan.textContent = isClaude ? "外观与皮肤 · 人文羊皮纸" : "外观与皮肤 · 流光毛玻璃";
     }
   }
+  function migrateClaudePreset(theme) {
+    if (theme === "cosmos-glass" && prefs.claude.preset !== "obsidian") {
+      prefs.claude.lastLightPreset = prefs.claude.preset;
+      prefs.claude.preset = "obsidian";
+    } else if (theme === "light-glass" && prefs.claude.preset === "obsidian") {
+      prefs.claude.preset = prefs.claude.lastLightPreset || "parchment";
+    }
+  }
   function applyTheme(nextTheme) {
     var _a2;
     const theme = normalizeTheme(nextTheme);
     prefs[prefs.active].theme = theme;
     if (prefs.active === "claude") {
-      if (theme === "cosmos-glass" && prefs.claude.preset !== "obsidian") {
-        prefs.claude.lastLightPreset = prefs.claude.preset;
-        prefs.claude.preset = "obsidian";
-      } else if (theme === "light-glass" && prefs.claude.preset === "obsidian") {
-        prefs.claude.preset = prefs.claude.lastLightPreset || "parchment";
-      }
+      migrateClaudePreset(theme);
       document.documentElement.dataset.claudePreset = prefs.claude.preset;
     }
     document.documentElement.dataset.theme = theme;
@@ -4469,11 +4761,7 @@ function initialize$j() {
       const theme = normalizeTheme(document.documentElement.dataset.theme);
       prefs[prefs.active].theme = theme;
       if (prefs.active === "claude") {
-        if (theme === "cosmos-glass" && prefs.claude.preset !== "obsidian") {
-          prefs.claude.preset = "obsidian";
-        } else if (theme === "light-glass" && prefs.claude.preset === "obsidian") {
-          prefs.claude.preset = prefs.claude.lastLightPreset || "parchment";
-        }
+        migrateClaudePreset(theme);
         document.documentElement.dataset.claudePreset = prefs.claude.preset;
       }
       savePrefs();
@@ -4520,14 +4808,13 @@ function initialize$i() {
     sidebar.prepend(tools);
     const collapseButton = tools.querySelector("button");
     const picker = document.querySelector("#navigation-layout-options");
-    const entries2 = [...nav.querySelectorAll("[data-route]")];
-    entries2.forEach((button) => {
-      const label = button.textContent.trim();
-      button.setAttribute("aria-label", label);
-      button.title = label;
-    });
     function syncSelection() {
-      entries2.forEach((button) => {
+      nav.querySelectorAll("[data-route]").forEach((button) => {
+        const label = button.textContent.trim();
+        if (label) {
+          if (!button.hasAttribute("aria-label")) button.setAttribute("aria-label", label);
+          if (!button.title) button.title = label;
+        }
         if (button.classList.contains("active")) button.setAttribute("aria-current", "page");
         else button.removeAttribute("aria-current");
       });
@@ -4560,7 +4847,7 @@ function initialize$i() {
     picker == null ? void 0 : picker.querySelectorAll("[data-navigation-layout]").forEach((button) => {
       button.onclick = () => chooseLayout(button.dataset.navigationLayout, false);
     });
-    new MutationObserver(syncSelection).observe(nav, { subtree: true, attributes: true, attributeFilter: ["class"] });
+    new MutationObserver(syncSelection).observe(nav, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
     desktop.addEventListener("change", syncLayout);
     document.body.append(panel);
     panel.classList.add("navigation-appearance-panel");
@@ -4616,6 +4903,7 @@ function initialize$h() {
     return source && typeof source === "object" && typeof source.name === "string" ? source : null;
   }
   function message(result) {
+    if (result == null ? void 0 : result.savedButUnrecognized) return "配置已保存，但来源尚未识别";
     const source = updated(result);
     if (!source) return "规则更新完成";
     const parts2 = [];
@@ -4634,15 +4922,29 @@ function initialize$h() {
     }
     return result;
   }
-  async function finishSave(result, refresh) {
+  async function finishSave(result, refresh, options = {}) {
     const source = updated(result);
     if (source == null ? void 0 : source.detected_format) return source;
+    if (options.configOnly) return source || result;
     const response = await refresh();
     const converted = updated(response);
-    if (!converted || !converted.detected_format && typeof response.changed !== "boolean") throw new Error("配置已保存，但来源尚未识别，请检查订阅地址后重试更新。");
+    if (!converted || !converted.detected_format && typeof response.changed !== "boolean") return { savedButUnrecognized: true };
     return converted;
   }
-  ruleConversionService = { label, updated, message, withMetadata, finishSave };
+  async function deleteOriginalWithRetry(remove) {
+    try {
+      await remove();
+      return true;
+    } catch {
+      try {
+        await remove();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
+  ruleConversionService = { label, updated, message, withMetadata, finishSave, deleteOriginalWithRetry };
 }
 let wallpaperService;
 function initialize$g() {
@@ -5180,6 +5482,12 @@ const overviewInsightsService = (() => {
     geosite_cn_unverified: "国内规则待验证",
     geosite_cn_conflict_fakeip: "国内规则冲突 FakeIP",
     client_direct_upstream_error: "客户端直连上游错误",
+    geosite_non_cn_upstream_error: "非国内规则上游错误",
+    local_name: "本地保留名应答",
+    local_any: "ANY 查询本地应答",
+    local_meta: "META 查询本地应答",
+    local_reverse: "反查区本地应答",
+    local_xfr: "区域传送本地应答",
     unknown_noaddr: "未知域名无地址",
     foreign_other: "其他国外结果"
   };
@@ -5250,13 +5558,13 @@ function parts(value) {
 function upgradeTarget(installed, release) {
   var _a2;
   if (!installed || !release) return { reason: "先检查更新，获取可安装的正式版本。" };
-  if (release.backend !== ((_a2 = installed.backendVersion) == null ? void 0 : _a2.toUpperCase())) return { reason: "此发行版需要不同的 DNS 核心，请先查看发布说明。" };
+  if (release.backend && release.backend !== ((_a2 = installed.backendVersion) == null ? void 0 : _a2.toUpperCase())) return { reason: "此发行版需要不同的 DNS 核心，请先查看发布说明。" };
   const current = parts(installed.uiVersion), target = parts(release.version);
   if (!current || !target) return { reason: "版本信息无效，请重新检查更新。" };
   const different = target.findIndex((value, index) => value !== current[index]);
   if (different < 0 || target[different] < current[different]) return { reason: "暂无比当前 UI 更新的正式版。" };
   if (!release.packages.includes("UI 升级包")) return { reason: "该发行版没有提供 UI 升级包。" };
-  if (!/^fjg[a-z0-9]+-ui-v\d{4}\.\d+\.\d+\.\d+$/i.test(release.tag)) return { reason: "发行版标签无效，请查看发布说明。" };
+  if (!/^fj[a-z][a-z0-9]+-ui-v\d{4}\.\d+\.\d+\.\d+$/i.test(release.tag)) return { reason: "发行版标签无效，请查看发布说明。" };
   return { tag: release.tag, reason: "仅更新界面，保留配置、Logo 和字体；无需重启 DNS。" };
 }
 class UIUpdateClient {
@@ -5302,6 +5610,689 @@ class UIUpdateClient {
     return this.validate(await this.request("/upgrade/ui/rollback", {}));
   }
 }
+const icons$1 = {
+  overview: '<path d="M4 13h6V3H4v10Zm0 8h6v-6H4v6Zm10 0h6V11h-6v10Zm0-18v6h6V3h-6Z"/>',
+  logs: '<path d="M5 4h14v2H5V4Zm0 5h14v2H5V9Zm0 5h9v2H5v-2Zm0 5h7v2H5v-2Z"/>',
+  upstream: '<path d="M12 3a5 5 0 0 1 5 5v1h1a3 3 0 1 1 0 6h-1v1a5 5 0 0 1-10 0v-1H6a3 3 0 1 1 0-6h1V8a5 5 0 0 1 5-5Zm-3 6h6V8a3 3 0 1 0-6 0v1Zm0 6v1a3 3 0 1 0 6 0v-1H9Z"/>',
+  rules: '<path d="M4 4h7v7H4V4Zm2 2v3h3V6H6Zm7-2h7v7h-7V4Zm2 2v3h3V6h-3ZM4 13h7v7H4v-7Zm2 2v3h3v-3H6Zm7-2h2v2h-2v-2Zm3 0h4v2h-4v-2Zm-3 3h7v2h-7v-2Zm0 3h5v2h-5v-2Z"/>',
+  data: '<path d="M12 3c-4.42 0-8 1.34-8 3v12c0 1.66 3.58 3 8 3s8-1.34 8-3V6c0-1.66-3.58-3-8-3Zm0 2c3.48 0 5.65.82 5.98 1-.33.18-2.5 1-5.98 1s-5.65-.82-5.98-1c.33-.18 2.5-1 5.98-1ZM6 8.45C7.47 8.82 9.55 9 12 9s4.53-.18 6-.55V11c0 .35-2.1 1-6 1s-6-.65-6-1V8.45Zm0 5C7.47 13.82 9.55 14 12 14s4.53-.18 6-.55V16c0 .35-2.1 1-6 1s-6-.65-6-1v-2.55Zm6 5.55c-3.9 0-6-.65-6-1v-.55c1.47.37 3.55.55 6 .55s4.53-.18 6-.55V18c0 .35-2.1 1-6 1Z"/>',
+  settings: '<path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.08-.98l2.11-1.65-2-3.46-2.49 1a7.54 7.54 0 0 0-1.7-.99L15 3.25h-4l-.35 2.67c-.61.25-1.18.58-1.7.99l-2.49-1-2 3.46 2.11 1.65c-.05.32-.08.65-.08.98s.03.66.08.98l-2.11 1.65 2 3.46 2.49-1c.52.41 1.09.74 1.7.99L11 20.75h4l.35-2.67c.61-.25 1.18-.58 1.7-.99l2.49 1 2-3.46-2.11-1.65ZM13 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8Z"/>',
+  features: '<path d="M7 2h2v3h6V2h2v3h2a2 2 0 0 1 2 2v3h-2V7H5v10h5v2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2V2Zm8 10h2v3h3v2h-3v3h-2v-3h-3v-2h3v-3Z"/>',
+  management: '<path d="M4 5h8v2H4V5Zm12-2h2v2h2v2h-2v2h-2V7h-2V5h2V3ZM4 11h2v2H4v-2Zm6-2h2v2h8v2h-8v2h-2v-2H8v-2h2V9ZM4 17h10v2H4v-2Zm14-2h2v2h2v2h-2v2h-2v-2h-2v-2h2v-2Z"/>',
+  system: '<path d="M4 4h16v12H4V4Zm2 2v8h12V6H6Zm3 12h6v2H9v-2Z"/>',
+  power: '<path d="M13 3h-2v10h2V3Zm4.83 2.17-1.42 1.42A6.92 6.92 0 0 1 19 12c0 3.87-3.13 7-7 7A6.995 6.995 0 0 1 7.58 6.58L6.17 5.17A8.93 8.93 0 0 0 3 12a9 9 0 0 0 18 0c0-2.74-1.23-5.18-3.17-6.83Z"/>',
+  refresh: '<path d="M17.65 6.35A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.76-4.24L13 11h8V3l-3.35 3.35Z"/>',
+  theme: '<path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.91-.1-1.35A7 7 0 0 1 12 3Z"/>',
+  menu: '<path d="M4 6h16v2H4V6Zm0 5h16v2H4v-2Zm0 5h16v2H4v-2Z"/>',
+  close: '<path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5Z"/>',
+  chevron: '<path d="m8.6 4.6 7.4 7.4-7.4 7.4L7.2 18l6-6-6-6 1.4-1.4Z"/>',
+  search: '<path d="M10 4a6 6 0 1 0 3.87 10.59L19.28 20 20.7 18.6l-5.41-5.41A6 6 0 0 0 10 4Zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/>',
+  plus: '<path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z"/>',
+  edit: '<path d="m14.69 4.86 4.45 4.45L8.45 20H4v-4.45L14.69 4.86Zm0 2.83L6 16.38V18h1.62l8.69-8.69-1.62-1.62ZM17.5 2 22 6.5l-1.45 1.45-4.5-4.5L17.5 2Z"/>',
+  trash: '<path d="M8 3h8l1 2h4v2H3V5h4l1-2Zm-2 6h12l-1 12H7L6 9Zm3 2 .5 8h2L11 11H9Zm4 0-.5 8h2l.5-8h-2Z"/>',
+  save: '<path d="M4 3h14l2 2v16H4V3Zm2 2v14h12V6.83L17.17 5H16v5H8V5H6Zm4 0v3h4V5h-4Zm-1 8h6v4H9v-4Z"/>',
+  info: '<path d="M11 10h2v7h-2v-7Zm0-4h2v2h-2V6Zm1-4a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16Z"/>',
+  check: '<path d="m9.2 16.2-4.4-4.4L3.4 13.2 9.2 19 21 7.2 19.6 5.8 9.2 16.2Z"/>',
+  warning: '<path d="M12 3 2 21h20L12 3Zm0 4.1L18.6 19H5.4L12 7.1ZM11 10h2v5h-2v-5Zm0 6h2v2h-2v-2Z"/>',
+  download: '<path d="M11 3h2v9l3-3 1.4 1.4L12 15.8l-5.4-5.4L8 9l3 3V3ZM4 18h16v3H4v-3Z"/>',
+  clock: '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16Zm-1 3h2v4.59l3.2 3.2-1.4 1.42L11 12.41V7Z"/>',
+  uptime: '<path d="M9 2h6v2H9V2Zm2 4h2v2.08A7 7 0 1 1 11 8.08V6Zm1 4a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm-1 1h2v3.59l2.2 2.2-1.4 1.42L11 15.41V11Z"/>',
+  cpu: '<path d="M9 2h2v3h2V2h2v3h1a3 3 0 0 1 3 3v1h3v2h-3v2h3v2h-3v1a3 3 0 0 1-3 3h-1v3h-2v-3h-2v3H9v-3H8a3 3 0 0 1-3-3v-1H2v-2h3v-2H2V9h3V8a3 3 0 0 1 3-3h1V2Zm-1 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1H8Zm2 3h4v4h-4v-4Z"/>',
+  memory: '<path d="M4 5h16v12H4V5Zm2 2v8h12V7H6Zm2 2h2v4H8V9Zm3 0h2v4h-2V9Zm3 0h2v4h-2V9ZM6 19h2v3H6v-3Zm5 0h2v3h-2v-3Zm5 0h2v3h-2v-3Z"/>',
+  latency: '<path d="M13 2 5 13h6l-1 9 9-12h-6l0-8Zm-2.1 9L12 9.5v4.5h3l-2.1 2.8.35-4.8h-2.35Z"/>',
+  shield: '<path d="M12 2 4 5v6c0 5.25 3.44 9.74 8 11 4.56-1.26 8-5.75 8-11V5l-8-3Zm0 2.16 6 2.25V11c0 4.11-2.49 7.8-6 8.86C8.49 18.8 6 15.11 6 11V6.41l6-2.25Z"/>',
+  clients: '<path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7-1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM9 13c-4.42 0-7 2.18-7 5v2h14v-2c0-2.82-2.58-5-7-5Zm7.5-.5c-.76 0-1.47.08-2.12.22 2.27 1.1 3.62 2.98 3.62 5.28v2h4v-2c0-3.03-2.21-5.5-5.5-5.5Z"/>',
+  globe: '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm5.93 6h-3.08a15.9 15.9 0 0 0-1.3-3.38A8.04 8.04 0 0 1 17.93 8ZM12 4c.83 1.2 1.46 2.55 1.8 4h-3.6A13.2 13.2 0 0 1 12 4ZM4.26 14A8.23 8.23 0 0 1 4 12c0-.69.09-1.36.26-2h3.43a17.6 17.6 0 0 0 0 4H4.26Zm1.81 2h3.08c.3 1.2.74 2.33 1.3 3.38A8.04 8.04 0 0 1 6.07 16Zm3.08-8H6.07a8.04 8.04 0 0 1 4.38-3.38A15.9 15.9 0 0 0 9.15 8ZM12 20a13.2 13.2 0 0 1-1.8-4h3.6A13.2 13.2 0 0 1 12 20Zm2.15-6h-4.3a15.7 15.7 0 0 1 0-4h4.3a15.7 15.7 0 0 1 0 4Zm-.6 5.38c.56-1.05 1-2.18 1.3-3.38h3.08a8.04 8.04 0 0 1-4.38 3.38ZM16.31 14a17.6 17.6 0 0 0 0-4h3.43c.17.64.26 1.31.26 2s-.09 1.36-.26 2h-3.43Z"/>',
+  requestCount: '<path d="M5 4h14v16H5V4Zm2 2v12h10V6H7Zm2 2h6v2H9V8Zm0 4h6v2H9v-2Zm0 4h4v2H9v-2Z"/>',
+  cacheHit: '<path d="M12 3C7.58 3 4 4.34 4 6v10c0 1.66 3.58 3 8 3 1.16 0 2.26-.09 3.25-.25A5 5 0 0 1 15 17c0-.7.14-1.36.4-1.97-.98.15-2.12.22-3.4.22-3.9 0-6-.65-6-1v-2.55c1.47.37 3.55.55 6 .55 1.92 0 3.63-.11 5-.33v-2.07c-1.3.26-3.04.4-5 .4-3.9 0-6-.65-6-1V7.7c1.47.37 3.55.55 6 .55s4.53-.18 6-.55v2.8c.75.16 1.43.48 2 .91V6c0-1.66-3.58-3-8-3Zm0 2c3.48 0 5.65.82 5.98 1-.33.18-2.5 1-5.98 1s-5.65-.82-5.98-1c.33-.18 2.5-1 5.98-1Zm7.3 8.3-2.55 2.55-1.05-1.05-1.4 1.4 2.45 2.45 3.95-3.95-1.4-1.4Z"/>',
+  responseTime: '<path d="M12 4a9 9 0 0 0-9 9h2a7 7 0 1 1 14 0h2a9 9 0 0 0-9-9Zm0 3a6 6 0 0 0-6 6h2a4 4 0 0 1 7.07-2.57L11 14.5l1.41 1.41 4.08-4.08A6 6 0 0 0 12 7Zm-8 8v2h16v-2H4Z"/>',
+  blockedRequest: '<path d="M12 2 4 5v6c0 5.25 3.44 9.74 8 11 4.56-1.26 8-5.75 8-11V5l-8-3Zm0 2.16 6 2.25V11c0 4.11-2.49 7.8-6 8.86C8.49 18.8 6 15.11 6 11V6.41l6-2.25Zm-3.3 4.13L7.29 9.7 9.59 12l-2.3 2.3 1.42 1.41 2.29-2.3 2.3 2.3 1.41-1.42-2.3-2.29 2.3-2.3-1.42-1.41-2.29 2.3-2.3-2.3Z"/>',
+  clientCount: '<path d="M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7-1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM8.5 13C4.7 13 2 14.9 2 17.5V20h13v-2.5C15 14.9 12.3 13 8.5 13Zm7.2-.5c-.72 0-1.4.08-2.02.23 2.07 1.08 3.32 2.78 3.32 4.77V20h5v-2.1c0-3.08-2.32-5.4-6.3-5.4Z"/>',
+  domainStats: '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm6.92 9h-3.01a15.9 15.9 0 0 0-1.02-4.1A8.03 8.03 0 0 1 18.92 11ZM12 4c.9 1.26 1.56 3.02 1.85 5h-3.7C10.44 7.02 11.1 5.26 12 4ZM5.08 13h3.01c.13 1.48.48 2.9 1.02 4.1A8.03 8.03 0 0 1 5.08 13Zm3.01-2H5.08a8.03 8.03 0 0 1 4.03-4.1A15.9 15.9 0 0 0 8.09 11ZM12 20c-.9-1.26-1.56-3.02-1.85-5h3.7c-.29 1.98-.95 3.74-1.85 5Zm2.07-7H9.93a13.9 13.9 0 0 1 0-2h4.14a13.9 13.9 0 0 1 0 2Zm.82 4.1c.54-1.2.89-2.62 1.02-4.1h3.01a8.03 8.03 0 0 1-4.03 4.1Z"/>',
+  more: '<path d="M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm7 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm7 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/>'
+};
+const icon$1 = (name, cls = "") => `<svg class="${cls}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${icons$1[name] || icons$1.info}</svg>`;
+const esc$1 = (v = "") => String(v).replace(/[&<>'"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[c]);
+const num = (v) => Number.isFinite(+v) ? (+v).toLocaleString("zh-CN") : "—";
+const pct = (v) => Number.isFinite(+v) ? `${(+v).toFixed(2)}%` : "—";
+const compactNum = (v) => {
+  const n = +v;
+  if (!Number.isFinite(n)) return "—";
+  if (Math.abs(n) < 1e4) return n.toLocaleString("zh-CN");
+  return new Intl.NumberFormat("zh-CN", { notation: "compact", compactDisplay: "short", maximumFractionDigits: 1 }).format(n);
+};
+const fullNum = (v) => Number.isFinite(+v) ? Math.max(0, Math.floor(+v)).toLocaleString("zh-CN") : "—";
+const compactPct = (v) => {
+  const n = +v;
+  if (!Number.isFinite(n)) return "—";
+  return `${Number.isInteger(n) ? n.toFixed(0) : n.toFixed(1)}%`;
+};
+const ms = (v) => Number.isFinite(+v) ? `${(+v).toFixed(2)} ms` : "—";
+const fmtBytesBrief = (v) => {
+  const n = +v;
+  if (!Number.isFinite(n)) return "—";
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0, x = n;
+  while (x >= 1024 && i < u.length - 1) {
+    x /= 1024;
+    i++;
+  }
+  const d = i === 0 ? 0 : x >= 100 ? 0 : x >= 10 ? 1 : 2;
+  return `${x.toFixed(d)} ${u[i]}`;
+};
+const rankCount = (items, limit = 1e3) => !Array.isArray(items) ? "—" : items.length >= limit ? `${num(limit)}+` : num(items.length);
+const startTimeMarkup = (seconds) => {
+  const n = +seconds;
+  if (!Number.isFinite(n) || n <= 0) return '<span class="overview-start-datetime">—</span>';
+  const d = new Date(n * 1e3);
+  if (Number.isNaN(d.getTime())) return '<span class="overview-start-datetime">—</span>';
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0"), hh = String(d.getHours()).padStart(2, "0"), mm = String(d.getMinutes()).padStart(2, "0");
+  return `<span class="overview-start-datetime">${y}-${m}-${day} ${hh}:${mm}</span>`;
+};
+const fmtDate = (v) => {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return String(v);
+  if (d.getUTCFullYear() <= 1) return "—";
+  return d.toLocaleString("zh-CN", { hour12: false });
+};
+const duration = (seconds) => {
+  let s = Math.max(0, Math.floor(+seconds || 0));
+  const d = Math.floor(s / 86400);
+  s %= 86400;
+  const h = Math.floor(s / 3600);
+  s %= 3600;
+  const m = Math.floor(s / 60);
+  return `${d ? d + "天 " : ""}${h ? h + "小时 " : ""}${m}分钟`;
+};
+const overviewUptimeMarkup = (seconds) => {
+  const s = Math.max(0, Math.floor(+seconds || 0));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor(s % 86400 / 3600);
+  const m = Math.floor(s % 3600 / 60);
+  const sec = s % 60;
+  const part = (n, u) => `<span class="overview-duration-part"><span class="overview-duration-num">${n}</span><span class="overview-duration-unit">${u}</span></span>`;
+  if (d) return `${part(d, "天")}${part(h, "小时")}`;
+  if (h) return `${part(h, "小时")}${part(m, "分钟")}`;
+  if (m) return part(m, "分钟");
+  return part(sec, "秒");
+};
+function createLogQuery(mobile) {
+  return { page: 1, limit: mobile ? 25 : 50, q: "", exact: false, type: "", set: "", code: "", client: "" };
+}
+function logQueryParams(query) {
+  return {
+    page: query.page,
+    limit: query.limit,
+    q: query.q,
+    exact: query.exact,
+    query_type: query.type,
+    domain_set: query.set,
+    response_code: query.code,
+    client_contains: query.client
+  };
+}
+const CONFIG = Object.assign(
+  {
+    apiBase: "",
+    title: "LocalDNS 控制台",
+    refreshInterval: 30,
+    requestTimeout: 1e4,
+    demoOnApiFailure: false
+  },
+  /** @type {any} */
+  window.LOCALDNS_UI_CONFIG || {}
+);
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const API_BASE = String(CONFIG.apiBase || "").replace(/\/$/, "");
+const $ = (s, root = document) => root.querySelector(s);
+const $$ = (s, root = document) => [...root.querySelectorAll(s)];
+const page = (
+  /** @type {HTMLElement} */
+  $("#page-content")
+);
+const storage = { get(k) {
+  try {
+    return preferences.getItem(k);
+  } catch {
+    return null;
+  }
+}, set(k, v) {
+  try {
+    preferences.setItem(k, String(v));
+  } catch {
+  }
+} };
+const state = {
+  route: "overview",
+  logs: createLogQuery(matchMedia("(max-width:600px)").matches),
+  ruleTag: "whitelist",
+  mobileMoreOpen: false,
+  renderSeq: 0,
+  overviewSlowPage: 0,
+  overviewDomainPage: 0,
+  overviewSlowLimit: [5, 10, 20].includes(Number(storage.get("localdns-overview-slow-limit:" + (API_BASE || location.host)))) ? Number(storage.get("localdns-overview-slow-limit:" + (API_BASE || location.host))) : 10
+};
+const TOAST_DURATION = 3920;
+const LEAVE_MS = 280;
+function toast(message, type = "success", detail = "") {
+  var _a2, _b2;
+  const error = type === "error";
+  const el = document.createElement("div");
+  el.className = `toast ${type} toast-enter`;
+  el.setAttribute("role", error ? "alert" : "status");
+  setHTML(el, `<span>${icon$1(error ? "warning" : type === "success" ? "check" : "info")}</span><div><strong>${esc$1(message)}</strong>${detail ? `<div class="toast-info">${esc$1(detail)}</div>` : ""}</div>${error ? `<button type="button" class="toast-close" aria-label="关闭通知">${icon$1("close")}</button>` : ""}`);
+  let timer = 0, remaining = TOAST_DURATION, started = 0, closed = false;
+  const dismiss = () => {
+    if (closed) return;
+    closed = true;
+    clearTimeout(timer);
+    el.classList.add("toast-leave");
+    setTimeout(() => el.remove(), LEAVE_MS);
+  };
+  const resume = () => {
+    if (closed || error) return;
+    clearTimeout(timer);
+    started = Date.now();
+    timer = setTimeout(dismiss, remaining);
+  };
+  const pause = () => {
+    if (closed || error) return;
+    clearTimeout(timer);
+    remaining = Math.max(0, remaining - (Date.now() - started));
+  };
+  (_a2 = el.querySelector(".toast-close")) == null ? void 0 : _a2.addEventListener("click", dismiss);
+  if (!error) {
+    el.addEventListener("mouseenter", pause);
+    el.addEventListener("mouseleave", resume);
+    el.addEventListener("focusin", pause);
+    el.addEventListener("focusout", (event) => {
+      if (!el.contains(event.relatedTarget)) resume();
+    });
+  }
+  if (error) {
+    const stack = $("#toast-stack");
+    while (stack.querySelectorAll(".toast.error").length >= 3) (_b2 = stack.querySelector(".toast.error")) == null ? void 0 : _b2.remove();
+  }
+  $("#toast-stack").appendChild(el);
+  void el.offsetWidth;
+  el.classList.remove("toast-enter");
+  resume();
+  return { element: el, dismiss };
+}
+let workspaceService;
+function initialize$b() {
+  "use strict";
+  const esc2 = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const number = (value) => Number(value || 0).toLocaleString("zh-CN");
+  const percent = (n, d) => Number(d) > 0 ? (Number(n || 0) / Number(d) * 100).toFixed(1) + "%" : "—";
+  const badge = (text2, cls = "") => `<span class="badge ${cls}">${esc2(text2)}</span>`;
+  const keyFields = ["q", "type", "set", "code", "client", "exact"];
+  let ctx, ruleFilter = { q: "", group: "全部" }, modalController;
+  const diversionOpen = /* @__PURE__ */ new Set(["custom_cn", "custom_non_cn"]);
+  const store = {
+    get(key, fallback) {
+      try {
+        const v = JSON.parse(preferences.getItem("localdns-workspace:" + ((ctx == null ? void 0 : ctx.apiBase) || location.host) + ":" + key));
+        return v ?? fallback;
+      } catch {
+        return fallback;
+      }
+    },
+    set(key, value) {
+      try {
+        preferences.setItem("localdns-workspace:" + ((ctx == null ? void 0 : ctx.apiBase) || location.host) + ":" + key, JSON.stringify(value));
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  };
+  function cleanFilter(value = {}) {
+    return Object.fromEntries(keyFields.map((key) => [key, key === "exact" ? value[key] === true : typeof value[key] === "string" ? value[key].slice(0, 2e3) : ""]));
+  }
+  function views() {
+    const saved = store.get("query-views", null);
+    return Array.isArray(saved) ? saved.filter((v) => v && typeof v.name === "string" && v.filter && typeof v.filter === "object").slice(0, 12).map((v) => ({ name: v.name.slice(0, 40), filter: cleanFilter(v.filter) })) : [{ name: "SERVFAIL", filter: cleanFilter({ code: "SERVFAIL" }) }, { name: "AAAA 请求", filter: cleanFilter({ type: "AAAA" }) }];
+  }
+  function columns() {
+    const value = store.get("query-columns", {});
+    return Object.fromEntries(["type", "set", "client", "code"].map((k) => [k, (value == null ? void 0 : value[k]) !== false]));
+  }
+  function applyColumns(root) {
+    const cols = columns(), mapping = { type: 2, set: 3, client: 5, code: 6 };
+    root.querySelectorAll(".workspace-log-table tr").forEach((row) => Object.entries(mapping).forEach(([key, index]) => {
+      if (row.children[index] && row.children.length === 8) row.children[index].hidden = !cols[key];
+    }));
+  }
+  function logTools(filter) {
+    const labels = { q: "搜索", type: "类型", set: "分流", code: "响应码", client: "客户端包含", exact: "精确匹配" }, cols = columns();
+    return `<details class="workspace-log-extras" ${matchMedia("(max-width:600px)").matches ? "" : "open"}><summary>常用筛选与显示设置</summary><div class="workspace-saved"><span>常用筛选</span>${views().map((v, i) => `<button type="button" class="glass-btn" data-query-view="${i}">${esc2(v.name)}</button>`).join("")}<button type="button" class="glass-btn" id="log-save-view">保存当前条件</button></div><div class="workspace-log-tools"><span id="log-live-state">${ctx.state.logsPaused ? "刷新已暂停" : "自动刷新已开启"}</span><div><details class="workspace-columns"><summary>显示列</summary><div>${Object.entries({ type: "类型", set: "分流", client: "客户端", code: "响应码" }).map(([k, name]) => `<label><input type="checkbox" data-query-column="${k}" ${cols[k] ? "checked" : ""}>${name}</label>`).join("")}</div></details><button type="button" class="glass-btn" id="log-export">导出当前页</button></div></div></details><div class="workspace-filter-chips">${keyFields.filter((k) => filter[k]).map((k) => `<button type="button" data-clear-query="${k}" aria-label="移除${labels[k]}筛选">${labels[k]}${k === "exact" ? "" : "：" + esc2(filter[k])}<span aria-hidden="true"> ×</span></button>`).join("")}</div>`;
+  }
+  function bindLogs(root, rows) {
+    applyColumns(root);
+    root.querySelectorAll("[data-query-view]").forEach((b) => b.onclick = () => {
+      Object.assign(ctx.state.logs, { page: 1, ...views()[Number(b.dataset.queryView)].filter });
+      ctx.renderRoute(true);
+    });
+    root.querySelectorAll("[data-clear-query]").forEach((b) => b.onclick = () => {
+      ctx.state.logs[b.dataset.clearQuery] = b.dataset.clearQuery === "exact" ? false : "";
+      ctx.state.logs.page = 1;
+      ctx.renderRoute(true);
+    });
+    root.querySelectorAll("[data-query-column]").forEach((input) => input.onchange = () => {
+      const next = columns();
+      next[input.dataset.queryColumn] = input.checked;
+      if (!store.set("query-columns", next)) ctx.toast("显示列偏好无法保存", "error");
+      applyColumns(root);
+    });
+    root.querySelector("#log-save-view").onclick = () => ctx.modalOpen("保存筛选", "仅保存在当前浏览器", `<div class="field"><label for="query-view-name">名称</label><input id="query-view-name" maxlength="40" placeholder="例如：工作电脑的失败查询"></div>`, async () => {
+      const name = document.querySelector("#query-view-name").value.trim();
+      if (!name) throw new Error("请填写筛选名称");
+      const saved = [{ name, filter: cleanFilter(ctx.state.logs) }, ...views().filter((v) => v.name !== name)].slice(0, 12);
+      if (!store.set("query-views", saved)) throw new Error("浏览器无法保存，请检查存储空间");
+      ctx.toast("筛选已保存");
+      ctx.renderRoute(true);
+    });
+    root.querySelector("#log-export").onclick = () => ctx.downloadText("LocalDNS-query-page-" + ctx.state.logs.page + ".json", JSON.stringify(rows, null, 2));
+    root.querySelector("#log-pause").onclick = () => {
+      ctx.state.logsPaused = !ctx.state.logsPaused;
+      root.querySelector("#log-pause").textContent = ctx.state.logsPaused ? "继续刷新" : "暂停刷新";
+      root.querySelector("#log-pause").setAttribute("aria-pressed", String(ctx.state.logsPaused));
+      root.querySelector("#log-live-state").textContent = ctx.state.logsPaused ? "刷新已暂停" : "自动刷新已开启";
+    };
+  }
+  let rankLatency;
+  const latency = (row) => row.average_duration_ms !== void 0 && row.average_duration_ms !== null && row.average_duration_ms !== "" && Number.isFinite(Number(row.average_duration_ms)) ? ctx.ms(row.average_duration_ms) : null;
+  function latencyCell(kind, item) {
+    const provided = latency(item);
+    return `<td data-rank-latency-kind="${kind}" data-rank-latency-key="${esc2(item.key)}"${provided ? ' data-latency-ready="true" title="后端排行统计"' : ""}>${provided || '<button type="button" class="workspace-text-button" data-load-rank-latency>查看延时</button>'}</td>`;
+  }
+  function hydrateRankLatency(root) {
+    const cells = [...root.querySelectorAll("[data-rank-latency-kind]:not([data-latency-ready])")];
+    if (!cells.length) return;
+    rankLatency || (rankLatency = rankLatencyService.create((options) => ctx.loadLogs(options)));
+    const observer = new IntersectionObserver((entries2) => entries2.forEach((entry) => {
+      if (entry.isIntersecting) {
+        observer.unobserve(entry.target);
+        load(entry.target);
+      }
+    }), { rootMargin: "120px" });
+    async function load(cell) {
+      if (cell.dataset.latencyReady || cell.dataset.latencyLoading) return;
+      cell.dataset.latencyLoading = "true";
+      cell.textContent = "统计中…";
+      try {
+        const result = await rankLatency.get(cell.dataset.rankLatencyKind, cell.dataset.rankLatencyKey, () => cell.isConnected);
+        if (!cell.isConnected) return;
+        cell.dataset.latencyReady = "true";
+        cell.textContent = result.average === null ? "暂无样本" : ctx.ms(result.average);
+        cell.title = result.average === null ? "该分类暂无有效请求耗时，未用 0 代替缺失数据" : `${result.partial ? "近期" : "当前保留"} ${number(result.samples)} 条有效请求的平均耗时；含缓存与本地应答`;
+        if (result.partial && result.samples) {
+          const note = document.createElement("span");
+          note.className = "workspace-subline";
+          note.textContent = `近 ${number(result.samples)} 条`;
+          cell.append(note);
+        }
+      } catch (error) {
+        if (cell.isConnected && error.name !== "AbortError") {
+          setHTML(cell, '<button type="button" class="workspace-text-button" data-load-rank-latency>重试</button>');
+          cell.title = "请求耗时读取失败，点击重试";
+        }
+      } finally {
+        delete cell.dataset.latencyLoading;
+      }
+    }
+    cells.forEach((cell) => {
+      observer.observe(cell);
+      cell.onclick = (event) => {
+        if (event.target.closest("[data-load-rank-latency]")) load(cell);
+      };
+    });
+    ctx.trackRouteCleanup(() => observer.disconnect());
+  }
+  function rankTable(kind, items, aliases = {}, limit = 8) {
+    const label = (item) => kind === "client" ? aliases[item.key] || item.key : kind === "set" ? overviewInsightsService.label(item.key) : item.key;
+    return `<div class="table-wrap"><table class="workspace-rank-table"><thead><tr><th scope="col">${{ domain: "域名", client: "客户端", set: "分流结果" }[kind]}</th><th scope="col">请求数</th><th scope="col">平均延时</th></tr></thead><tbody>${items.slice(0, limit).map((item) => `<tr><td><button type="button" class="workspace-text-button" data-rank-kind="${kind}" data-rank-key="${esc2(item.key)}" title="${esc2(item.key)}">${esc2(label(item))}</button>${kind === "client" && aliases[item.key] ? `<span class="workspace-subline mono">${esc2(item.key)}</span>` : ""}</td><td>${number(item.count)}</td>${latencyCell(kind, item)}</tr>`).join("") || '<tr><td colspan="3" class="table-empty">暂无记录</td></tr>'}</tbody></table></div>`;
+  }
+  function rankings({ domains, clients, sets, total, aliases }) {
+    const limit = matchMedia("(max-width:600px)").matches ? 5 : 8;
+    return `<div class="workspace-rank-grid">${[["domain", "TOP 域名", domains], ["client", "TOP 客户端", clients], ["set", "分流结果", sets]].map(([kind, name, items]) => `<section class="glass-card workspace-rank-card"><header class="gc-head"><div><h2 class="gc-title">${name}</h2><p class="workspace-subline">显示前 ${Math.min(limit, items.length)} · ${percent(items.slice(0, limit).reduce((n, r) => n + Number(r.count || 0), 0), total)}</p></div><button type="button" class="workspace-text-button" data-rank-all="${kind}">更多</button></header>${rankTable(kind, items, aliases, limit)}</section>`).join("")}</div>`;
+  }
+  function rankNavigate(kind, key) {
+    Object.assign(ctx.state.logs, { page: 1, q: "", client: "", set: "", code: "", type: "", exact: false }, kind === "client" ? { client: key, q: key, exact: true } : kind === "set" ? { set: key } : { q: key, exact: true });
+    ctx.navigate("logs");
+  }
+  function bindRanks(root, data) {
+    hydrateRankLatency(root);
+    root.querySelectorAll("[data-rank-kind]").forEach((b) => b.onclick = () => rankNavigate(b.dataset.rankKind, b.dataset.rankKey));
+    root.querySelectorAll("[data-rank-all]").forEach((b) => b.onclick = () => {
+      const kind = b.dataset.rankAll, items = { domain: data.domains, client: data.clients, set: data.sets }[kind];
+      ctx.openDrawer({ domain: "域名排行", client: "客户端排行", set: "分流结果" }[kind], "当前审计保留记录 · 最多 " + items.length + " 项", rankTable(kind, items, data.aliases, items.length));
+      hydrateRankLatency(document.querySelector("#drawer"));
+      document.querySelectorAll("#drawer [data-rank-kind]").forEach((button) => button.onclick = () => {
+        ctx.closeDrawer();
+        rankNavigate(button.dataset.rankKind, button.dataset.rankKey);
+      });
+    });
+  }
+  function upstreams(rows, groups2) {
+    const total = rows.reduce((n, r) => n + Number(r.m.q || 0), 0);
+    return `<div class="workspace-upstream-groups">${groups2.map((group) => {
+      const items = rows.filter((r) => r.g === group), q = items.reduce((n, r) => n + Number(r.m.q || 0), 0);
+      return `<section class="glass-card workspace-upstream-group"><header class="gc-head"><div><h2 class="gc-title">${esc2(ctx.groupName(group))}</h2><span class="workspace-subline">${items.filter((r) => r.u.enabled !== false).length} 个启用节点</span></div><span class="workspace-upstream-total">${number(q)} 次 · ${percent(q, total)}</span></header><div class="table-wrap"><table class="workspace-upstream-table"><thead><tr><th>启用</th><th>节点 / 协议 / 地址</th><th>请求数</th><th>平均响应</th><th>采纳率</th><th>错误</th><th>成功率</th><th>操作</th></tr></thead><tbody>${items.map(({ g, u, i, m }) => `<tr data-group="${esc2(g)}" data-index="${i}"><td><label class="switch"><input class="up-toggle" type="checkbox" aria-label="启用 ${esc2(u.tag)}" ${u.enabled !== false ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span></label></td><td><strong>${esc2(u.tag)}</strong> ${badge(u.protocol)}<span class="workspace-subline mono">${esc2(u.addr || u.server_addr || "—")}</span></td><td>${number(m.q)}<span class="workspace-subline">${percent(m.q, total)}</span></td><td>${m.latencySamples > 0 ? ctx.ms(m.latency) : "—"}</td><td>${percent(m.win, m.q)}</td><td>${m.err ? `<button type="button" class="up-error-detail-trigger" data-group="${esc2(g)}" data-index="${i}" aria-label="查看 ${esc2(u.tag)} 错误详情">${number(m.err)}</button>` : "0"}</td><td>${m.q > 0 && m.success !== null ? ctx.pct(m.success) : "—"}</td><td><div class="workspace-actions"><button type="button" class="button small up-edit">编辑</button><button type="button" class="button small danger up-delete">删除</button></div></td></tr>`).join("") || '<tr><td colspan="8" class="table-empty">暂无上游节点</td></tr>'}</tbody></table></div></section>`;
+    }).join("")}</div><details class="workspace-note"><summary>统计口径</summary><p>份额按节点请求总数计算，并发可能计入多个节点。采纳率 = 采纳数 / 节点请求数；成功率与采纳率分别统计。无样本时显示“—”。</p></details>`;
+  }
+  const purpose = (r) => ["custom_cn", "geosite_cn", "geoip_cn"].includes(r.tag) ? "国内解析" : "海外解析";
+  function diversionRow(r, format) {
+    return `<tr class="collection-diversion-row" data-tag="${esc2(r.tag)}" data-name="${esc2(r.name)}" data-purpose="${purpose(r)}" data-search="${esc2([r.name, r.group, r.url, r.files].join(" ").toLowerCase())}"><td><label class="switch"><input class="div-enable" type="checkbox" aria-label="启用 ${esc2(r.name)}" ${r.enabled ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span></label></td><td class="div-name"><strong>${esc2(r.name)}</strong>${r.last_error ? ` <span class="badge danger" title="${esc2(r.last_error)}">异常</span>` : ""}</td><td class="div-format">${esc2(format(r))}</td><td><div class="collection-source" title="${esc2(r.url || r.files || "")}">${esc2(r.url || r.files || "未配置来源")}</div></td><td>${r.rule_count !== void 0 ? number(r.rule_count) : "—"}</td><td class="div-auto">${r.auto_update ? "是" : "否"}</td><td class="div-updated">${esc2(ctx.fmtDate(r.last_updated || r.updated_at))}</td><td><div class="workspace-actions"><button type="button" class="button small div-detail">详情</button><button type="button" class="button small div-update">更新</button><button type="button" class="button small div-edit">编辑</button><button type="button" class="button small danger div-delete">删除</button></div></td></tr>`;
+  }
+  function diversionGroups(rows, format, defs) {
+    const order = Array.isArray(defs) && defs.length ? defs : [...new Set(rows.map((r) => r.tag))].map((tag) => ({ tag, label: tag }));
+    const sections = order.map((def) => ({ ...def, items: rows.filter((r) => r.tag === def.tag) })).filter((section) => section.items.length);
+    const head = ["启用", "名称", "格式", "订阅地址", "规则数", "自动更新", "上次更新", "操作"].map((name) => `<th scope="col">${name}</th>`).join("");
+    return sections.map((section) => {
+      const total = section.items.reduce((sum, item) => sum + (Number(item.rule_count) || 0), 0);
+      const open = diversionOpen.has(section.tag);
+      const kind = section.domainRules === false ? "IP 段" : "域名规则";
+      const body2 = section.items.map((item) => diversionRow(item, format)).join("");
+      return `<section class="div-group" data-diversion-group="${esc2(section.tag)}"><header class="div-group-head" data-div-toggle="${esc2(section.tag)}" aria-expanded="${open}" aria-controls="div-group-${esc2(section.tag)}"><svg class="div-group-chevron${open ? " open" : ""}" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg><strong>${esc2(section.label)}</strong><span class="div-group-kind">${kind}</span><span class="div-group-meta">${section.items.length} 个来源 · ${number(total)} 条</span><button type="button" class="button small div-group-update" data-div-update-group="${esc2(section.tag)}">全部更新</button></header><div class="div-group-body" id="div-group-${esc2(section.tag)}"${open ? "" : " hidden"}><div class="table-wrap collection-diversion-wrap"><table class="collection-diversion-table"><thead><tr>${head}</tr></thead><tbody>${body2}</tbody></table></div></div></section>`;
+    }).join("");
+  }
+  function diversionStats(rows, defs) {
+    const order = Array.isArray(defs) && defs.length ? defs : [];
+    const cards = order.map((def) => {
+      const items = rows.filter((r) => r.tag === def.tag);
+      if (!items.length) return "";
+      const total = items.reduce((sum, item) => sum + (Number(item.rule_count) || 0), 0);
+      return `<button type="button" class="div-stat" data-div-stat="${esc2(def.tag)}" title="查看 ${esc2(def.label)}"><span class="div-stat-label">${esc2(def.label)}</span><strong class="div-stat-value">${number(total)}</strong><span class="div-stat-meta">${items.length} 个来源</span></button>`;
+    }).join("");
+    return cards ? `<div class="div-stats">${cards}</div>` : "";
+  }
+  function diversion(rows, errors, format, defs) {
+    return `${errors.length ? `<div class="error-panel">${errors.map((x) => {
+      var _a2;
+      return esc2(x.def.label) + "：" + esc2(((_a2 = x.error) == null ? void 0 : _a2.message) || "读取失败");
+    }).join("；")}</div>` : ""}${diversionStats(rows, defs)}<div class="workspace-rule-filter"><input id="div-search" aria-label="搜索在线规则" placeholder="搜索名称、类型或来源" value="${esc2(ruleFilter.q)}"><div class="workspace-filter-buttons" role="group" aria-label="规则用途">${["全部", "国内解析", "海外解析"].map((g) => `<button type="button" class="glass-btn" data-div-purpose="${g}" aria-pressed="${ruleFilter.group === g}">${g}</button>`).join("")}</div></div><div data-collection-view="cards">${["国内解析", "海外解析"].map((group) => `<section class="workspace-rule-group" data-purpose-group="${group}"><header><h3>${group}</h3><span>${rows.filter((r) => purpose(r) === group).length} 个来源</span></header><div class="workspace-rule-grid">${rows.filter((r) => purpose(r) === group).map((r) => `<article class="workspace-rule-card" data-tag="${esc2(r.tag)}" data-name="${esc2(r.name)}" data-purpose="${group}" data-search="${esc2([r.name, r.group, r.url, r.files].join(" ").toLowerCase())}"><header><div><h3>${esc2(r.name)}</h3><span class="workspace-subline">${esc2(r.group)}</span></div><label class="switch"><input class="div-enable" type="checkbox" aria-label="启用 ${esc2(r.name)}" ${r.enabled ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span></label></header><p class="workspace-rule-source" title="${esc2(r.url || r.files || "")}">${esc2(r.url || r.files || "未配置来源")}</p><div class="workspace-rule-facts">${badge(format(r))}<span>${r.rule_count !== void 0 ? number(r.rule_count) + " 条" : "数量未记录"}</span>${badge(r.enabled ? "已启用" : "已关闭", r.enabled ? "success" : "")}</div><footer><span>${r.last_error ? esc2(r.last_error) : esc2(ctx.fmtDate(r.last_updated || r.updated_at))}</span><button type="button" class="button small div-detail">查看详情</button></footer><div class="workspace-rule-actions"><button type="button" class="button small div-update">更新</button><button type="button" class="button small div-edit">编辑</button><button type="button" class="button small danger div-delete">删除</button></div></article>`).join("")}</div></section>`).join("")}</div><div data-collection-view="list">${diversionGroups(rows, format, defs)}</div><p id="div-empty" class="workspace-empty" hidden>没有匹配的规则，试试其他名称或用途。</p>`;
+  }
+  function bindDiversion(root) {
+    const listView = root.querySelector('[data-collection-view="list"]');
+    const apply3 = () => {
+      let total = 0;
+      root.querySelectorAll(".workspace-rule-card,.collection-diversion-row").forEach((card2) => {
+        card2.hidden = !!(ruleFilter.group !== "全部" && card2.dataset.purpose !== ruleFilter.group || ruleFilter.q && !card2.dataset.search.includes(ruleFilter.q.toLowerCase()));
+        if (!card2.hidden) total++;
+      });
+      root.querySelectorAll("[data-purpose-group]").forEach((group) => group.hidden = ![...group.querySelectorAll(".workspace-rule-card")].some((card2) => !card2.hidden));
+      root.querySelectorAll("[data-diversion-group]").forEach((section) => section.hidden = ![...section.querySelectorAll(".collection-diversion-row")].some((row) => !row.hidden));
+      root.querySelector("#div-empty").hidden = total > 0;
+      if (listView) listView.hidden = total === 0;
+      root.querySelectorAll("[data-div-purpose]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.divPurpose === ruleFilter.group)));
+    };
+    root.querySelector("#div-search").oninput = (event) => {
+      ruleFilter.q = event.target.value.trim();
+      apply3();
+    };
+    root.querySelectorAll("[data-div-purpose]").forEach((button) => button.onclick = () => {
+      ruleFilter.group = button.dataset.divPurpose;
+      apply3();
+    });
+    root.querySelectorAll("[data-div-stat]").forEach((card2) => card2.onclick = () => {
+      const section = root.querySelector(`[data-diversion-group="${card2.dataset.divStat}"]`);
+      if (!section) return;
+      const body2 = section.querySelector(".div-group-body");
+      const head = section.querySelector(".div-group-head");
+      if ((body2 == null ? void 0 : body2.hidden) && head) head.click();
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    root.querySelectorAll("[data-div-toggle]").forEach((head) => head.onclick = (event) => {
+      var _a2;
+      if (event.target.closest("[data-div-update-group]")) return;
+      const body2 = root.querySelector("#" + CSS.escape(head.getAttribute("aria-controls") || ""));
+      if (!body2) return;
+      const open = body2.hidden;
+      body2.hidden = !open;
+      head.setAttribute("aria-expanded", String(open));
+      (_a2 = head.querySelector(".div-group-chevron")) == null ? void 0 : _a2.classList.toggle("open", open);
+      const tag = head.dataset.divToggle;
+      if (open) diversionOpen.add(tag);
+      else diversionOpen.delete(tag);
+    });
+    apply3();
+  }
+  function ruleDetails(rule, edit, format) {
+    const draw = (tab) => {
+      var _a2;
+      const values = tab === "content" ? [["格式", format(rule)], ["规则数量", rule.rule_count === void 0 ? "未记录" : number(rule.rule_count)], ["源缓存文件", rule.files || rule.path || "未记录"]] : tab === "source" ? [["订阅地址", rule.url || "未配置"], ["用途", purpose(rule)], ["类型", rule.group]] : tab === "update" ? [["上次更新", ctx.fmtDate(rule.last_updated || rule.updated_at)], ["自动更新", rule.auto_update ? "已开启" : "已关闭"], ["更新间隔", rule.update_interval_hours + " 小时"], ["上次错误", rule.last_error || "未记录"]] : [["名称", rule.name], ["启用状态", rule.enabled ? "已启用" : "已关闭"], ["数据集", rule.dataset || "自动识别"]];
+      ctx.openDrawer(rule.name, "在线分流规则", `<div class="workspace-detail-tabs" role="group" aria-label="规则详情">${[["content", "内容"], ["source", "来源"], ["update", "更新"], ["advanced", "高级"]].map(([id, name]) => `<button type="button" class="glass-btn" data-rule-detail-tab="${id}" aria-pressed="${tab === id}">${name}</button>`).join("")}</div><dl class="workspace-facts">${values.map(([k, v]) => `<div><dt>${esc2(k)}</dt><dd>${esc2(v)}</dd></div>`).join("")}</dl>${tab === "content" ? '<p class="workspace-note-text">编译后的规则由订阅生成；修改内容请编辑订阅来源或本地名单。</p>' : ""}<button type="button" class="button primary" id="rule-detail-edit">编辑订阅</button>`);
+      document.querySelectorAll("[data-rule-detail-tab]").forEach((b) => b.onclick = () => draw(b.dataset.ruleDetailTab));
+      document.querySelector("#rule-detail-edit").onclick = () => {
+        ctx.closeDrawer();
+        edit();
+      };
+      (_a2 = document.querySelector('[data-rule-detail-tab="' + tab + '"]')) == null ? void 0 : _a2.focus({ preventScroll: true });
+    };
+    draw("content");
+  }
+  const draftKey = (rule) => "localdns-subscription-draft:" + ((ctx == null ? void 0 : ctx.apiBase) || location.host) + ":" + (rule ? rule.tag + ":" + rule.name : "new");
+  function clearRuleDraft(rule) {
+    try {
+      sessionPreferences.removeItem(draftKey(rule));
+    } catch {
+    }
+  }
+  function trackRuleDraft(rule) {
+    modalController == null ? void 0 : modalController.abort();
+    modalController = new AbortController();
+    const root = document.querySelector("#modal-content"), fields = ["name", "type", "url", "files", "enabled", "auto", "hours"];
+    const snapshot = () => Object.fromEntries(fields.map((k) => {
+      const el = root.querySelector("#div-" + k);
+      return [k, el.type === "checkbox" ? el.checked : el.value];
+    }));
+    const baseline = JSON.stringify(snapshot()), key = draftKey(rule);
+    try {
+      const saved = JSON.parse(sessionPreferences.getItem(key));
+      if (saved) fields.forEach((k) => {
+        const el = root.querySelector("#div-" + k);
+        if (typeof saved[k] === (el.type === "checkbox" ? "boolean" : "string")) {
+          if (el.type === "checkbox") el.checked = saved[k];
+          else el.value = saved[k];
+        }
+      });
+    } catch {
+    }
+    const status = document.createElement("p");
+    status.className = "workspace-draft-state";
+    status.setAttribute("role", "status");
+    root.prepend(status);
+    const save = () => {
+      if (!fields.every((k) => root.querySelector("#div-" + k))) {
+        modalController == null ? void 0 : modalController.abort();
+        return;
+      }
+      const next = snapshot(), dirty = JSON.stringify(next) !== baseline;
+      try {
+        if (dirty) sessionPreferences.setItem(key, JSON.stringify(next));
+        else sessionPreferences.removeItem(key);
+        status.textContent = dirty ? "未保存草稿 · 本次浏览器会话中保留" : "未修改";
+      } catch {
+        status.textContent = dirty ? "未保存修改 · 浏览器无法保留草稿" : "未修改";
+      }
+    };
+    root.addEventListener("input", save, { signal: modalController.signal });
+    root.addEventListener("change", save, { signal: modalController.signal });
+    save();
+  }
+  function finish(root) {
+    const title = root.querySelector(".view-title-row");
+    if (title) {
+      title.classList.add("workspace-page-tools");
+      title.hidden = ctx.state.route === "overview" || !title.querySelector("h1") && !title.querySelector("button");
+    }
+    root.querySelectorAll(".workspace-upstream-table,.workspace-rank-table").forEach((t) => t.classList.remove("mobile-records"));
+  }
+  function topology(root, redraw, sets) {
+    var _a2, _b2;
+    const wrap = root.querySelector("#topo-stage-wrap");
+    if (!wrap) return;
+    let toolbar = root.querySelector(".workspace-topology-tools");
+    if (!toolbar) {
+      toolbar = document.createElement("div");
+      toolbar.className = "workspace-topology-tools";
+      wrap.closest(".topology-glass-card").prepend(toolbar);
+    }
+    const r1Val = (_b2 = (_a2 = root.querySelector('[data-node-id="r1"] .tn-val')) == null ? void 0 : _a2.textContent) == null ? void 0 : _b2.trim();
+    const choices = [["r1", r1Val && r1Val !== "0" && r1Val !== "—" ? `国内解析 (${r1Val})` : "国内解析"], ["r3", "海外解析"], ["r4", "FakeIP"], ["r6", "本地拦截"]];
+    const patterns = { r1: /^(domestic|geosite_cn|custom_cn)$|国内/i, r2: /^(whitelist|custom_cn)$|白名单/i, r3: /foreign|non_cn|海外|国外/i, r4: /fakeip|grey|灰/i, r5: /adguard|广告/i, r6: /block|black|拦截/i, g1: /^domestic$|国内/i, g2: /^foreign$|海外|国外/i, g3: /foreign_ecs/i, g4: /proxy|fakeip/i, g5: /block|adguard|拦截/i };
+    const update = () => {
+      var _a3;
+      const id = ctx.state.overviewTopoLock, activeOnly = Boolean(ctx.state.onlyActiveFlow), keys = patterns[id] ? (sets || []).filter((x) => patterns[id].test(x.key)).map((x) => x.key) : [];
+      wrap.classList.toggle("only-active-flow", activeOnly);
+      setHTML(toolbar, `<div class="workspace-filter-buttons" role="group" aria-label="锁定解析分支">${choices.map(([key, name]) => `<button type="button" class="glass-btn" data-topology-lock="${key}" aria-pressed="${id === key}">${esc2(name)}</button>`).join("")}<button type="button" class="glass-btn" data-topology-clear aria-pressed="${!id}">全部路径</button><button type="button" class="glass-btn" data-toggle-active-flow aria-pressed="${activeOnly}" title="过滤当前请求数为 0 的空闲分支，突出实际有流量的主干路径">仅看活跃路径</button></div><div class="workspace-topology-status"><span>${id ? "已锁定：" + esc2(((_a3 = root.querySelector('[data-node-id="' + id + '"] .tn-name')) == null ? void 0 : _a3.textContent) || id) : "选择分支或节点锁定路径"}</span><div class="workspace-actions"><button type="button" class="glass-btn" data-topology-node ${id ? "" : "disabled"}>节点详情</button><button type="button" class="glass-btn" data-topology-queries ${keys.length ? "" : "disabled"} title="${keys.length ? "查看对应分类" : "当前没有可对应的日志分类"}">相关查询</button></div></div>`);
+      toolbar.querySelectorAll("[data-topology-lock]").forEach((b) => b.onclick = () => {
+        ctx.state.overviewTopoLock = id === b.dataset.topologyLock ? null : b.dataset.topologyLock;
+        redraw();
+        update();
+      });
+      toolbar.querySelector("[data-topology-clear]").onclick = () => {
+        ctx.state.overviewTopoLock = null;
+        redraw();
+        update();
+      };
+      toolbar.querySelector("[data-toggle-active-flow]").onclick = () => {
+        ctx.state.onlyActiveFlow = !ctx.state.onlyActiveFlow;
+        update();
+      };
+      toolbar.querySelector("[data-topology-node]").onclick = () => {
+        const node = root.querySelector('[data-node-id="' + id + '"]');
+        if (!node) return;
+        const handler = node.onclick;
+        node.onclick = node._workspaceOriginalClick || null;
+        node.click();
+        node.onclick = handler;
+      };
+      toolbar.querySelector("[data-topology-queries]").onclick = () => {
+        if (keys.length === 1) rankNavigate("set", keys[0]);
+        else {
+          ctx.openDrawer("相关查询", "选择已记录的分流分类", keys.map((key) => `<button type="button" class="button" data-topology-set="${esc2(key)}">${esc2(key)}</button>`).join(""));
+          document.querySelectorAll("[data-topology-set]").forEach((b) => b.onclick = () => {
+            ctx.closeDrawer();
+            rankNavigate("set", b.dataset.topologySet);
+          });
+        }
+      };
+      root.querySelectorAll("[data-chs-lock]").forEach((b) => {
+        b.setAttribute("aria-pressed", String(id === b.dataset.chsLock));
+      });
+    };
+    root.querySelectorAll("[data-chs-lock]").forEach((b) => {
+      b.onclick = () => {
+        ctx.state.overviewTopoLock = ctx.state.overviewTopoLock === b.dataset.chsLock ? null : b.dataset.chsLock;
+        redraw();
+        update();
+        wrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      };
+    });
+    root.querySelectorAll(".t-node").forEach((node) => {
+      node._workspaceOriginalClick = node.onclick;
+      node.onclick = (e) => {
+        e.stopPropagation();
+        ctx.state.overviewTopoLock = ctx.state.overviewTopoLock === node.dataset.nodeId ? null : node.dataset.nodeId;
+        redraw();
+        update();
+      };
+    });
+    const onKey = (e) => {
+      if (e.key === "Escape" && !document.querySelector(".drawer.open,dialog[open]")) {
+        ctx.state.overviewTopoLock = null;
+        redraw();
+        update();
+      }
+    };
+    root.addEventListener("keydown", onKey);
+    ctx.trackRouteCleanup(() => root.removeEventListener("keydown", onKey));
+    update();
+  }
+  workspaceService = { setup: (options) => {
+    ctx = options;
+  }, logTools, bindLogs, rankings, bindRanks, upstreams, diversion, bindDiversion, ruleDetails, trackRuleDraft, clearRuleDraft, modalChanging: () => modalController == null ? void 0 : modalController.abort(), finish, topology };
+}
+function modalOpen(title, subtitle, html2, onSave, showActions = true) {
+  workspaceService.modalChanging();
+  $("#modal-title").textContent = title;
+  $("#modal-subtitle").textContent = subtitle || "";
+  setHTML($("#modal-content"), html2);
+  setHTML($("#modal-actions"), showActions ? `<button class="button" id="modal-cancel" type="button" value="cancel">取消</button><button class="button primary" id="modal-save" type="button">保存</button>` : "");
+  const scope = currentScope(), d = $("#modal");
+  shellInterfaceService == null ? void 0 : shellInterfaceService.semantics(d);
+  if (!d.open) d.showModal();
+  const firstFocusable = $("#modal-content").querySelector('input:not([disabled]),select:not([disabled]),textarea:not([disabled]),button:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])');
+  firstFocusable == null ? void 0 : firstFocusable.focus();
+  const cancel = $("#modal-cancel");
+  if (cancel) cancel.onclick = modalClose;
+  if (onSave && showActions) $("#modal-save").onclick = async () => {
+    var _a2;
+    if (!$("#modal-form").reportValidity()) return;
+    const b = $("#modal-save");
+    b.disabled = true;
+    (_a2 = $("#modal-error")) == null ? void 0 : _a2.remove();
+    try {
+      const next = await onSave();
+      if (scope.signal.aborted) return;
+      modalClose();
+      if (typeof next === "function") next();
+    } catch (e) {
+      if (scope.signal.aborted) return;
+      shellInterfaceService == null ? void 0 : shellInterfaceService.formError(e.message);
+      toast("操作失败", "error", e.message);
+    } finally {
+      b.disabled = false;
+    }
+  };
+}
+function modalClose() {
+  workspaceService.modalChanging();
+  const d = $("#modal");
+  d.classList.remove("overview-detail-modal");
+  if (d.open) d.close();
+}
+function confirmHost() {
+  const existing = $("#confirm-modal");
+  if (existing) return existing;
+  const d = document.createElement("dialog");
+  d.id = "confirm-modal";
+  d.className = "modal";
+  setHTML(d, `<form method="dialog" class="modal-panel"><div class="modal-header"><div><h2 id="confirm-title">请确认</h2></div></div><div class="modal-content"><p class="confirm-dialog-msg" id="confirm-message"></p></div><div class="modal-actions"><button class="button" id="confirm-cancel" type="button">取消</button><button class="button primary" id="confirm-ok" type="button">确定</button></div></form>`);
+  document.body.appendChild(d);
+  return d;
+}
+function confirmDialog({ title = "请确认", message = "", confirmText = "确定", danger = false }) {
+  const d = confirmHost();
+  return new Promise((resolve) => {
+    const ok = $("#confirm-ok", d), cancel = $("#confirm-cancel", d);
+    $("#confirm-title", d).textContent = title;
+    setHTML($("#confirm-message", d), esc$1(message).replace(/\n/g, "<br>"));
+    ok.className = `button ${danger ? "danger" : "primary"}`;
+    ok.textContent = confirmText;
+    const done = (v) => {
+      d.removeEventListener("cancel", onEsc);
+      ok.onclick = null;
+      cancel.onclick = null;
+      if (d.open) d.close();
+      resolve(v);
+    };
+    const onEsc = (e) => {
+      e.preventDefault();
+      done(false);
+    };
+    d.addEventListener("cancel", onEsc);
+    cancel.onclick = () => done(false);
+    ok.onclick = () => done(true);
+    shellInterfaceService == null ? void 0 : shellInterfaceService.semantics(d);
+    if (!d.open) d.showModal();
+    (danger ? cancel : ok).focus();
+  });
+}
 function createUIUpdatePanel(container) {
   setHTML(container, `<h3>在线升级 UI</h3>
     <p class="version-note" data-update-connection>正在连接服务器升级入口…</p>
@@ -5325,10 +6316,11 @@ function createUIUpdatePanel(container) {
   const message = get(".version-update-result"), progress = get(".version-update-progress");
   let client, available = false, busy = false, reading = false, error = "";
   let installed = null, latest = null;
+  let connectionState = "idle";
   let task = { state: "idle", canRollback: false }, timer;
   const running = () => task.state === "queued" || task.state === "running";
   const currentUI = () => installed && task.installedVersion ? { ...installed, uiVersion: task.installedVersion } : installed;
-  const describe = (failure) => failure instanceof Error ? failure.message : "连接失败，请重试。";
+  const describe = (failure) => failure instanceof Error && (failure.name === "TypeError" || /Failed to fetch|NetworkError/.test(failure.message)) ? "连接失败，请重试。" : failure instanceof Error ? failure.message : "连接失败，请重试。";
   function paint() {
     const target = upgradeTarget(currentUI(), latest);
     start.disabled = !available || !target.tag || busy || running();
@@ -5342,7 +6334,7 @@ function createUIUpdatePanel(container) {
     retry.disabled = busy;
     retry.textContent = available ? "刷新状态" : "重试连接";
     help.hidden = available;
-    connection.textContent = available ? "已连接，升级任务由服务器执行。" : busy ? "正在连接服务器升级入口…" : "此服务器尚未启用网页升级。完成一次安装后即可在这里操作。";
+    connection.textContent = available ? "已连接，升级任务由服务器执行。" : busy ? "正在连接服务器升级入口…" : connectionState === "not-enabled" ? "此服务器尚未启用网页升级。完成一次安装后即可在这里操作。" : connectionState === "failed" ? "连接失败，请重试。" : "正在连接服务器升级入口…";
     get("[data-update-target]").textContent = needsRefresh ? `当前页面 UI 为 ${(installed == null ? void 0 : installed.uiVersion) || "旧版"}；刷新后使用服务器上的 ${task.installedVersion}。` : target.reason;
     progress.hidden = !running();
     message.hidden = !task.message;
@@ -5385,7 +6377,9 @@ function createUIUpdatePanel(container) {
       available = true;
     } catch (failure) {
       available = false;
-      error = failure instanceof ApiError && failure.status === 404 ? "" : describe(failure);
+      const notFound = failure instanceof ApiError && failure.status === 404;
+      connectionState = notFound ? "not-enabled" : "failed";
+      error = notFound ? "" : describe(failure);
     } finally {
       busy = false;
       paint();
@@ -5395,7 +6389,7 @@ function createUIUpdatePanel(container) {
   async function execute(restore) {
     const target = upgradeTarget(currentUI(), latest);
     if (!client || !available || busy || running() || !restore && !target.tag) return;
-    if (!window.confirm(restore ? "恢复上一版 UI？当前 Logo、字体和站点配置会保留。" : "开始升级 UI？请先保存未提交的修改。升级完成后由你手动刷新，DNS 服务继续运行。")) return;
+    if (!await confirmDialog({ message: restore ? "恢复上一版 UI？当前 Logo、字体和站点配置会保留。" : "开始升级 UI？请先保存未提交的修改。升级完成后由你手动刷新，DNS 服务继续运行。", danger: restore })) return;
     busy = true;
     error = "";
     paint();
@@ -5557,7 +6551,7 @@ const versionService = (() => {
             } catch {
             }
           } catch (failure) {
-            error = failure.name === "AbortError" ? "连接 GitHub 超时。" : failure.message || "无法连接 GitHub。";
+            error = failure.name === "AbortError" ? "连接 GitHub 超时。" : failure instanceof TypeError || /Failed to fetch|NetworkError/.test(failure.message || "") ? "无法连接 GitHub，请检查网络后重试。" : failure.message || "无法连接 GitHub。";
           } finally {
             checking = false;
             pending = null;
@@ -5603,347 +6597,14 @@ const versionService = (() => {
   }
   return { versionParts, compareVersions, releaseInfo, assess, setup };
 })();
-function initialize$b() {
-  versionService.setup();
-}
-let workspaceService;
 function initialize$a() {
-  "use strict";
-  const esc2 = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-  const number = (value) => Number(value || 0).toLocaleString("zh-CN");
-  const percent = (n, d) => Number(d) > 0 ? (Number(n || 0) / Number(d) * 100).toFixed(1) + "%" : "—";
-  const badge = (text2, cls = "") => `<span class="badge ${cls}">${esc2(text2)}</span>`;
-  const keyFields = ["q", "type", "set", "code", "client", "exact"];
-  let ctx, ruleFilter = { q: "", group: "全部" }, modalController;
-  const store = {
-    get(key, fallback) {
-      try {
-        const v = JSON.parse(preferences.getItem("localdns-workspace:" + ((ctx == null ? void 0 : ctx.apiBase) || location.host) + ":" + key));
-        return v ?? fallback;
-      } catch {
-        return fallback;
-      }
-    },
-    set(key, value) {
-      try {
-        preferences.setItem("localdns-workspace:" + ((ctx == null ? void 0 : ctx.apiBase) || location.host) + ":" + key, JSON.stringify(value));
-        return true;
-      } catch {
-        return false;
-      }
-    }
-  };
-  function cleanFilter(value = {}) {
-    return Object.fromEntries(keyFields.map((key) => [key, key === "exact" ? value[key] === true : typeof value[key] === "string" ? value[key].slice(0, 2e3) : ""]));
-  }
-  function views() {
-    const saved = store.get("query-views", null);
-    return Array.isArray(saved) ? saved.filter((v) => v && typeof v.name === "string" && v.filter && typeof v.filter === "object").slice(0, 12).map((v) => ({ name: v.name.slice(0, 40), filter: cleanFilter(v.filter) })) : [{ name: "SERVFAIL", filter: cleanFilter({ code: "SERVFAIL" }) }, { name: "AAAA 请求", filter: cleanFilter({ type: "AAAA" }) }];
-  }
-  function columns() {
-    const value = store.get("query-columns", {});
-    return Object.fromEntries(["type", "set", "client", "code"].map((k) => [k, (value == null ? void 0 : value[k]) !== false]));
-  }
-  function applyColumns(root) {
-    const cols = columns(), mapping = { type: 2, set: 3, client: 5, code: 6 };
-    root.querySelectorAll(".workspace-log-table tr").forEach((row) => Object.entries(mapping).forEach(([key, index]) => {
-      if (row.children[index] && row.children.length === 8) row.children[index].hidden = !cols[key];
-    }));
-  }
-  function logTools(filter) {
-    const labels = { q: "搜索", type: "类型", set: "分流", code: "响应码", client: "客户端包含", exact: "精确匹配" }, cols = columns();
-    return `<details class="workspace-log-extras" ${matchMedia("(max-width:600px)").matches ? "" : "open"}><summary>常用筛选与显示设置</summary><div class="workspace-saved"><span>常用筛选</span>${views().map((v, i) => `<button type="button" class="glass-btn" data-query-view="${i}">${esc2(v.name)}</button>`).join("")}<button type="button" class="glass-btn" id="log-save-view">保存当前条件</button></div><div class="workspace-log-tools"><span id="log-live-state">${ctx.state.logsPaused ? "刷新已暂停" : "自动刷新已开启"}</span><div><details class="workspace-columns"><summary>显示列</summary><div>${Object.entries({ type: "类型", set: "分流", client: "客户端", code: "响应码" }).map(([k, name]) => `<label><input type="checkbox" data-query-column="${k}" ${cols[k] ? "checked" : ""}>${name}</label>`).join("")}</div></details><button type="button" class="glass-btn" id="log-export">导出当前页</button></div></div></details><div class="workspace-filter-chips">${keyFields.filter((k) => filter[k]).map((k) => `<button type="button" data-clear-query="${k}" aria-label="移除${labels[k]}筛选">${labels[k]}${k === "exact" ? "" : "：" + esc2(filter[k])}<span aria-hidden="true"> ×</span></button>`).join("")}</div>`;
-  }
-  function bindLogs(root, rows) {
-    applyColumns(root);
-    root.querySelectorAll("[data-query-view]").forEach((b) => b.onclick = () => {
-      Object.assign(ctx.state.logs, { page: 1, ...views()[Number(b.dataset.queryView)].filter });
-      ctx.renderRoute(true);
-    });
-    root.querySelectorAll("[data-clear-query]").forEach((b) => b.onclick = () => {
-      ctx.state.logs[b.dataset.clearQuery] = b.dataset.clearQuery === "exact" ? false : "";
-      ctx.state.logs.page = 1;
-      ctx.renderRoute(true);
-    });
-    root.querySelectorAll("[data-query-column]").forEach((input) => input.onchange = () => {
-      const next = columns();
-      next[input.dataset.queryColumn] = input.checked;
-      if (!store.set("query-columns", next)) ctx.toast("显示列偏好无法保存", "error");
-      applyColumns(root);
-    });
-    root.querySelector("#log-save-view").onclick = () => ctx.modalOpen("保存筛选", "仅保存在当前浏览器", `<div class="field"><label for="query-view-name">名称</label><input id="query-view-name" maxlength="40" placeholder="例如：工作电脑的失败查询"></div>`, async () => {
-      const name = document.querySelector("#query-view-name").value.trim();
-      if (!name) throw new Error("请填写筛选名称");
-      const saved = [{ name, filter: cleanFilter(ctx.state.logs) }, ...views().filter((v) => v.name !== name)].slice(0, 12);
-      if (!store.set("query-views", saved)) throw new Error("浏览器无法保存，请检查存储空间");
-      ctx.toast("筛选已保存");
-      ctx.renderRoute(true);
-    });
-    root.querySelector("#log-export").onclick = () => ctx.downloadText("LocalDNS-query-page-" + ctx.state.logs.page + ".json", JSON.stringify(rows, null, 2));
-    root.querySelector("#log-pause").onclick = () => {
-      ctx.state.logsPaused = !ctx.state.logsPaused;
-      root.querySelector("#log-pause").textContent = ctx.state.logsPaused ? "继续刷新" : "暂停刷新";
-      root.querySelector("#log-pause").setAttribute("aria-pressed", String(ctx.state.logsPaused));
-      root.querySelector("#log-live-state").textContent = ctx.state.logsPaused ? "刷新已暂停" : "自动刷新已开启";
-    };
-  }
-  let rankLatency;
-  const latency = (row) => row.average_duration_ms !== void 0 && row.average_duration_ms !== null && row.average_duration_ms !== "" && Number.isFinite(Number(row.average_duration_ms)) ? ctx.ms(row.average_duration_ms) : null;
-  function latencyCell(kind, item) {
-    const provided = latency(item);
-    return `<td data-rank-latency-kind="${kind}" data-rank-latency-key="${esc2(item.key)}"${provided ? ' data-latency-ready="true" title="后端排行统计"' : ""}>${provided || '<button type="button" class="workspace-text-button" data-load-rank-latency>查看延时</button>'}</td>`;
-  }
-  function hydrateRankLatency(root) {
-    const cells = [...root.querySelectorAll("[data-rank-latency-kind]:not([data-latency-ready])")];
-    if (!cells.length) return;
-    rankLatency || (rankLatency = rankLatencyService.create((options) => ctx.loadLogs(options)));
-    const observer = new IntersectionObserver((entries2) => entries2.forEach((entry) => {
-      if (entry.isIntersecting) {
-        observer.unobserve(entry.target);
-        load(entry.target);
-      }
-    }), { rootMargin: "120px" });
-    async function load(cell) {
-      if (cell.dataset.latencyReady || cell.dataset.latencyLoading) return;
-      cell.dataset.latencyLoading = "true";
-      cell.textContent = "统计中…";
-      try {
-        const result = await rankLatency.get(cell.dataset.rankLatencyKind, cell.dataset.rankLatencyKey, () => cell.isConnected);
-        if (!cell.isConnected) return;
-        cell.dataset.latencyReady = "true";
-        cell.textContent = result.average === null ? "暂无样本" : ctx.ms(result.average);
-        cell.title = result.average === null ? "该分类暂无有效请求耗时，未用 0 代替缺失数据" : `${result.partial ? "近期" : "当前保留"} ${number(result.samples)} 条有效请求的平均耗时；含缓存与本地应答`;
-        if (result.partial && result.samples) {
-          const note = document.createElement("span");
-          note.className = "workspace-subline";
-          note.textContent = `近 ${number(result.samples)} 条`;
-          cell.append(note);
-        }
-      } catch (error) {
-        if (cell.isConnected && error.name !== "AbortError") {
-          setHTML(cell, '<button type="button" class="workspace-text-button" data-load-rank-latency>重试</button>');
-          cell.title = "请求耗时读取失败，点击重试";
-        }
-      } finally {
-        delete cell.dataset.latencyLoading;
-      }
-    }
-    cells.forEach((cell) => {
-      observer.observe(cell);
-      cell.onclick = (event) => {
-        if (event.target.closest("[data-load-rank-latency]")) load(cell);
-      };
-    });
-    ctx.trackRouteCleanup(() => observer.disconnect());
-  }
-  function rankTable(kind, items, aliases = {}, limit = 8) {
-    const label = (item) => kind === "client" ? aliases[item.key] || item.key : kind === "set" ? overviewInsightsService.label(item.key) : item.key;
-    return `<div class="table-wrap"><table class="workspace-rank-table"><thead><tr><th scope="col">${{ domain: "域名", client: "客户端", set: "解析去向" }[kind]}</th><th scope="col">请求数</th><th scope="col">平均延时</th></tr></thead><tbody>${items.slice(0, limit).map((item) => `<tr><td><button type="button" class="workspace-text-button" data-rank-kind="${kind}" data-rank-key="${esc2(item.key)}" title="${esc2(item.key)}">${esc2(label(item))}</button>${kind === "client" && aliases[item.key] ? `<span class="workspace-subline mono">${esc2(item.key)}</span>` : ""}</td><td>${number(item.count)}</td>${latencyCell(kind, item)}</tr>`).join("") || '<tr><td colspan="3" class="table-empty">暂无记录</td></tr>'}</tbody></table></div>`;
-  }
-  function rankings({ domains, clients, sets, total, aliases }) {
-    const limit = matchMedia("(max-width:600px)").matches ? 5 : 8;
-    return `<div class="workspace-rank-period"><span>当前审计保留记录</span><span>总请求 ${number(total)}</span></div><div class="workspace-rank-grid">${[["domain", "TOP 域名", domains], ["client", "TOP 客户端", clients], ["set", "解析去向", sets]].map(([kind, name, items]) => `<section class="glass-card workspace-rank-card"><header class="gc-head"><div><h2 class="gc-title">${name}</h2><p class="workspace-subline">显示前 ${Math.min(limit, items.length)} · ${percent(items.slice(0, limit).reduce((n, r) => n + Number(r.count || 0), 0), total)}</p></div><button type="button" class="workspace-text-button" data-rank-all="${kind}">更多</button></header>${rankTable(kind, items, aliases, limit)}</section>`).join("")}</div><details class="workspace-note"><summary>统计口径</summary><p>请求数来自当前审计保留记录。平均延时优先使用后端统计；未提供时，按每项最近最多 1,000 条请求日志计算，超过范围时标注样本数，结果缓存 60 秒。含缓存命中与本地应答的真实请求耗时，不等同于上游响应时间；0.00 ms 表示请求日志记录为 0 毫秒。</p></details>`;
-  }
-  function rankNavigate(kind, key) {
-    Object.assign(ctx.state.logs, { page: 1, q: "", client: "", set: "", code: "", type: "", exact: false }, kind === "client" ? { client: key, q: key, exact: true } : kind === "set" ? { set: key } : { q: key, exact: true });
-    ctx.navigate("logs");
-  }
-  function bindRanks(root, data) {
-    hydrateRankLatency(root);
-    root.querySelectorAll("[data-rank-kind]").forEach((b) => b.onclick = () => rankNavigate(b.dataset.rankKind, b.dataset.rankKey));
-    root.querySelectorAll("[data-rank-all]").forEach((b) => b.onclick = () => {
-      const kind = b.dataset.rankAll, items = { domain: data.domains, client: data.clients, set: data.sets }[kind];
-      ctx.openDrawer({ domain: "域名排行", client: "客户端排行", set: "解析去向" }[kind], "当前审计保留记录 · 最多 " + items.length + " 项", rankTable(kind, items, data.aliases, items.length));
-      hydrateRankLatency(document.querySelector("#drawer"));
-      document.querySelectorAll("#drawer [data-rank-kind]").forEach((button) => button.onclick = () => {
-        ctx.closeDrawer();
-        rankNavigate(button.dataset.rankKind, button.dataset.rankKey);
-      });
-    });
-  }
-  function upstreams(rows, groups2) {
-    const total = rows.reduce((n, r) => n + Number(r.m.q || 0), 0);
-    return `<div class="workspace-upstream-groups">${groups2.map((group) => {
-      const items = rows.filter((r) => r.g === group), q = items.reduce((n, r) => n + Number(r.m.q || 0), 0);
-      return `<section class="glass-card workspace-upstream-group"><header class="gc-head"><div><h2 class="gc-title">${esc2(ctx.groupName(group))}</h2><span class="workspace-subline">${items.filter((r) => r.u.enabled !== false).length} 个启用节点</span></div><span class="workspace-upstream-total">${number(q)} 次 · ${percent(q, total)}</span></header><div class="table-wrap"><table class="workspace-upstream-table"><thead><tr><th>启用</th><th>节点 / 协议 / 地址</th><th>请求数</th><th>平均响应</th><th>采纳率</th><th>错误</th><th>成功率</th><th>操作</th></tr></thead><tbody>${items.map(({ g, u, i, m }) => `<tr data-group="${esc2(g)}" data-index="${i}"><td><label class="switch"><input class="up-toggle" type="checkbox" aria-label="启用 ${esc2(u.tag)}" ${u.enabled !== false ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span></label></td><td><strong>${esc2(u.tag)}</strong> ${badge(u.protocol)}<span class="workspace-subline mono">${esc2(u.addr || u.server_addr || "—")}</span></td><td>${number(m.q)}<span class="workspace-subline">${percent(m.q, total)}</span></td><td>${m.latencySamples > 0 ? ctx.ms(m.latency) : "—"}</td><td>${percent(m.win, m.q)}</td><td>${m.err ? `<button type="button" class="up-error-detail-trigger" data-group="${esc2(g)}" data-index="${i}" aria-label="查看 ${esc2(u.tag)} 错误详情">${number(m.err)}</button>` : "0"}</td><td>${m.q > 0 && m.success !== null ? ctx.pct(m.success) : "—"}</td><td><div class="workspace-actions"><button type="button" class="button small up-edit">编辑</button><button type="button" class="button small danger up-delete">删除</button></div></td></tr>`).join("") || '<tr><td colspan="8" class="table-empty">暂无上游节点</td></tr>'}</tbody></table></div></section>`;
-    }).join("")}</div><details class="workspace-note"><summary>统计口径</summary><p>份额按节点请求总数计算，并发可能计入多个节点。采纳率 = 采纳数 / 节点请求数；成功率与采纳率分别统计。无样本时显示“—”。</p></details>`;
-  }
-  const purpose = (r) => ["custom_cn", "geosite_cn", "geoip_cn"].includes(r.tag) ? "国内解析" : "海外解析";
-  function diversionList(rows, format) {
-    return `<div class="table-wrap collection-diversion-wrap"><table class="collection-diversion-table"><thead><tr>${["启用", "类型", "名称", "格式", "订阅地址", "规则数", "自动更新", "上次更新", "操作"].map((name) => `<th scope="col">${name}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr class="collection-diversion-row" data-tag="${esc2(r.tag)}" data-name="${esc2(r.name)}" data-purpose="${purpose(r)}" data-search="${esc2([r.name, r.group, r.url, r.files].join(" ").toLowerCase())}"><td><label class="switch"><input class="div-enable" type="checkbox" aria-label="启用 ${esc2(r.name)}" ${r.enabled ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span></label></td><td>${esc2(r.group)}</td><td><strong>${esc2(r.name)}</strong></td><td>${esc2(format(r))}</td><td><div class="collection-source" title="${esc2(r.url || r.files || "")}">${esc2(r.url || r.files || "未配置来源")}</div></td><td>${r.rule_count !== void 0 ? number(r.rule_count) : "—"}</td><td>${r.auto_update ? "是" : "否"}</td><td>${esc2(ctx.fmtDate(r.last_updated || r.updated_at))}</td><td><div class="workspace-actions"><button type="button" class="button small div-detail">详情</button><button type="button" class="button small div-update">更新</button><button type="button" class="button small div-edit">编辑</button><button type="button" class="button small danger div-delete">删除</button></div></td></tr>`).join("")}</tbody></table></div>`;
-  }
-  function diversion(rows, errors, format) {
-    return `${errors.length ? `<div class="error-panel">${errors.map((x) => {
-      var _a2;
-      return esc2(x.def.label) + "：" + esc2(((_a2 = x.error) == null ? void 0 : _a2.message) || "读取失败");
-    }).join("；")}</div>` : ""}<div class="workspace-rule-filter"><input id="div-search" aria-label="搜索在线规则" placeholder="搜索名称、类型或来源" value="${esc2(ruleFilter.q)}"><div class="workspace-filter-buttons" role="group" aria-label="规则用途">${["全部", "国内解析", "海外解析"].map((g) => `<button type="button" class="glass-btn" data-div-purpose="${g}" aria-pressed="${ruleFilter.group === g}">${g}</button>`).join("")}</div></div><div data-collection-view="cards">${["国内解析", "海外解析"].map((group) => `<section class="workspace-rule-group" data-purpose-group="${group}"><header><h3>${group}</h3><span>${rows.filter((r) => purpose(r) === group).length} 个来源</span></header><div class="workspace-rule-grid">${rows.filter((r) => purpose(r) === group).map((r) => `<article class="workspace-rule-card" data-tag="${esc2(r.tag)}" data-name="${esc2(r.name)}" data-purpose="${group}" data-search="${esc2([r.name, r.group, r.url, r.files].join(" ").toLowerCase())}"><header><div><h3>${esc2(r.name)}</h3><span class="workspace-subline">${esc2(r.group)}</span></div><label class="switch"><input class="div-enable" type="checkbox" aria-label="启用 ${esc2(r.name)}" ${r.enabled ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span></label></header><p class="workspace-rule-source" title="${esc2(r.url || r.files || "")}">${esc2(r.url || r.files || "未配置来源")}</p><div class="workspace-rule-facts">${badge(format(r))}<span>${r.rule_count !== void 0 ? number(r.rule_count) + " 条" : "数量未记录"}</span>${badge(r.enabled ? "已启用" : "已关闭", r.enabled ? "success" : "")}</div><footer><span>${r.last_error ? esc2(r.last_error) : esc2(ctx.fmtDate(r.last_updated || r.updated_at))}</span><button type="button" class="button small div-detail">查看详情</button></footer><div class="workspace-rule-actions"><button type="button" class="button small div-update">更新</button><button type="button" class="button small div-edit">编辑</button><button type="button" class="button small danger div-delete">删除</button></div></article>`).join("")}</div></section>`).join("")}</div><div data-collection-view="list">${diversionList(rows, format)}</div><p id="div-empty" class="workspace-empty" hidden>没有匹配的规则，试试其他名称或用途。</p>`;
-  }
-  function bindDiversion(root) {
-    const apply3 = () => {
-      let total = 0;
-      root.querySelectorAll(".workspace-rule-card,.collection-diversion-row").forEach((card2) => {
-        card2.hidden = !!(ruleFilter.group !== "全部" && card2.dataset.purpose !== ruleFilter.group || ruleFilter.q && !card2.dataset.search.includes(ruleFilter.q.toLowerCase()));
-        if (!card2.hidden) total++;
-      });
-      root.querySelectorAll("[data-purpose-group]").forEach((group) => group.hidden = ![...group.querySelectorAll(".workspace-rule-card")].some((c) => !c.hidden));
-      root.querySelector("#div-empty").hidden = total > 0;
-      root.querySelector(".collection-diversion-wrap").hidden = total === 0;
-      root.querySelectorAll("[data-div-purpose]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.divPurpose === ruleFilter.group)));
-    };
-    root.querySelector("#div-search").oninput = (e) => {
-      ruleFilter.q = e.target.value.trim();
-      apply3();
-    };
-    root.querySelectorAll("[data-div-purpose]").forEach((b) => b.onclick = () => {
-      ruleFilter.group = b.dataset.divPurpose;
-      apply3();
-    });
-    apply3();
-  }
-  function ruleDetails(rule, edit, format) {
-    const draw = (tab) => {
-      var _a2;
-      const values = tab === "content" ? [["格式", format(rule)], ["规则数量", rule.rule_count === void 0 ? "未记录" : number(rule.rule_count)], ["源缓存文件", rule.files || rule.path || "未记录"]] : tab === "source" ? [["订阅地址", rule.url || "未配置"], ["用途", purpose(rule)], ["类型", rule.group]] : tab === "update" ? [["上次更新", ctx.fmtDate(rule.last_updated || rule.updated_at)], ["自动更新", rule.auto_update ? "已开启" : "已关闭"], ["更新间隔", rule.update_interval_hours + " 小时"], ["上次错误", rule.last_error || "未记录"]] : [["名称", rule.name], ["启用状态", rule.enabled ? "已启用" : "已关闭"], ["数据集", rule.dataset || "自动识别"]];
-      ctx.openDrawer(rule.name, "在线分流规则", `<div class="workspace-detail-tabs" role="group" aria-label="规则详情">${[["content", "内容"], ["source", "来源"], ["update", "更新"], ["advanced", "高级"]].map(([id, name]) => `<button type="button" class="glass-btn" data-rule-detail-tab="${id}" aria-pressed="${tab === id}">${name}</button>`).join("")}</div><dl class="workspace-facts">${values.map(([k, v]) => `<div><dt>${esc2(k)}</dt><dd>${esc2(v)}</dd></div>`).join("")}</dl>${tab === "content" ? '<p class="workspace-note-text">编译后的规则由订阅生成；修改内容请编辑订阅来源或本地名单。</p>' : ""}<button type="button" class="button primary" id="rule-detail-edit">编辑订阅</button>`);
-      document.querySelectorAll("[data-rule-detail-tab]").forEach((b) => b.onclick = () => draw(b.dataset.ruleDetailTab));
-      document.querySelector("#rule-detail-edit").onclick = () => {
-        ctx.closeDrawer();
-        edit();
-      };
-      (_a2 = document.querySelector('[data-rule-detail-tab="' + tab + '"]')) == null ? void 0 : _a2.focus({ preventScroll: true });
-    };
-    draw("content");
-  }
-  const draftKey = (rule) => "localdns-subscription-draft:" + ((ctx == null ? void 0 : ctx.apiBase) || location.host) + ":" + (rule ? rule.tag + ":" + rule.name : "new");
-  function clearRuleDraft(rule) {
-    try {
-      sessionPreferences.removeItem(draftKey(rule));
-    } catch {
-    }
-  }
-  function trackRuleDraft(rule) {
-    modalController == null ? void 0 : modalController.abort();
-    modalController = new AbortController();
-    const root = document.querySelector("#modal-content"), fields = ["name", "type", "url", "files", "enabled", "auto", "hours"];
-    const snapshot = () => Object.fromEntries(fields.map((k) => {
-      const el = root.querySelector("#div-" + k);
-      return [k, el.type === "checkbox" ? el.checked : el.value];
-    }));
-    const baseline = JSON.stringify(snapshot()), key = draftKey(rule);
-    try {
-      const saved = JSON.parse(sessionPreferences.getItem(key));
-      if (saved) fields.forEach((k) => {
-        const el = root.querySelector("#div-" + k);
-        if (typeof saved[k] === (el.type === "checkbox" ? "boolean" : "string")) {
-          if (el.type === "checkbox") el.checked = saved[k];
-          else el.value = saved[k];
-        }
-      });
-    } catch {
-    }
-    const status = document.createElement("p");
-    status.className = "workspace-draft-state";
-    status.setAttribute("role", "status");
-    root.prepend(status);
-    const save = () => {
-      if (!fields.every((k) => root.querySelector("#div-" + k))) {
-        modalController == null ? void 0 : modalController.abort();
-        return;
-      }
-      const next = snapshot(), dirty = JSON.stringify(next) !== baseline;
-      try {
-        if (dirty) sessionPreferences.setItem(key, JSON.stringify(next));
-        else sessionPreferences.removeItem(key);
-        status.textContent = dirty ? "未保存草稿 · 本次浏览器会话中保留" : "未修改";
-      } catch {
-        status.textContent = dirty ? "未保存修改 · 浏览器无法保留草稿" : "未修改";
-      }
-    };
-    root.addEventListener("input", save, { signal: modalController.signal });
-    root.addEventListener("change", save, { signal: modalController.signal });
-    save();
-  }
-  function finish(root) {
-    const title = root.querySelector(".view-title-row");
-    if (title) {
-      title.classList.add("workspace-page-tools");
-      title.hidden = ctx.state.route === "overview" || !title.querySelector("h1") && !title.querySelector("button");
-    }
-    root.querySelectorAll(".workspace-upstream-table,.workspace-rank-table").forEach((t) => t.classList.remove("mobile-records"));
-  }
-  function topology(root, redraw, sets) {
-    const wrap = root.querySelector("#topo-stage-wrap");
-    if (!wrap) return;
-    let toolbar = root.querySelector(".workspace-topology-tools");
-    if (!toolbar) {
-      toolbar = document.createElement("div");
-      toolbar.className = "workspace-topology-tools";
-      wrap.closest(".topology-glass-card").prepend(toolbar);
-    }
-    const choices = [["r1", "国内解析"], ["r3", "海外解析"], ["r4", "FakeIP"], ["r6", "本地拦截"]];
-    const patterns = { r1: /^(domestic|geosite_cn|custom_cn)$|国内/i, r2: /^(whitelist|custom_cn)$|白名单/i, r3: /foreign|non_cn|海外|国外/i, r4: /fakeip|grey|灰/i, r5: /adguard|广告/i, r6: /block|black|拦截/i, g1: /^domestic$|国内/i, g2: /^foreign$|海外|国外/i, g3: /foreign_ecs/i, g4: /proxy|fakeip/i, g5: /block|adguard|拦截/i };
-    const update = () => {
-      var _a2;
-      const id = ctx.state.overviewTopoLock, keys = patterns[id] ? (sets || []).filter((x) => patterns[id].test(x.key)).map((x) => x.key) : [];
-      setHTML(toolbar, `<div class="workspace-filter-buttons" role="group" aria-label="锁定解析分支">${choices.map(([key, name]) => `<button type="button" class="glass-btn" data-topology-lock="${key}" aria-pressed="${id === key}">${name}</button>`).join("")}<button type="button" class="glass-btn" data-topology-clear aria-pressed="${!id}">全部路径</button></div><div class="workspace-topology-status"><span>${id ? "已锁定：" + esc2(((_a2 = root.querySelector('[data-node-id="' + id + '"] .tn-name')) == null ? void 0 : _a2.textContent) || id) : "选择分支或节点锁定路径"}</span><div class="workspace-actions"><button type="button" class="glass-btn" data-topology-node ${id ? "" : "disabled"}>节点详情</button><button type="button" class="glass-btn" data-topology-queries ${keys.length ? "" : "disabled"} title="${keys.length ? "查看对应分类" : "当前没有可对应的日志分类"}">相关查询</button></div></div>`);
-      toolbar.querySelectorAll("[data-topology-lock]").forEach((b) => b.onclick = () => {
-        ctx.state.overviewTopoLock = id === b.dataset.topologyLock ? null : b.dataset.topologyLock;
-        redraw();
-        update();
-      });
-      toolbar.querySelector("[data-topology-clear]").onclick = () => {
-        ctx.state.overviewTopoLock = null;
-        redraw();
-        update();
-      };
-      toolbar.querySelector("[data-topology-node]").onclick = () => {
-        const node = root.querySelector('[data-node-id="' + id + '"]');
-        if (!node) return;
-        const handler = node.onclick;
-        node.onclick = node._workspaceOriginalClick || null;
-        node.click();
-        node.onclick = handler;
-      };
-      toolbar.querySelector("[data-topology-queries]").onclick = () => {
-        if (keys.length === 1) rankNavigate("set", keys[0]);
-        else {
-          ctx.openDrawer("相关查询", "选择已记录的分流分类", keys.map((key) => `<button type="button" class="button" data-topology-set="${esc2(key)}">${esc2(key)}</button>`).join(""));
-          document.querySelectorAll("[data-topology-set]").forEach((b) => b.onclick = () => {
-            ctx.closeDrawer();
-            rankNavigate("set", b.dataset.topologySet);
-          });
-        }
-      };
-    };
-    root.querySelectorAll(".t-node").forEach((node) => {
-      node._workspaceOriginalClick = node.onclick;
-      node.onclick = (e) => {
-        e.stopPropagation();
-        ctx.state.overviewTopoLock = ctx.state.overviewTopoLock === node.dataset.nodeId ? null : node.dataset.nodeId;
-        redraw();
-        update();
-      };
-    });
-    const onKey = (e) => {
-      if (e.key === "Escape" && !document.querySelector(".drawer.open,dialog[open]")) {
-        ctx.state.overviewTopoLock = null;
-        redraw();
-        update();
-      }
-    };
-    root.addEventListener("keydown", onKey);
-    ctx.trackRouteCleanup(() => root.removeEventListener("keydown", onKey));
-    update();
-  }
-  workspaceService = { setup: (options) => {
-    ctx = options;
-  }, logTools, bindLogs, rankings, bindRanks, upstreams, diversion, bindDiversion, ruleDetails, trackRuleDraft, clearRuleDraft, modalChanging: () => modalController == null ? void 0 : modalController.abort(), finish, topology };
+  versionService.setup();
 }
 let collectionsService;
 function initialize$9() {
   "use strict";
   const definitions = [
-    { key: "diversion", name: "在线分流规则", selector: ".workspace-rule-filter", fallback: "cards" },
+    { key: "diversion", name: "在线分流规则", selector: ".workspace-rule-filter", fallback: "list" },
     { key: "adguard", name: "广告订阅", selector: ".adguard-rules-table", fallback: "list" },
     { key: "logs", name: "查询日志", selector: ".workspace-log-table", fallback: "list" },
     { key: "upstreams", name: "DNS 上游", selector: ".workspace-upstream-groups", fallback: "list" },
@@ -6084,7 +6745,8 @@ const clientsService = (() => {
   }
   function topology(clients, names, total, compact = String) {
     const observed = (Array.isArray(clients) ? clients : []).filter((c) => typeof c.key === "string" && Number.isFinite(+c.count) && +c.count > 0);
-    const denominator = Math.max(1, +total || 0);
+    const observedTotal = observed.reduce((sum, c) => sum + +c.count, 0);
+    const denominator = Math.max(1, observedTotal || +total || 0);
     const result = observed.slice(0, 4).map((client, i) => ({
       id: "c" + (i + 1),
       ip: client.key,
@@ -6234,177 +6896,11 @@ function initialize$7() {
   }
   ruleSaveService = { save, isSaving: (tag) => running.has(tag) };
 }
-const routeIds = ["overview", "logs", "upstreams", "rules", "management", "proxy-config"];
+const routeIds = ["overview", "logs", "upstreams", "rules", "devices", "proxy-config", "management"];
 function resolveRoute(value) {
   let id = value.replace(/^#\/?/, "").split("?")[0];
   if (id === "data" || id === "features") id = "management";
   return routeIds.includes(id) ? id : "overview";
-}
-const icons$1 = {
-  overview: '<path d="M4 13h6V3H4v10Zm0 8h6v-6H4v6Zm10 0h6V11h-6v10Zm0-18v6h6V3h-6Z"/>',
-  logs: '<path d="M5 4h14v2H5V4Zm0 5h14v2H5V9Zm0 5h9v2H5v-2Zm0 5h7v2H5v-2Z"/>',
-  upstream: '<path d="M12 3a5 5 0 0 1 5 5v1h1a3 3 0 1 1 0 6h-1v1a5 5 0 0 1-10 0v-1H6a3 3 0 1 1 0-6h1V8a5 5 0 0 1 5-5Zm-3 6h6V8a3 3 0 1 0-6 0v1Zm0 6v1a3 3 0 1 0 6 0v-1H9Z"/>',
-  rules: '<path d="M4 4h7v7H4V4Zm2 2v3h3V6H6Zm7-2h7v7h-7V4Zm2 2v3h3V6h-3ZM4 13h7v7H4v-7Zm2 2v3h3v-3H6Zm7-2h2v2h-2v-2Zm3 0h4v2h-4v-2Zm-3 3h7v2h-7v-2Zm0 3h5v2h-5v-2Z"/>',
-  data: '<path d="M12 3c-4.42 0-8 1.34-8 3v12c0 1.66 3.58 3 8 3s8-1.34 8-3V6c0-1.66-3.58-3-8-3Zm0 2c3.48 0 5.65.82 5.98 1-.33.18-2.5 1-5.98 1s-5.65-.82-5.98-1c.33-.18 2.5-1 5.98-1ZM6 8.45C7.47 8.82 9.55 9 12 9s4.53-.18 6-.55V11c0 .35-2.1 1-6 1s-6-.65-6-1V8.45Zm0 5C7.47 13.82 9.55 14 12 14s4.53-.18 6-.55V16c0 .35-2.1 1-6 1s-6-.65-6-1v-2.55Zm6 5.55c-3.9 0-6-.65-6-1v-.55c1.47.37 3.55.55 6 .55s4.53-.18 6-.55V18c0 .35-2.1 1-6 1Z"/>',
-  settings: '<path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.08-.98l2.11-1.65-2-3.46-2.49 1a7.54 7.54 0 0 0-1.7-.99L15 3.25h-4l-.35 2.67c-.61.25-1.18.58-1.7.99l-2.49-1-2 3.46 2.11 1.65c-.05.32-.08.65-.08.98s.03.66.08.98l-2.11 1.65 2 3.46 2.49-1c.52.41 1.09.74 1.7.99L11 20.75h4l.35-2.67c.61-.25 1.18-.58 1.7-.99l2.49 1 2-3.46-2.11-1.65ZM13 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8Z"/>',
-  features: '<path d="M7 2h2v3h6V2h2v3h2a2 2 0 0 1 2 2v3h-2V7H5v10h5v2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2V2Zm8 10h2v3h3v2h-3v3h-2v-3h-3v-2h3v-3Z"/>',
-  management: '<path d="M4 5h8v2H4V5Zm12-2h2v2h2v2h-2v2h-2V7h-2V5h2V3ZM4 11h2v2H4v-2Zm6-2h2v2h8v2h-8v2h-2v-2H8v-2h2V9ZM4 17h10v2H4v-2Zm14-2h2v2h2v2h-2v2h-2v-2h-2v-2h2v-2Z"/>',
-  system: '<path d="M4 4h16v12H4V4Zm2 2v8h12V6H6Zm3 12h6v2H9v-2Z"/>',
-  power: '<path d="M13 3h-2v10h2V3Zm4.83 2.17-1.42 1.42A6.92 6.92 0 0 1 19 12c0 3.87-3.13 7-7 7A6.995 6.995 0 0 1 7.58 6.58L6.17 5.17A8.93 8.93 0 0 0 3 12a9 9 0 0 0 18 0c0-2.74-1.23-5.18-3.17-6.83Z"/>',
-  refresh: '<path d="M17.65 6.35A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.76-4.24L13 11h8V3l-3.35 3.35Z"/>',
-  theme: '<path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.91-.1-1.35A7 7 0 0 1 12 3Z"/>',
-  menu: '<path d="M4 6h16v2H4V6Zm0 5h16v2H4v-2Zm0 5h16v2H4v-2Z"/>',
-  close: '<path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5Z"/>',
-  chevron: '<path d="m8.6 4.6 7.4 7.4-7.4 7.4L7.2 18l6-6-6-6 1.4-1.4Z"/>',
-  search: '<path d="M10 4a6 6 0 1 0 3.87 10.59L19.28 20 20.7 18.6l-5.41-5.41A6 6 0 0 0 10 4Zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/>',
-  plus: '<path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z"/>',
-  edit: '<path d="m14.69 4.86 4.45 4.45L8.45 20H4v-4.45L14.69 4.86Zm0 2.83L6 16.38V18h1.62l8.69-8.69-1.62-1.62ZM17.5 2 22 6.5l-1.45 1.45-4.5-4.5L17.5 2Z"/>',
-  trash: '<path d="M8 3h8l1 2h4v2H3V5h4l1-2Zm-2 6h12l-1 12H7L6 9Zm3 2 .5 8h2L11 11H9Zm4 0-.5 8h2l.5-8h-2Z"/>',
-  save: '<path d="M4 3h14l2 2v16H4V3Zm2 2v14h12V6.83L17.17 5H16v5H8V5H6Zm4 0v3h4V5h-4Zm-1 8h6v4H9v-4Z"/>',
-  info: '<path d="M11 10h2v7h-2v-7Zm0-4h2v2h-2V6Zm1-4a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16Z"/>',
-  check: '<path d="m9.2 16.2-4.4-4.4L3.4 13.2 9.2 19 21 7.2 19.6 5.8 9.2 16.2Z"/>',
-  warning: '<path d="M12 3 2 21h20L12 3Zm0 4.1L18.6 19H5.4L12 7.1ZM11 10h2v5h-2v-5Zm0 6h2v2h-2v-2Z"/>',
-  download: '<path d="M11 3h2v9l3-3 1.4 1.4L12 15.8l-5.4-5.4L8 9l3 3V3ZM4 18h16v3H4v-3Z"/>',
-  clock: '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16Zm-1 3h2v4.59l3.2 3.2-1.4 1.42L11 12.41V7Z"/>',
-  uptime: '<path d="M9 2h6v2H9V2Zm2 4h2v2.08A7 7 0 1 1 11 8.08V6Zm1 4a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm-1 1h2v3.59l2.2 2.2-1.4 1.42L11 15.41V11Z"/>',
-  cpu: '<path d="M9 2h2v3h2V2h2v3h1a3 3 0 0 1 3 3v1h3v2h-3v2h3v2h-3v1a3 3 0 0 1-3 3h-1v3h-2v-3h-2v3H9v-3H8a3 3 0 0 1-3-3v-1H2v-2h3v-2H2V9h3V8a3 3 0 0 1 3-3h1V2Zm-1 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1H8Zm2 3h4v4h-4v-4Z"/>',
-  memory: '<path d="M4 5h16v12H4V5Zm2 2v8h12V7H6Zm2 2h2v4H8V9Zm3 0h2v4h-2V9Zm3 0h2v4h-2V9ZM6 19h2v3H6v-3Zm5 0h2v3h-2v-3Zm5 0h2v3h-2v-3Z"/>',
-  latency: '<path d="M13 2 5 13h6l-1 9 9-12h-6l0-8Zm-2.1 9L12 9.5v4.5h3l-2.1 2.8.35-4.8h-2.35Z"/>',
-  shield: '<path d="M12 2 4 5v6c0 5.25 3.44 9.74 8 11 4.56-1.26 8-5.75 8-11V5l-8-3Zm0 2.16 6 2.25V11c0 4.11-2.49 7.8-6 8.86C8.49 18.8 6 15.11 6 11V6.41l6-2.25Z"/>',
-  clients: '<path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7-1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM9 13c-4.42 0-7 2.18-7 5v2h14v-2c0-2.82-2.58-5-7-5Zm7.5-.5c-.76 0-1.47.08-2.12.22 2.27 1.1 3.62 2.98 3.62 5.28v2h4v-2c0-3.03-2.21-5.5-5.5-5.5Z"/>',
-  globe: '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm5.93 6h-3.08a15.9 15.9 0 0 0-1.3-3.38A8.04 8.04 0 0 1 17.93 8ZM12 4c.83 1.2 1.46 2.55 1.8 4h-3.6A13.2 13.2 0 0 1 12 4ZM4.26 14A8.23 8.23 0 0 1 4 12c0-.69.09-1.36.26-2h3.43a17.6 17.6 0 0 0 0 4H4.26Zm1.81 2h3.08c.3 1.2.74 2.33 1.3 3.38A8.04 8.04 0 0 1 6.07 16Zm3.08-8H6.07a8.04 8.04 0 0 1 4.38-3.38A15.9 15.9 0 0 0 9.15 8ZM12 20a13.2 13.2 0 0 1-1.8-4h3.6A13.2 13.2 0 0 1 12 20Zm2.15-6h-4.3a15.7 15.7 0 0 1 0-4h4.3a15.7 15.7 0 0 1 0 4Zm-.6 5.38c.56-1.05 1-2.18 1.3-3.38h3.08a8.04 8.04 0 0 1-4.38 3.38ZM16.31 14a17.6 17.6 0 0 0 0-4h3.43c.17.64.26 1.31.26 2s-.09 1.36-.26 2h-3.43Z"/>',
-  requestCount: '<path d="M5 4h14v16H5V4Zm2 2v12h10V6H7Zm2 2h6v2H9V8Zm0 4h6v2H9v-2Zm0 4h4v2H9v-2Z"/>',
-  cacheHit: '<path d="M12 3C7.58 3 4 4.34 4 6v10c0 1.66 3.58 3 8 3 1.16 0 2.26-.09 3.25-.25A5 5 0 0 1 15 17c0-.7.14-1.36.4-1.97-.98.15-2.12.22-3.4.22-3.9 0-6-.65-6-1v-2.55c1.47.37 3.55.55 6 .55 1.92 0 3.63-.11 5-.33v-2.07c-1.3.26-3.04.4-5 .4-3.9 0-6-.65-6-1V7.7c1.47.37 3.55.55 6 .55s4.53-.18 6-.55v2.8c.75.16 1.43.48 2 .91V6c0-1.66-3.58-3-8-3Zm0 2c3.48 0 5.65.82 5.98 1-.33.18-2.5 1-5.98 1s-5.65-.82-5.98-1c.33-.18 2.5-1 5.98-1Zm7.3 8.3-2.55 2.55-1.05-1.05-1.4 1.4 2.45 2.45 3.95-3.95-1.4-1.4Z"/>',
-  responseTime: '<path d="M12 4a9 9 0 0 0-9 9h2a7 7 0 1 1 14 0h2a9 9 0 0 0-9-9Zm0 3a6 6 0 0 0-6 6h2a4 4 0 0 1 7.07-2.57L11 14.5l1.41 1.41 4.08-4.08A6 6 0 0 0 12 7Zm-8 8v2h16v-2H4Z"/>',
-  blockedRequest: '<path d="M12 2 4 5v6c0 5.25 3.44 9.74 8 11 4.56-1.26 8-5.75 8-11V5l-8-3Zm0 2.16 6 2.25V11c0 4.11-2.49 7.8-6 8.86C8.49 18.8 6 15.11 6 11V6.41l6-2.25Zm-3.3 4.13L7.29 9.7 9.59 12l-2.3 2.3 1.42 1.41 2.29-2.3 2.3 2.3 1.41-1.42-2.3-2.29 2.3-2.3-1.42-1.41-2.29 2.3-2.3-2.3Z"/>',
-  clientCount: '<path d="M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7-1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM8.5 13C4.7 13 2 14.9 2 17.5V20h13v-2.5C15 14.9 12.3 13 8.5 13Zm7.2-.5c-.72 0-1.4.08-2.02.23 2.07 1.08 3.32 2.78 3.32 4.77V20h5v-2.1c0-3.08-2.32-5.4-6.3-5.4Z"/>',
-  domainStats: '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm6.92 9h-3.01a15.9 15.9 0 0 0-1.02-4.1A8.03 8.03 0 0 1 18.92 11ZM12 4c.9 1.26 1.56 3.02 1.85 5h-3.7C10.44 7.02 11.1 5.26 12 4ZM5.08 13h3.01c.13 1.48.48 2.9 1.02 4.1A8.03 8.03 0 0 1 5.08 13Zm3.01-2H5.08a8.03 8.03 0 0 1 4.03-4.1A15.9 15.9 0 0 0 8.09 11ZM12 20c-.9-1.26-1.56-3.02-1.85-5h3.7c-.29 1.98-.95 3.74-1.85 5Zm2.07-7H9.93a13.9 13.9 0 0 1 0-2h4.14a13.9 13.9 0 0 1 0 2Zm.82 4.1c.54-1.2.89-2.62 1.02-4.1h3.01a8.03 8.03 0 0 1-4.03 4.1Z"/>',
-  more: '<path d="M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm7 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm7 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/>'
-};
-const icon$1 = (name, cls = "") => `<svg class="${cls}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${icons$1[name] || icons$1.info}</svg>`;
-const esc$1 = (v = "") => String(v).replace(/[&<>'"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[c]);
-const num = (v) => Number.isFinite(+v) ? (+v).toLocaleString("zh-CN") : "—";
-const pct = (v) => Number.isFinite(+v) ? `${(+v).toFixed(2)}%` : "—";
-const compactNum = (v) => {
-  const n = +v;
-  if (!Number.isFinite(n)) return "—";
-  if (Math.abs(n) < 1e4) return n.toLocaleString("zh-CN");
-  return new Intl.NumberFormat("zh-CN", { notation: "compact", compactDisplay: "short", maximumFractionDigits: 1 }).format(n);
-};
-const fullNum = (v) => Number.isFinite(+v) ? Math.max(0, Math.floor(+v)).toLocaleString("zh-CN") : "—";
-const compactPct = (v) => {
-  const n = +v;
-  if (!Number.isFinite(n)) return "—";
-  return `${Number.isInteger(n) ? n.toFixed(0) : n.toFixed(1)}%`;
-};
-const ms = (v) => Number.isFinite(+v) ? `${(+v).toFixed(2)} ms` : "—";
-const fmtBytesBrief = (v) => {
-  const n = +v;
-  if (!Number.isFinite(n)) return "—";
-  const u = ["B", "KB", "MB", "GB", "TB"];
-  let i = 0, x = n;
-  while (x >= 1024 && i < u.length - 1) {
-    x /= 1024;
-    i++;
-  }
-  const d = i === 0 ? 0 : x >= 100 ? 0 : x >= 10 ? 1 : 2;
-  return `${x.toFixed(d)} ${u[i]}`;
-};
-const rankCount = (items, limit = 1e3) => !Array.isArray(items) ? "—" : items.length >= limit ? `${num(limit)}+` : num(items.length);
-const startTimeMarkup = (seconds) => {
-  const n = +seconds;
-  if (!Number.isFinite(n) || n <= 0) return '<span class="overview-start-datetime">—</span>';
-  const d = new Date(n * 1e3);
-  if (Number.isNaN(d.getTime())) return '<span class="overview-start-datetime">—</span>';
-  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0"), hh = String(d.getHours()).padStart(2, "0"), mm = String(d.getMinutes()).padStart(2, "0");
-  return `<span class="overview-start-datetime">${y}-${m}-${day} ${hh}:${mm}</span>`;
-};
-const fmtDate = (v) => {
-  if (!v) return "—";
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return String(v);
-  if (d.getUTCFullYear() <= 1) return "—";
-  return d.toLocaleString("zh-CN", { hour12: false });
-};
-const duration = (seconds) => {
-  let s = Math.max(0, Math.floor(+seconds || 0));
-  const d = Math.floor(s / 86400);
-  s %= 86400;
-  const h = Math.floor(s / 3600);
-  s %= 3600;
-  const m = Math.floor(s / 60);
-  return `${d ? d + "天 " : ""}${h ? h + "小时 " : ""}${m}分钟`;
-};
-const overviewUptimeMarkup = (seconds) => {
-  const s = Math.max(0, Math.floor(+seconds || 0));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor(s % 3600 / 60);
-  const sec = s % 60;
-  const part = (n, u) => `<span class="overview-duration-part"><span class="overview-duration-num">${n}</span><span class="overview-duration-unit">${u}</span></span>`;
-  if (h) return `${part(h, "小时")}${part(m, "分钟")}`;
-  if (m) return part(m, "分钟");
-  return part(sec, "秒");
-};
-function createLogQuery(mobile) {
-  return { page: 1, limit: mobile ? 25 : 50, q: "", exact: false, type: "", set: "", code: "", client: "" };
-}
-function logQueryParams(query) {
-  return {
-    page: query.page,
-    limit: query.limit,
-    q: query.q,
-    exact: query.exact,
-    query_type: query.type,
-    domain_set: query.set,
-    response_code: query.code,
-    client_contains: query.client
-  };
-}
-const CONFIG = Object.assign({
-  apiBase: "",
-  title: "LocalDNS 控制台",
-  refreshInterval: 30,
-  requestTimeout: 1e4,
-  demoOnApiFailure: false
-}, window.LOCALDNS_UI_CONFIG || {});
-const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
-const API_BASE = String(CONFIG.apiBase || "").replace(/\/$/, "");
-const $ = (s, root = document) => root.querySelector(s);
-const $$ = (s, root = document) => [...root.querySelectorAll(s)];
-const page = $("#page-content");
-const storage = { get(k) {
-  try {
-    return preferences.getItem(k);
-  } catch {
-    return null;
-  }
-}, set(k, v) {
-  try {
-    preferences.setItem(k, String(v));
-  } catch {
-  }
-} };
-const state = {
-  route: "overview",
-  logs: createLogQuery(matchMedia("(max-width:600px)").matches),
-  ruleTag: "whitelist",
-  mobileMoreOpen: false,
-  renderSeq: 0,
-  overviewSlowPage: 0,
-  overviewDomainPage: 0,
-  overviewSlowLimit: [5, 10, 20].includes(Number(storage.get("localdns-overview-slow-limit:" + (API_BASE || location.host)))) ? Number(storage.get("localdns-overview-slow-limit:" + (API_BASE || location.host))) : 10
-};
-function toast(message, type = "success", detail = "") {
-  const el = document.createElement("div");
-  el.className = `toast ${type} toast-enter`;
-  setHTML(el, `<span>${icon$1(type === "error" ? "warning" : type === "success" ? "check" : "info")}</span><div><strong>${esc$1(message)}</strong>${detail ? `<div class="toast-info">${esc$1(detail)}</div>` : ""}</div>`);
-  $("#toast-stack").appendChild(el);
-  void el.offsetWidth;
-  el.classList.remove("toast-enter");
-  setTimeout(() => {
-    el.classList.add("toast-leave");
-    setTimeout(() => el.remove(), 280);
-  }, 3920);
 }
 function openDrawer(title, subtitle, html2) {
   const wasOpen = $("#drawer").classList.contains("open");
@@ -6421,43 +6917,6 @@ function closeDrawer() {
   $("#drawer").setAttribute("aria-hidden", "true");
   $("#drawer-backdrop").classList.remove("open");
   shellInterfaceService == null ? void 0 : shellInterfaceService.drawerClosed();
-}
-function modalOpen(title, subtitle, html2, onSave, showActions = true) {
-  workspaceService.modalChanging();
-  $("#modal-title").textContent = title;
-  $("#modal-subtitle").textContent = subtitle || "";
-  setHTML($("#modal-content"), html2);
-  setHTML($("#modal-actions"), showActions ? `<button class="button" id="modal-cancel" type="button" value="cancel">取消</button><button class="button primary" id="modal-save" type="button">保存</button>` : "");
-  const scope = currentScope(), d = $("#modal");
-  shellInterfaceService == null ? void 0 : shellInterfaceService.semantics(d);
-  d.showModal();
-  const cancel = $("#modal-cancel");
-  if (cancel) cancel.onclick = modalClose;
-  if (onSave && showActions) $("#modal-save").onclick = async () => {
-    var _a2;
-    if (!$("#modal-form").reportValidity()) return;
-    const b = $("#modal-save");
-    b.disabled = true;
-    (_a2 = $("#modal-error")) == null ? void 0 : _a2.remove();
-    try {
-      const next = await onSave();
-      if (scope.signal.aborted) return;
-      modalClose();
-      if (typeof next === "function") next();
-    } catch (e) {
-      if (scope.signal.aborted) return;
-      shellInterfaceService == null ? void 0 : shellInterfaceService.formError(e.message);
-      toast("操作失败", "error", e.message);
-    } finally {
-      b.disabled = false;
-    }
-  };
-}
-function modalClose() {
-  workspaceService.modalChanging();
-  const d = $("#modal");
-  d.classList.remove("overview-detail-modal");
-  if (d.open) d.close();
 }
 function record(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new ApiError(`${name} 返回格式无效。`, 0, value, "contract");
@@ -6540,7 +6999,7 @@ const switches = {
   switch2: { key: "client_policy", value: "listed_proxy_only" },
   switch12: { key: "client_policy", value: "listed_direct" }
 };
-const groups = "custom_cn|custom_non_cn|geoip_cn|geosite_cn|geosite_non_cn";
+const groups = "custom_cn|custom_non_cn|geoip_cn|geoip_non_cn|geosite_cn|geosite_non_cn";
 function features(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new ApiError("功能开关返回格式无效。", 0, value, "contract");
@@ -6606,7 +7065,9 @@ class BackendClient {
     return operation;
   }
   async request(path, options = {}) {
-    const [route, query = ""] = path.split("?");
+    const queryIndex = path.indexOf("?");
+    const route = queryIndex < 0 ? path : path.slice(0, queryIndex);
+    const query = queryIndex < 0 ? "" : path.slice(queryIndex + 1);
     const method = String(options.method || "GET").toUpperCase();
     if (route === "/metrics" || route === "/api/v1/status" || route.startsWith("/api/v1/upstream/") && method === "GET" || route === "/api/v1/system/restart") {
       return this.http.request(path, options);
@@ -6633,16 +7094,16 @@ class BackendClient {
     if (match) return this.switchOperation(match[1], match[2], options);
     match = route.match(/^\/plugins\/([^/]+)\/(show|post)$/);
     if (match && lists[match[1]]) {
-      const target = "/api/v1/lists/" + lists[match[1]];
+      const target = "/api/v1/lists/" + lists[match[1]] + suffix;
       return match[2] === "show" ? this.http.request(target, options) : this.json(target, options, "PUT", body(options));
     }
     match = route.match(/^\/plugins\/cache_(main|domestic|foreign|foreign_ecs)\/(show|save|flush)$/);
     if (match) return this.http.request(
-      "/api/v1/caches/" + match[1] + (match[2] === "show" ? "" : "/" + match[2]),
+      "/api/v1/caches/" + match[1] + (match[2] === "show" ? "" : "/" + match[2]) + suffix,
       { ...options, method: match[2] === "show" ? "GET" : "POST" }
     );
     match = route.match(/^\/plugins\/(domain_stats|fakeip|realip|nodata)\/(show|save|flush)$/);
-    if (match) return this.http.request("/api/v1/" + (match[1] === "domain_stats" ? "domain-stats" : "learned/" + match[1]) + (match[2] === "show" ? "" : "/" + match[2]), { ...options, method: match[2] === "show" ? "GET" : "POST" });
+    if (match) return this.http.request("/api/v1/" + (match[1] === "domain_stats" ? "domain-stats" : "learned/" + match[1]) + (match[2] === "show" ? "" : "/" + match[2]) + suffix, { ...options, method: match[2] === "show" ? "GET" : "POST" });
     if (route.startsWith("/plugins/requery/")) {
       const actions = {
         status: "status",
@@ -6674,8 +7135,8 @@ class BackendClient {
           const result = await this.http.request("/api/v1/rule-groups/" + match[1] + "/" + encodeURIComponent(item.name) + "/update", options);
           return { ok: true, name: item.name, result };
         } catch (error) {
-          if (!(error instanceof ApiError) || ["timeout", "network", "invalid-json"].includes(error.code)) throw error;
-          return { ok: false, name: item.name, error };
+          const transport = !(error instanceof ApiError) || ["timeout", "network", "invalid-json"].includes(error.code);
+          return { ok: false, name: item.name, error, transport };
         }
       }));
       const errors = results.filter((item) => !item.ok).map((item) => {
@@ -6683,7 +7144,8 @@ class BackendClient {
         return {
           name: item.name,
           error: item.error.message,
-          code: (_a2 = item.error.body) == null ? void 0 : _a2.code
+          code: (_a2 = item.error.body) == null ? void 0 : _a2.code,
+          transport: item.transport === true
         };
       });
       return {
@@ -6699,11 +7161,21 @@ class BackendClient {
 }
 const backend = new BackendClient(backendHttp);
 const api = {
+  /** @param {string} path */
   url: (path) => backendHttp.url(path),
+  /**
+   * @param {string} path
+   * @param {import('./http-client').HttpRequestOptions} [options]
+   */
   async request(path, options = {}) {
     const value = await backend.request(path, options);
     return String(options.method || "GET").toUpperCase() === "GET" ? normalizeResponse(path, value) : value;
   },
+  /**
+   * @param {string} path
+   * @param {string} [method]
+   * @param {unknown} [body]
+   */
   json(path, method = "GET", body2) {
     return this.request(path, { method, headers: { "Content-Type": "application/json" }, body: body2 === void 0 ? void 0 : JSON.stringify(body2) });
   },
@@ -6719,12 +7191,19 @@ const api = {
   stats() {
     return this.request("/api/v2/audit/stats");
   },
+  /** @param {string} type @param {number} [limit] */
   rank(type, limit = 10) {
     return this.request(`/api/v2/audit/rank/${type}?limit=${limit}`);
   },
+  /** @param {Record<string, string | number>} [params] */
   logs(params = {}) {
-    const query = new URLSearchParams({ page: 1, limit: 50, ...params });
-    for (const [key, value] of query) if (value === "" || value == null) query.delete(key);
+    const query = new URLSearchParams(
+      /** @type {Record<string, string>} */
+      { page: "1", limit: "50", ...params }
+    );
+    const emptyKeys = [];
+    for (const [key, value] of query) if (value === "" || value == null) emptyKeys.push(key);
+    for (const key of emptyKeys) query.delete(key);
     return this.request(`/api/v2/audit/logs?${query}`);
   }
 };
@@ -6915,8 +7394,9 @@ function slowOverviewRowsHtml(groups2, limit = state.overviewSlowLimit) {
   }).join("") || '<tr><td colspan="5" class="table-empty">暂无查询记录，记录查询后将在这里显示耗时排行。</td></tr>';
 }
 function openOutcomeDetail(rows, total, otherOnly = false) {
-  const content = `<p class="overview-outcome-note">当前审计保留日志的最终处理结果。主缓存命中不会展开原本的国内或国外去向；占比以本次返回分类的查询总数为基准。</p><div class="overview-outcome-detail-list">${rows.map((row) => `<button type="button" class="overview-outcome-detail-row" data-outcome-filter="${esc$1(row.key)}"><span><strong>${esc$1(row.label)}</strong><small class="mono">${esc$1(row.key || "未分类")}</small></span><span>${num(row.count)} 次<small>${total ? (row.count / total * 100).toFixed(1) : "0.0"}%</small></span></button>`).join("") || "<p>暂无分类统计。</p>"}</div>`;
-  openDrawer(otherOnly ? "其他处理结果" : "全部处理结果", `当前保留日志 · ${rows.length} 类 · ${num(rows.reduce((n, row) => n + row.count, 0))} 次查询`, content);
+  const drawerTotal = (rows || []).reduce((n, row) => n + (+row.count || 0), 0);
+  const content = `<p class="overview-outcome-note">当前审计保留日志的最终处理结果。主缓存命中不会展开原本的国内或国外去向；占比以本抽屉合计为基准。</p><div class="overview-outcome-detail-list">${rows.map((row) => `<button type="button" class="overview-outcome-detail-row" data-outcome-filter="${esc$1(row.key)}"><span><strong>${esc$1(row.label)}</strong><small class="mono">${esc$1(row.key || "未分类")}</small></span><span>${num(row.count)} 次<small>${drawerTotal ? (row.count / drawerTotal * 100).toFixed(1) : "0.0"}%</small></span></button>`).join("") || "<p>暂无分类统计。</p>"}</div>`;
+  openDrawer(otherOnly ? "其他处理结果" : "全部处理结果", `当前保留日志 · ${rows.length} 类 · ${num(drawerTotal)} 次查询`, content);
   $$("#drawer [data-outcome-filter]").forEach((button) => button.onclick = () => {
     Object.assign(state.logs, { page: 1, q: "", exact: false, type: "", set: button.dataset.outcomeFilter, code: "", client: "" });
     closeDrawer();
@@ -6970,12 +7450,62 @@ function openDomainDetailModal(items) {
   render();
 }
 const routeDefs = [
-  { section: "监控", id: "overview", label: "运行概览", icon: "overview", subtitle: "实时查看 DNS 运行状态与关键指标" },
-  { section: "监控", id: "logs", label: "查询日志", icon: "logs", subtitle: "搜索、筛选并分析 DNS 请求记录" },
-  { section: "配置", id: "upstreams", label: "DNS管理", icon: "upstream", subtitle: "管理上游 DNS 服务器并查看请求、采纳与错误统计" },
-  { section: "配置", id: "rules", label: "规则管理", icon: "rules", subtitle: "统一维护名单、广告拦截与在线分流规则" },
-  { section: "配置", id: "management", label: "系统管理", icon: "management", subtitle: "功能开关、缓存与运行数据管理" },
-  { section: "配置", id: "proxy-config", label: "代理配置", icon: "rules", subtitle: "管理 Mihomo / sing-box 配置，支持 HTTP 获取与保存应用" }
+  {
+    id: "overview",
+    label: "概览",
+    icon: "overview",
+    navSvg: '<path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm0 14a4 4 0 1 1 4-4 4 4 0 0 1-4 4Z"/>',
+    subtitle: "实时查看 DNS 运行状态与关键指标",
+    keywords: ["概览", "运行概览", "overview"]
+  },
+  {
+    id: "logs",
+    label: "日志",
+    icon: "logs",
+    navSvg: '<path d="M4 6h16M4 12h16M4 18h10"/>',
+    subtitle: "搜索、筛选并分析 DNS 请求记录",
+    keywords: ["日志", "查询日志", "logs"]
+  },
+  {
+    id: "upstreams",
+    label: "解析",
+    icon: "upstream",
+    navSvg: '<circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/>',
+    subtitle: "管理上游 DNS 服务器并查看请求、采纳与错误统计",
+    keywords: ["解析", "上游", "dns", "dns管理", "upstreams"]
+  },
+  {
+    id: "rules",
+    label: "分流",
+    icon: "rules",
+    navSvg: '<path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>',
+    subtitle: "统一维护名单、广告拦截与在线分流规则",
+    keywords: ["分流", "规则", "规则管理", "rules"]
+  },
+  {
+    id: "devices",
+    label: "设备",
+    icon: "clients",
+    navSvg: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+    subtitle: "统一管理内网客户端分流策略（全员分流 / 指定 FakeIP / 指定 RealIP）、受控名单与设备别名",
+    keywords: ["设备", "客户端", "别名", "devices", "clients"]
+  },
+  {
+    id: "proxy-config",
+    label: "代理",
+    icon: "system",
+    navSvg: '<rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="17" r="1"/>',
+    subtitle: "管理 Mihomo / sing-box 配置，支持 HTTP 获取与保存应用",
+    keywords: ["代理", "代理配置", "proxy", "proxy-config"]
+  },
+  {
+    id: "management",
+    label: "系统",
+    icon: "management",
+    navSvg: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0-4h-.09a1.65 1.65 0 0 0-1.51 1Z"/>',
+    subtitle: "功能开关、缓存与运行数据管理",
+    keywords: ["系统", "系统管理", "管理", "设置", "management"]
+  }
 ];
 const groupName = (g) => ({ domestic: "国内", foreign: "国外", foreign_ecs: "国外 ECS", proxy: "代理" })[g] || g;
 const upstreamErrorReasonLabels = {
@@ -7030,7 +7560,7 @@ function upstreamErrorTime(ts) {
   if (!ts) return "";
   const d = new Date(Number(ts) * 1e3);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return d.toLocaleString("zh-CN", { hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 function closeUpstreamErrorPopover() {
   const pop = $("#upstream-error-popover");
@@ -7080,32 +7610,6 @@ function openUpstreamErrorPopover(trigger, row) {
     document.addEventListener("click", upstreamErrorOutsideClick, true);
     document.addEventListener("keydown", upstreamErrorKeydown, true);
   }, 0);
-}
-let charts = [];
-function takeCharts() {
-  return charts.splice(0);
-}
-function restoreCharts(previous) {
-  charts = previous.concat(charts);
-}
-function destroyCharts() {
-  charts.forEach((c) => {
-    try {
-      c.destroy();
-    } catch {
-    }
-  });
-  charts = [];
-}
-function chart(el, cfg) {
-  if (!window.Chart || !el) return null;
-  const c = new window.Chart(el, cfg);
-  charts.push(c);
-  return c;
-}
-function chartColors() {
-  const css = getComputedStyle(document.documentElement);
-  return { primary: css.getPropertyValue("--primary").trim(), green: css.getPropertyValue("--green").trim(), orange: css.getPropertyValue("--orange").trim(), pink: css.getPropertyValue("--pink").trim(), cyan: css.getPropertyValue("--cyan").trim(), muted: css.getPropertyValue("--muted").trim(), border: css.getPropertyValue("--border").trim(), text: css.getPropertyValue("--text-2").trim(), surface: css.getPropertyValue("--surface-2").trim() };
 }
 async function safeResult(fn) {
   try {
@@ -7238,6 +7742,164 @@ function drawTopoCurves(edges) {
   applyTraceState(focusedId() || ((_a2 = wrap.querySelector(".t-node:hover")) == null ? void 0 : _a2.dataset.nodeId));
   topologyFlowService == null ? void 0 : topologyFlowService.start(wrap, svg2, edges);
 }
+const CACHE_FIELDS = ["max_entries", "stale_ttl", "save_interval"];
+const FALLBACK = { max_entries: [128, 1e7], stale_ttl: [0, 2592e3], save_interval: [60, 604800] };
+const CACHE_UNITS = {
+  max_entries: { label: "最大记录数", unit: "条", factor: 1, step: 1 },
+  stale_ttl: { label: "过期保留", unit: "小时", factor: 3600, step: 0.5 },
+  save_interval: { label: "写盘间隔", unit: "分钟", factor: 60, step: 1 }
+};
+const isNumber = (value) => typeof value === "number" && Number.isFinite(value);
+function pair(value, fallback) {
+  if (!Array.isArray(value) || value.length !== 2) return fallback;
+  const [min, max] = value;
+  if (!isNumber(min) || !isNumber(max) || min > max) return fallback;
+  return [min, max];
+}
+function pool(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const item = value;
+  if (typeof item.key !== "string" || !item.key || typeof item.tag !== "string" || !item.tag) return null;
+  for (const field of CACHE_FIELDS) {
+    if (!isNumber(item[field]) || Number(item[field]) < 0) return null;
+  }
+  const raw = item.running;
+  const running = raw && typeof raw === "object" && !Array.isArray(raw) && CACHE_FIELDS.every((field) => isNumber(raw[field])) ? {
+    max_entries: Number(raw.max_entries),
+    stale_ttl: Number(raw.stale_ttl),
+    save_interval: Number(raw.save_interval)
+  } : null;
+  return {
+    key: item.key,
+    tag: item.tag,
+    max_entries: Number(item.max_entries),
+    stale_ttl: Number(item.stale_ttl),
+    save_interval: Number(item.save_interval),
+    running,
+    ...isNumber(item.budget_bytes) && item.budget_bytes >= 0 ? { budget_bytes: Number(item.budget_bytes) } : {}
+  };
+}
+function cacheSettings(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiError("缓存设置返回格式无效。", 0, null, "contract");
+  }
+  const data = value;
+  const rawLimits = data.limits;
+  if (!rawLimits || typeof rawLimits !== "object" || Array.isArray(rawLimits)) return null;
+  const limits = {
+    max_entries: pair(rawLimits.max_entries, FALLBACK.max_entries),
+    stale_ttl: pair(rawLimits.stale_ttl, FALLBACK.stale_ttl),
+    save_interval: pair(rawLimits.save_interval, FALLBACK.save_interval)
+  };
+  const caches = (Array.isArray(data.caches) ? data.caches : []).map(pool).filter((item) => item !== null);
+  if (!caches.length) throw new ApiError("缓存设置缺少缓存池信息。", 0, null, "contract");
+  return {
+    restart_needed: data.restart_needed === true,
+    limits,
+    caches,
+    ...isNumber(data.cache_memory_mb) && data.cache_memory_mb > 0 ? { cache_memory_mb: Number(data.cache_memory_mb) } : {}
+  };
+}
+async function readCacheSettings(request2) {
+  try {
+    return cacheSettings(await request2("/api/v1/cache/settings"));
+  } catch (error) {
+    if (error instanceof ApiError && [404, 405, 501].includes(error.status)) return null;
+    throw error;
+  }
+}
+function toDisplay(field, seconds) {
+  const { factor } = CACHE_UNITS[field];
+  return factor === 1 ? Math.round(seconds) : Math.round(seconds / factor * 100) / 100;
+}
+function fromDisplay(field, value) {
+  const { factor } = CACHE_UNITS[field];
+  return factor === 1 ? Math.round(value) : Math.round(value * factor);
+}
+function displayBounds(field, limits) {
+  const { factor } = CACHE_UNITS[field];
+  if (factor === 1) return limits;
+  const [min, max] = limits;
+  return [Math.ceil(min / factor * 100) / 100, Math.floor(max / factor * 100) / 100];
+}
+const cacheLimitRowSelector = (key) => `tr[data-cache-key="${key}"]`;
+const cacheLimitInputSelector = (key, field) => `${cacheLimitRowSelector(key)} input[data-field="${field}"]`;
+const BYTES_PER_MB = 1048576;
+function cacheBudget(cache, totalMb) {
+  const bytes = cache.budget_bytes;
+  if (bytes === void 0 || !Number.isFinite(bytes)) return null;
+  const mb = bytes / BYTES_PER_MB;
+  const total = totalMb !== void 0 && totalMb > 0 ? totalMb * BYTES_PER_MB : null;
+  return {
+    size: mb >= 100 ? String(Math.round(mb)) : mb.toFixed(1),
+    share: total === null ? null : Math.round(bytes / total * 100)
+  };
+}
+function cacheLimitsForm(settings, helpers) {
+  const { cacheName: cacheName2, esc: esc2, num: num2 } = helpers;
+  const header = CACHE_FIELDS.map((field) => {
+    const unit = CACHE_UNITS[field];
+    return `<th scope="col">${unit.label}<span class="cache-limit-unit">${unit.unit}</span></th>`;
+  }).join("");
+  const rows = settings.caches.map((cache) => {
+    const cells = CACHE_FIELDS.map((field) => {
+      const unit = CACHE_UNITS[field];
+      const [min, max] = displayBounds(field, settings.limits[field]);
+      const label = `${unit.label}（${unit.unit}）`;
+      return `<td data-label="${label}"><input type="number" inputmode="decimal" data-field="${field}" min="${min}" max="${max}" step="${unit.step}" required value="${toDisplay(field, cache[field])}" aria-label="${esc2(cacheName2(cache.tag))} ${label}"></td>`;
+    }).join("");
+    const budget = cacheBudget(cache, settings.cache_memory_mb);
+    const budgetText = budget ? `<span class="cache-limit-budget" title="内存预算按各池记录上限的比例分配，改上限并重启内核后重新计算">预算 ${budget.size} MB${budget.share === null ? "" : ` · ${budget.share}%`}</span>` : "";
+    const pending = poolPending(cache) ? '<span class="badge pink cache-limit-pending">待重启</span>' : "";
+    return `<tr data-cache-key="${esc2(cache.key)}"><th scope="row"><span class="cache-limit-name">${esc2(cacheName2(cache.tag))}</span><code class="cache-limit-key">${esc2(cache.key)}</code>${budgetText}${pending}</th>${cells}</tr>`;
+  }).join("");
+  const [minEntries, maxEntries] = settings.limits.max_entries;
+  const [minTtl, maxTtl] = displayBounds("stale_ttl", settings.limits.stale_ttl);
+  const [minSave, maxSave] = displayBounds("save_interval", settings.limits.save_interval);
+  const budgetNote = settings.caches.some((cache) => cacheBudget(cache, settings.cache_memory_mb)) ? `<p class="form-note">内存预算按各池记录上限的比例分配${settings.cache_memory_mb ? `（当前 ${settings.cache_memory_mb} MB）` : ""}：上限越大分到的预算越多，改上限后要重启内核才按新比例重新分配。</p>` : "";
+  return `<div class="cache-limit-editor">
+      <div class="table-wrap"><table class="cache-limit-table"><thead><tr><th scope="col">缓存池</th>${header}</tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="form-note">取值范围：记录数 ${num2(minEntries)}–${num2(maxEntries)} 条；过期保留 ${minTtl}–${maxTtl} 小时；写盘间隔 ${minSave}–${maxSave} 分钟。</p>
+      <p class="form-note">记录上限在缓存启动时分配，保存后若内核提示需要重启，请用上方「重启内核」应用新上限；过期保留与写盘间隔保存后即可生效。</p>
+      ${budgetNote}
+    </div>`;
+}
+function readCacheLimits(settings, read) {
+  const values = {};
+  for (const cache of settings.caches) {
+    values[cache.key] = {};
+    for (const field of CACHE_FIELDS) {
+      const raw = read(cache.key, field).trim();
+      if (!raw) throw new Error(`请填写「${cache.tag}」的${CACHE_UNITS[field].label}。`);
+      values[cache.key][field] = fromDisplay(field, Number(raw));
+    }
+  }
+  return buildCacheLimits(settings, values);
+}
+function poolPending(cache) {
+  if (!cache.running) return false;
+  return CACHE_FIELDS.some((field) => cache.running[field] !== cache[field]);
+}
+function buildCacheLimits(settings, values) {
+  const payload = {};
+  for (const cache of settings.caches) {
+    const row = values[cache.key];
+    if (!row) throw new Error(`缺少「${cache.tag}」的参数。`);
+    const next = {};
+    for (const field of CACHE_FIELDS) {
+      const value = row[field];
+      const unit = CACHE_UNITS[field];
+      const [min, max] = settings.limits[field];
+      if (!Number.isFinite(value) || Math.round(value) !== value) throw new Error(`「${cache.tag}」的${unit.label}必须是整数秒。`);
+      if (value < min || value > max) {
+        throw new Error(`「${cache.tag}」的${unit.label}应在 ${toDisplay(field, min)}–${toDisplay(field, max)} ${unit.unit}之间。`);
+      }
+      next[field] = value;
+    }
+    payload[cache.key] = next;
+  }
+  return payload;
+}
 const cacheName = (t) => ({ cache_main: "全部缓存", cache_domestic: "国内缓存", cache_foreign: "国外缓存", cache_foreign_ecs: "国外 ECS 缓存" })[t] || t;
 function requeryHtml(s, c) {
   var _a2, _b2, _c, _d, _e;
@@ -7269,17 +7931,43 @@ function openRequeryScheduler(c) {
       local = n.toISOString().slice(0, 16);
     }
   }
-  modalOpen("分流刷新定时任务", "定期扫描近期查询域名并刷新自动分流缓存", `<div class="stack"><label class="switch"><input id="rq-enabled" type="checkbox" ${sc.enabled ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">启用定时任务</span></label><div class="grid grid-2"><div class="field"><label>执行间隔（分钟）</label><input id="rq-interval" type="number" min="1" value="${esc$1(sc.interval_minutes || 10080)}"></div><div class="field"><label>域名刷新天数</label><input id="rq-days" type="number" min="1" value="${esc$1(dateDays)}"></div></div><div class="field"><label>首次执行时间</label><input id="rq-start" type="datetime-local" value="${esc$1(local)}"></div><p class="form-note">10080 分钟等于 7 天。首次执行时间留空且启用时，后端会以保存时刻作为调度锚点并返回真实下次执行时间。</p></div>`, async () => {
+  modalOpen("分流刷新定时任务", "定期扫描近期查询域名并刷新自动分流缓存", `<div class="stack"><label class="switch"><input id="rq-enabled" type="checkbox" ${sc.enabled ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">启用定时任务</span></label><div class="grid grid-2"><div class="field"><label>执行间隔（分钟）</label><input id="rq-interval" type="number" min="1" value="${esc$1(sc.interval_minutes || 1440)}"></div><div class="field"><label>域名刷新天数</label><input id="rq-days" type="number" min="1" value="${esc$1(dateDays)}"></div></div><div class="field"><label>首次执行时间</label><input id="rq-start" type="datetime-local" value="${esc$1(local)}"></div><p class="form-note">间隔按分钟填写：1440 分钟 = 1 天，10080 分钟 = 7 天。首次执行时间留空且启用时，后端会以保存时刻作为调度锚点并返回真实下次执行时间。</p></div>`, async () => {
     const enabled = $("#rq-enabled").checked;
     const interval = +$("#rq-interval").value || 0;
     const days = +$("#rq-days").value || 0;
     if (enabled && interval <= 0) throw new Error("启用定时任务时，执行间隔必须大于 0");
-    if (days < 1) throw new Error("域名刷新天数必须大于 0");
+    if (enabled && days < 1) throw new Error("域名刷新天数必须大于 0");
     const raw = $("#rq-start").value;
     const payload = { enabled, interval_minutes: interval, start_datetime: raw ? new Date(raw).toISOString() : "", date_range_days: days };
     await api.json("/plugins/requery/scheduler/config", "POST", payload);
     toast("定时任务配置已更新");
     renderRoute(true);
+  });
+}
+function openCacheSettings(settings) {
+  modalOpen("缓存参数", "调整各缓存池的记录上限、过期保留时间与写盘间隔", cacheLimitsForm(settings, { cacheName, esc: esc$1, num }), async () => {
+    const payload = readCacheLimits(settings, (key, field) => {
+      var _a2;
+      const input = (_a2 = $("#modal-content")) == null ? void 0 : _a2.querySelector(cacheLimitInputSelector(key, field));
+      if (!input) throw new Error("缓存参数表单缺失，请重新打开后再保存。");
+      return input.value;
+    });
+    let result;
+    try {
+      result = await api.json("/api/v1/cache/limits", "POST", payload);
+    } catch (error) {
+      if (error && error.status === 400) throw new Error("内核拒绝了这组参数，请确认数值在允许范围内后重试。", { cause: error });
+      throw error;
+    }
+    let next = null;
+    try {
+      next = cacheSettings(result);
+    } catch {
+    }
+    return () => {
+      toast(next && next.restart_needed ? "缓存参数已保存，重启内核后生效" : "缓存参数已保存");
+      renderRoute(true);
+    };
   });
 }
 function countsHtml(c) {
@@ -7302,13 +7990,14 @@ function countsHtml(c) {
   return `<div class="table-wrap"><table><thead><tr><th>列表</th><th>条目数</th></tr></thead><tbody>${entries2.map((x) => `<tr><td>${esc$1(x.alias || x.name || x.file || x.path || "未知")}</td><td>${num(x.count ?? x.rule_count ?? x.entries ?? x.value ?? 0)}</td></tr>`).join("")}</tbody></table></div>`;
 }
 async function multiPluginAction(paths, msg) {
-  await Promise.all(paths.map((p) => api.request(`/plugins/${p}`)));
-  toast(msg);
+  const result = await Promise.allSettled(paths.map((p) => api.request(`/plugins/${p}`)));
+  const failed = result.filter((x) => x.status === "rejected").length;
+  failed ? toast(`已保存 ${result.length - failed} 项，${failed} 项失败`, "error") : toast(msg);
   renderRoute(true);
 }
 async function clearShuntData() {
   const warning = "确定完全清空自动分流数据？\n\n将清空：\n• 域名全集及 A/AAAA Activity\n• 自动生成的 FakeIP / RealIP / NODATA 分流记忆\n• 刷新分流缓存的历史进度与统计\n\n定时任务设置不会改变。\n清空后将从零重新收集域名并生成分流规则。";
-  if (!confirm(warning)) return;
+  if (!await confirmDialog({ message: warning, danger: true })) return;
   try {
     await api.request("/plugins/requery/reset", { method: "POST" });
     toast("自动分流数据已完全清空，将从零重新收集");
@@ -7329,6 +8018,7 @@ const switchProfiles = [
   { tag: "switch12", name: "指定 Client RealIP", desc: "指定客户端不允许科学" }
 ];
 async function renderManagement(container, context) {
+  var _a2;
   const renderScope = context.scope, page2 = container;
   const renderSeq = state.renderSeq;
   const isCurrent = () => state.route === "management" && state.renderSeq === renderSeq;
@@ -7339,50 +8029,84 @@ async function renderManagement(container, context) {
       <div style="display:flex;align-items:baseline;gap:12px"><h1>系统管理</h1><span class="gc-sub">多级缓存池、核心功能开关与 Requery 自动分流刷新管理</span></div>
     </div>
     <div class="management-stack">
-      <section class="proxy-panel-management" aria-label="代理面板设置">
-        <div><h2 data-proxy-panel-name>代理面板</h2><code data-proxy-panel-address></code></div>
-        <a class="button small" data-proxy-panel-link target="_blank" rel="noopener noreferrer">打开面板</a>
-        <button type="button" class="button small" data-proxy-panel-settings>面板设置</button>
-        <button type="button" class="button small" data-route="proxy-config">编辑配置</button>
-      </section>
+      <div class="management-top-pair">
+        <section class="proxy-panel-management" aria-label="代理面板设置">
+          <div><h2 data-proxy-panel-name>代理面板</h2><code data-proxy-panel-address></code></div>
+          <a class="button small" data-proxy-panel-link target="_blank" rel="noopener noreferrer">打开面板</a>
+          <button type="button" class="button small" data-proxy-panel-settings>面板设置</button>
+          <button type="button" class="button small" data-route="proxy-config">编辑配置</button>
+        </section>
+        <section class="management-service-actions" aria-label="DNS 服务操作">
+          <div class="service-card-main">
+            <span class="service-card-icon" aria-hidden="true">${icon$1("power")}</span>
+            <div class="service-card-copy">
+              <div class="service-card-title-row">
+                <h2>DNS 核心服务</h2>
+                <span class="badge service-card-badge">状态未知</span>
+              </div>
+              <p>平滑重启内核进程，重新加载所有配置与上游连接</p>
+            </div>
+          </div>
+          <div id="management-service-controls">
+            <button type="button" class="glass-btn console-restart" id="management-restart-button" title="重启 DNS 核心服务">${icon$1("power")}<span>重启内核</span></button>
+          </div>
+        </section>
+      </div>
       <div id="management-cache-slot" style="display:contents">${card("缓存管理", skeletonBlock(130), { iconName: "data", className: "data-cache-panel" })}</div>
       <div id="management-feature-slot" style="display:contents">${card("功能开关", skeletonBlock(300), { iconName: "features", subtitle: "常用运行功能集中管理", className: "management-feature-panel" })}</div>
       <div class="management-bottom">
         <div id="management-counts-slot" style="display:contents">${card("域名列表统计", skeletonBlock(150), { iconName: "rules", subtitle: "查看自动分流列表的当前条目数", className: "data-counts-card" })}</div>
         <div id="management-requery-slot" style="display:contents">${card("刷新分流缓存", skeletonBlock(270), { iconName: "refresh", subtitle: "重新扫描域名并更新自动生成的分流列表", className: "data-requery-card" })}</div>
       </div>
-      <section class="management-service-actions" aria-label="DNS 服务操作"><div><h2>DNS 服务</h2><p>管理当前 DNS 核心进程</p></div><div id="management-service-controls"></div></section>
     </div>`);
+  (_a2 = $("#management-restart-button")) == null ? void 0 : _a2.addEventListener("click", restartService);
   proxyPanelService == null ? void 0 : proxyPanelService.sync();
+  const serviceBadge = page2.querySelector(".service-card-badge");
   const switchPromise = Promise.all(tags.map((t) => safe(() => api.request(`/plugins/${t}/show`), "error"))).then((results) => Object.fromEntries(tags.map((t, i) => [t, String(results[i]).trim()])));
   const metricsPromise = api.metrics();
+  const cacheSettingsPromise = safeResult(() => readCacheSettings((path) => api.request(path)));
+  metricsPromise.then(() => {
+    if (!isCurrent() || !serviceBadge) return;
+    serviceBadge.classList.add("success");
+    serviceBadge.textContent = "● 运行中";
+  }, () => {
+  });
   const reqStatusPromise = safe(() => api.request("/plugins/requery/status"), null);
   const reqCfgPromise = safe(() => api.request("/plugins/requery/scheduler/config"), null);
   const countsPromise = safeResult(() => api.request("/plugins/requery/stats/source_file_counts"));
   switchPromise.then((status) => {
     if (!isCurrent()) return;
-    const featureHtml = `<div class="feature-grid management-feature-grid">${switchProfiles.map((p) => `<div class="feature-card management-feature-card"><div><h3>${esc$1(p.name)}</h3><p>${esc$1(p.desc)}</p></div><div class="feature-footer"><span class="badge ${status[p.tag] === "A" ? "success" : ""}">${status[p.tag] === "A" ? "已启用" : "已关闭"}</span><label class="switch"><input data-switch="${p.tag}" type="checkbox" ${status[p.tag] === "A" ? "checked" : ""} ${status[p.tag] === "error" ? "disabled" : ""}><span class="switch-track"><span class="switch-thumb"></span></span></label></div></div>`).join("")}</div>`;
+    const featureHtml = `<div class="feature-grid management-feature-grid">${switchProfiles.map((p) => `<div class="feature-card management-feature-card"><div><h3>${esc$1(p.name)}</h3><p>${esc$1(p.desc)}</p></div><div class="feature-footer"><span class="badge ${status[p.tag] === "A" ? "success" : ""}">${status[p.tag] === "A" ? "已启用" : status[p.tag] === "error" ? "读取失败" : "已关闭"}</span><label class="switch"><input data-switch="${p.tag}" type="checkbox" ${status[p.tag] === "A" ? "checked" : ""} ${status[p.tag] === "error" ? "disabled" : ""}><span class="switch-track"><span class="switch-thumb"></span></span></label></div></div>`).join("")}</div>`;
     const featureSlot = $("#management-feature-slot");
     if (featureSlot) setHTML(featureSlot, card("功能开关", featureHtml, { iconName: "features", subtitle: "常用运行功能集中管理", className: "management-feature-panel" }));
     $$("[data-switch]").forEach((x) => x.onchange = async () => {
+      const tag = x.dataset.switch, val = x.checked ? "A" : "B";
+      let rollbackNeeded = false;
       try {
-        const tag = x.dataset.switch, val = x.checked ? "A" : "B";
         await api.json(`/plugins/${tag}/post`, "POST", { value: val });
         if (x.checked && (tag === "switch2" || tag === "switch12")) {
+          rollbackNeeded = true;
           const other = tag === "switch2" ? "switch12" : "switch2";
           await api.json(`/plugins/${other}/post`, "POST", { value: "B" });
         }
         toast("功能状态已保存");
         renderRoute(true);
       } catch (e) {
-        x.checked = !x.checked;
+        if (rollbackNeeded) {
+          try {
+            await api.json(`/plugins/${tag}/post`, "POST", { value: val === "A" ? "B" : "A" });
+          } catch {
+          }
+        }
         toast("切换失败", "error", e.message);
+        renderRoute(true);
       }
     });
   });
-  Promise.all([switchPromise, metricsPromise]).then(([status, metricsRaw]) => {
-    var _a2;
+  Promise.all([switchPromise, metricsPromise, cacheSettingsPromise]).then(([status, metricsRaw, cacheSettingsResult]) => {
+    var _a3, _b2;
     if (!isCurrent()) return;
+    const cacheLimits = cacheSettingsResult.ok ? cacheSettingsResult.data : null;
     const metrics = parseProm(metricsRaw), caches = parseCaches(metrics);
     const cacheEnabled = String(status.switch13 || "").trim().toUpperCase() === "A";
     const activeCacheTag = "cache_main";
@@ -7390,12 +8114,14 @@ async function renderManagement(container, context) {
     const visibleCacheTags = [activeCacheTag, "cache_domestic", "cache_foreign", activeForeignTag];
     const visibleCaches = visibleCacheTags.map((tag) => caches.find((c) => c.tag === tag)).filter(Boolean);
     const cacheCards = visibleCaches.map((c) => `<div class="cache-card cache-card-compact"><div class="cache-card-head"><h3 title="${esc$1(cacheName(c.tag))}">${cacheName(c.tag)}</h3><div class="cache-card-actions"><button class="button small cache-view" data-tag="${c.tag}">查看</button><button class="button small danger cache-clear" data-tag="${c.tag}">清空</button></div></div><div class="cache-stats cache-stats-flat"><div class="cache-stat" title="完整数值：${num(c.q)}"><span>请求总数</span><strong>${num(c.q)}</strong></div><div class="cache-stat" title="完整数值：${num(c.size)}"><span>条目数</span><strong>${num(c.size)}</strong></div><div class="cache-stat" title="完整数值：${pct(c.hit)}"><span>命中率</span><strong>${compactPct(c.hit)}</strong></div><div class="cache-stat" title="完整数值：${pct(c.lazy)}"><span>过期命中</span><strong>${compactPct(c.lazy)}</strong></div></div></div>`);
-    const cacheHeaderActions = `<div class="cache-header-actions"><span class="badge success cache-active-badge">${activeCacheLabel} · ${cacheEnabled ? "当前使用" : "当前模式"}</span><span class="badge ${cacheEnabled ? "success" : "danger"}">● 核心缓存${cacheEnabled ? "已开启" : "已关闭"}</span><button class="button small danger" id="cache-clear-all">全部清空</button></div>`;
+    const cachePending = cacheLimits && cacheLimits.restart_needed ? '<span class="badge pink" title="缓存参数已保存，重启内核后生效">● 参数待重启</span>' : "";
+    const cacheSettingsButton = cacheLimits ? '<button class="button small" id="cache-settings">缓存参数</button>' : "";
+    const cacheHeaderActions = `<div class="cache-header-actions"><span class="badge success cache-active-badge">${activeCacheLabel} · ${cacheEnabled ? "当前使用" : "当前模式"}</span><span class="badge ${cacheEnabled ? "success" : "danger"}">● 核心缓存${cacheEnabled ? "已开启" : "已关闭"}</span>${cachePending}${cacheSettingsButton}<button class="button small danger" id="cache-clear-all">全部清空</button></div>`;
     const slot = $("#management-cache-slot");
     if (!slot) return;
     setHTML(slot, `<section class="card data-cache-panel"><div class="card-header"><div class="card-title"><span class="icon">${icon$1("data")}</span><div><h2>缓存管理</h2><p>仅显示当前模式对应的全部缓存与国外缓存，界面更紧凑</p></div></div>${cacheHeaderActions}</div><div class="card-body"><div class="cache-grid data-cache-grid">${cacheCards.join("")}</div></div></section>`);
-    (_a2 = $("#cache-clear-all")) == null ? void 0 : _a2.addEventListener("click", async () => {
-      if (!confirm("确定清空全部 DNS 缓存？将同时清空经典、智能、国内与国外缓存。")) return;
+    (_a3 = $("#cache-clear-all")) == null ? void 0 : _a3.addEventListener("click", async () => {
+      if (!await confirmDialog({ message: "确定清空全部 DNS 缓存？将同时清空经典、智能、国内与国外缓存。", danger: true })) return;
       const ct = caches.map((c) => c.tag);
       const result = await Promise.allSettled(ct.map((tag) => api.request(`/plugins/${tag}/flush`)));
       const failed = result.filter((x) => x.status === "rejected").length;
@@ -7403,39 +8129,59 @@ async function renderManagement(container, context) {
       renderRoute(true);
     });
     $$(".cache-clear").forEach((x) => x.onclick = async () => {
-      if (!confirm(`确定清空 ${cacheName(x.dataset.tag)}？`)) return;
-      await api.request(`/plugins/${x.dataset.tag}/flush`);
-      toast("缓存已清空");
-      renderRoute(true);
+      if (!await confirmDialog({ message: `确定清空 ${cacheName(x.dataset.tag)}？`, danger: true })) return;
+      try {
+        await api.request(`/plugins/${x.dataset.tag}/flush`);
+        toast("缓存已清空");
+        renderRoute(true);
+      } catch (e) {
+        toast("清空缓存失败", "error", e.message);
+        renderRoute(true);
+      }
     });
     $$(".cache-view").forEach((x) => x.onclick = async () => {
-      const text2 = await api.request(`/plugins/${x.dataset.tag}/show`);
-      openDrawer(cacheName(x.dataset.tag), "缓存内容", `<pre>${esc$1(text2)}</pre>`);
+      try {
+        const text2 = await api.request(`/plugins/${x.dataset.tag}/show`);
+        openDrawer(cacheName(x.dataset.tag), "缓存内容", `<pre>${esc$1(text2)}</pre>`);
+      } catch (e) {
+        toast("查看缓存内容失败", "error", e.message);
+      }
     });
+    (_b2 = $("#cache-settings")) == null ? void 0 : _b2.addEventListener("click", () => openCacheSettings(cacheLimits));
   }).catch((e) => {
     if (isCurrent() && $("#management-cache-slot")) setHTML($("#management-cache-slot"), card("缓存管理", `<div class="error-panel">加载失败：${esc$1(e.message)}</div>`, { iconName: "data", className: "data-cache-panel" }));
   });
   Promise.all([reqStatusPromise, reqCfgPromise]).then(([reqStatus, reqCfg]) => {
-    var _a2, _b2, _c;
+    var _a3, _b2, _c;
     if (!isCurrent()) return;
     const slot = $("#management-requery-slot");
     if (!slot) return;
     const rq = requeryHtml(reqStatus, reqCfg);
     setHTML(slot, card("刷新分流缓存", rq.body, { iconName: "refresh", subtitle: "重新扫描域名并更新自动生成的分流列表", actions: rq.actions, className: "data-requery-card" }));
-    (_a2 = $("#requery-trigger")) == null ? void 0 : _a2.addEventListener("click", async () => {
-      await api.request("/plugins/requery/trigger", { method: "POST" });
-      toast("刷新任务已开始");
-      renderRoute(true);
+    (_a3 = $("#requery-trigger")) == null ? void 0 : _a3.addEventListener("click", async () => {
+      try {
+        await api.request("/plugins/requery/trigger", { method: "POST" });
+        toast("刷新任务已开始");
+        renderRoute(true);
+      } catch (e) {
+        toast("刷新任务开始失败", "error", e.message);
+        renderRoute(true);
+      }
     });
     (_b2 = $("#requery-cancel")) == null ? void 0 : _b2.addEventListener("click", async () => {
-      await api.request("/plugins/requery/cancel", { method: "POST" });
-      toast("已请求取消");
-      renderRoute(true);
+      try {
+        await api.request("/plugins/requery/cancel", { method: "POST" });
+        toast("已请求取消");
+        renderRoute(true);
+      } catch (e) {
+        toast("取消刷新任务失败", "error", e.message);
+        renderRoute(true);
+      }
     });
     (_c = $("#requery-scheduler")) == null ? void 0 : _c.addEventListener("click", () => openRequeryScheduler(reqCfg));
   });
   countsPromise.then((counts) => {
-    var _a2, _b2;
+    var _a3, _b2;
     if (!isCurrent()) return;
     const slot = $("#management-counts-slot");
     if (!slot) return;
@@ -7445,58 +8191,80 @@ async function renderManagement(container, context) {
       countsCard.style.height = "";
       countsCard.style.minHeight = "";
     }
-    (_a2 = $("#save-shunt")) == null ? void 0 : _a2.addEventListener("click", () => multiPluginAction(["domain_stats/save", "realip/save", "fakeip/save", "nodata/save"], "分流规则已保存"));
+    (_a3 = $("#save-shunt")) == null ? void 0 : _a3.addEventListener("click", () => multiPluginAction(["domain_stats/save", "realip/save", "fakeip/save", "nodata/save"], "分流规则已保存"));
     (_b2 = $("#clear-shunt")) == null ? void 0 : _b2.addEventListener("click", () => clearShuntData());
   });
 }
 async function restartService() {
-  if (!confirm(`确定重启 ${(identityService == null ? void 0 : identityService.getName()) || "LocalDNS"}？短时间内 DNS 服务会中断。`)) return;
+  if (!await confirmDialog({ message: `确定重启 ${(identityService == null ? void 0 : identityService.getName()) || "LocalDNS"}？短时间内 DNS 服务会中断。`, danger: true })) return;
   const scope = currentScope();
-  await api.json("/api/v1/system/restart", "POST", { delay_ms: 500 });
+  try {
+    await api.json("/api/v1/system/restart", "POST", { delay_ms: 500 });
+  } catch (e) {
+    if (scope.signal.aborted) return;
+    toast("重启服务失败", "error", e.message);
+    renderRoute(true);
+    return;
+  }
   if (scope.signal.aborted) return;
   toast(((identityService == null ? void 0 : identityService.getName()) || "LocalDNS") + " 正在重启");
   scope.timeout(() => renderRoute(true), 4e3);
 }
 const cpuSample = { total: null, at: null };
 async function renderOverview(container, context) {
-  var _a2, _b2;
+  var _a2, _b2, _c, _d, _e;
   const renderScope = context.scope, page2 = container;
   trafficClientService.start(renderScope);
   await renderScope.guard(loadAliases(renderScope).catch(() => {
   }));
   const switchTags = ["switch1", "switch5", "switch7", "switch6", "switch13", "switch4", "switch2", "switch12"];
-  const [stats, domains, clients, slowest, sets, metricsRaw, engineStatus, upCfg, switchVals] = await renderScope.guard(Promise.all([
-    api.stats(),
-    api.rank("domain", 1e3),
-    api.rank("client", 1e3),
-    api.rank("slowest", 1e3),
-    api.rank("domain_set", 64),
-    api.metrics(),
+  const [statsR, domainsR, clientsR, slowestR, setsR, metricsR, engineStatus, upCfg, switchVals] = await renderScope.guard(Promise.all([
+    safeResult(() => api.stats()),
+    safeResult(() => api.rank("domain", 1e3)),
+    safeResult(() => api.rank("client", 1e3)),
+    safeResult(() => api.rank("slowest", 1e3)),
+    safeResult(() => api.rank("domain_set", 64)),
+    safeResult(() => api.metrics()),
     safe(() => api.request("/api/v1/status"), {}),
     safe(() => api.request("/api/v1/upstream/config"), {}),
-    Promise.all(switchTags.map((t) => safe(() => api.request(`/plugins/${t}/show`), "B")))
+    Promise.all(switchTags.map((t) => safeResult(() => api.request(`/plugins/${t}/show`))))
   ]));
-  const sw = Object.fromEntries(switchTags.map((t, i) => [t, String(switchVals[i] || "").trim().toUpperCase()]));
+  const stats = statsR.ok ? statsR.data : {}, domains = domainsR.ok ? domainsR.data : [], clients = clientsR.ok ? clientsR.data : [], slowest = slowestR.ok ? slowestR.data : [], sets = setsR.ok ? setsR.data : [], metricsRaw = metricsR.ok ? metricsR.data : "";
+  const switchFailed = switchTags.filter((t, i) => {
+    var _a3;
+    return !((_a3 = switchVals[i]) == null ? void 0 : _a3.ok);
+  });
+  const degradedParts = [!statsR.ok && "运行统计", (!domainsR.ok || !clientsR.ok || !slowestR.ok || !setsR.ok) && "排行数据", !metricsR.ok && "系统指标", switchFailed.length && "开关状态"].filter(Boolean);
+  const sw = Object.fromEntries(switchTags.map((t, i) => {
+    var _a3;
+    return [t, ((_a3 = switchVals[i]) == null ? void 0 : _a3.ok) ? String(switchVals[i].data || "").trim().toUpperCase() : "?"];
+  }));
   const enabledCount = Object.values(sw).filter((v) => v === "A").length;
+  const unknownSwitchCount = switchFailed.length;
   const metrics = parseProm(metricsRaw), sys = parseSystem(metrics), caches = parseCaches(metrics);
   if (sys.version && $("#brand-version-tag")) $("#brand-version-tag").dataset.backendVersion = sys.version;
   if (sys.version && $("#brand-version-tag") && (document.documentElement.dataset.brandVerMode || "version") === "version") $("#brand-version-tag").textContent = sys.version;
   if ($("#float-stat-top")) $("#float-stat-top").textContent = `↑ 累计 ${compactNum(stats.total_queries)} 次`;
   if ($("#float-stat-bot")) $("#float-stat-bot").textContent = `↓ ${ms(stats.average_duration_ms)}`;
-  const cacheDisabled = sw.switch13 === "B";
-  const lazyEnabled = sw.switch4 === "A";
+  const cacheState = sw.switch13 === "A" ? "on" : sw.switch13 === "B" ? "off" : "unknown";
+  const lazyState = sw.switch4 === "A" ? "on" : sw.switch4 === "B" ? "off" : "unknown";
+  const cacheDisabled = cacheState === "off";
+  const lazyEnabled = lazyState === "on";
   const cMain = caches.find((x) => x.tag === "cache_main") || { hit: 0, lazy: 0, q: 0, h: 0, size: 0 };
   const cDom = caches.find((x) => x.tag === "cache_domestic") || { hit: 0, lazy: 0, q: 0, h: 0, size: 0 };
   const cFor = caches.find((x) => x.tag === "cache_foreign") || { hit: 0, lazy: 0, q: 0, h: 0, size: 0 };
   const cEcs = caches.find((x) => x.tag === "cache_foreign_ecs") || { hit: 0, lazy: 0, q: 0, h: 0, size: 0 };
   const totalCacheQ = caches.reduce((s, c) => s + (c.q || 0), 0);
   const totalCacheH = caches.reduce((s, c) => s + (c.h || 0), 0);
-  const overallHitRate = cMain.q > 0 ? cMain.hit : totalCacheQ > 0 ? totalCacheH / totalCacheQ * 100 : 0;
-  const cacheValue = cacheDisabled ? "已关闭" : pct(overallHitRate);
+  const activeCachePoolCount = caches.filter((c) => (+c.q || 0) > 0).length;
+  const overallHitRate = totalCacheQ > 0 ? totalCacheH / totalCacheQ * 100 : 0;
+  const cacheValue = cacheState === "off" ? "已关闭" : cacheState === "unknown" ? "未知" : pct(overallHitRate);
   const now = Date.now();
-  let cpuPct = sys.uptime > 0 ? Math.max(0, sys.cpu / sys.uptime * 100) : 0;
+  let cpuPct = null;
   if (cpuSample.total != null && cpuSample.at != null && sys.cpu >= cpuSample.total && now > cpuSample.at) {
-    cpuPct = Math.max(0, (sys.cpu - cpuSample.total) / ((now - cpuSample.at) / 1e3) * 100);
+    cpuPct = Math.min(100, Math.max(0, (sys.cpu - cpuSample.total) / ((now - cpuSample.at) / 1e3) * 100));
+  } else if (sys.uptime > 0 && sys.cpu >= 0) {
+    cpuPct = Math.min(100, Math.max(0, sys.cpu / sys.uptime * 100));
   }
   cpuSample.total = sys.cpu;
   cpuSample.at = now;
@@ -7508,15 +8276,19 @@ async function renderOverview(container, context) {
   const allSets = outcomes.all;
   const ds = outcomes.shown;
   const slowGroups = aggregateSlowest(slowest, Infinity);
-  const clientMode = sw.switch2 === "A" ? "fakeip" : sw.switch12 === "A" ? "realip" : "all";
-  const totalQ = Math.max(1, +stats.total_queries || 0);
+  const clientMode = sw.switch2 === "?" || sw.switch12 === "?" ? "unknown" : sw.switch2 === "A" && sw.switch12 === "A" ? "conflict" : sw.switch2 === "A" ? "fakeip" : sw.switch12 === "A" ? "realip" : "all";
+  const statsTotalQ = Number.isFinite(+stats.total_queries) ? +stats.total_queries : null;
+  const blockedPct = statsTotalQ != null && statsTotalQ > 0 ? Math.min(100, Math.max(0, adguardBlocked / statsTotalQ * 100)) : null;
+  const blockedPctText = blockedPct != null ? pct(blockedPct) : "—";
   const topoClients = clientsService.topology(clients, clientAliases, stats.total_queries, compactNum);
   const isClaude = document.documentElement.dataset.skin === "claude";
   const rRules = (engineStatus == null ? void 0 : engineStatus.rules) || {};
   const eStats = (engineStatus == null ? void 0 : engineStatus.stats) || {};
   const topoRules = [
     { id: "r1", tab: "diversion", name: "geosite_cn", sub: `国内大陆域名直连 · ${num(rRules.geosite_cn || 0)} 条规则`, val: compactNum(eStats.domestic || 0), iconColor: isClaude ? "#2D6A4F" : "#10B981", icon: "globe" },
-    { id: "r2", tab: "lists", name: "whitelist / custom_cn", sub: `白名单与自定义国内 · ${num(rRules.force_domestic || 0)} 条规则`, val: `${num(rRules.force_domestic || 0)} 条`, iconColor: isClaude ? "#C96442" : "#60A5FA", icon: "check" },
+    // C-06：引擎统计里没有该类对应的查询量计数，val 不再用规则数冒充
+    // 查询量；显示“—”，规则数只保留在 sub 里。
+    { id: "r2", tab: "lists", name: "whitelist / custom_cn", sub: `白名单与自定义国内 · ${num(rRules.force_domestic || 0)} 条规则`, val: "—", iconColor: isClaude ? "#C96442" : "#60A5FA", icon: "check" },
     { id: "r3", tab: "diversion", name: "geosite_non_cn", sub: `海外无污染分流 · ${num(rRules.geosite_non_cn || 0)} 条规则`, val: compactNum((+eStats.foreign || 0) + (+eStats.foreign_ecs || 0)), iconColor: isClaude ? "#3D6B66" : "#14B8A6", icon: "split" },
     { id: "r4", tab: "lists", name: "force_fakeip / 灰名单", sub: `FakeIP 分流映射 · ${num(rRules.force_foreign_fakeip || 0)} 条规则`, val: compactNum(eStats.fakeip || 0), iconColor: isClaude ? "#B45309" : "#F59E0B", icon: "spark" },
     { id: "r5", tab: "adguard", name: "adguard_block", sub: `广告与追踪器拦截 · ${num((engineStatus == null ? void 0 : engineStatus.adguard_rules) || 0)} 条规则`, val: compactNum(adguardBlocked), iconColor: isClaude ? "#B91C1C" : "#EF4444", icon: "shield" },
@@ -7537,7 +8309,9 @@ async function renderOverview(container, context) {
     { id: "g1", code: "CN", codeColor: isClaude ? "#2D6A4F" : "#34D399", codeBg: isClaude ? "rgba(45,106,79,0.12)" : "rgba(16,185,129,0.14)", name: "国内组 (domestic)", sub: `并发竞速 · ${groupAvgMs("domestic")} · ${num(eStats.domestic || 0)} 次` },
     { id: "g2", code: "GL", codeColor: isClaude ? "#3D6B66" : "#2DD4BF", codeBg: isClaude ? "rgba(61,107,102,0.12)" : "rgba(20,184,166,0.14)", name: "国外组 (foreign)", sub: `无污染解析 · ${groupAvgMs("foreign")} · ${num(eStats.foreign || 0)} 次` },
     { id: "g3", code: "ECS", codeColor: isClaude ? "#C96442" : "#93C5FD", codeBg: isClaude ? "rgba(201,100,66,0.12)" : "rgba(59,130,246,0.16)", name: "国外 ECS (foreign_ecs)", sub: `EDNS 子网 · ${groupAvgMs("foreign_ecs")} · ${num(eStats.foreign_ecs || 0)} 次` },
-    { id: "g4", code: "PX", codeColor: isClaude ? "#B45309" : "#FBBF24", codeBg: isClaude ? "rgba(180,83,9,0.12)" : "rgba(245,158,11,0.15)", name: "代理组 (proxy)", sub: `远端解析 · ${groupAvgMs("proxy")} · ${num(eStats.fakeip || 0)} 次` },
+    // 状态接口没有独立的 proxy 组计数：这里展示的是 FakeIP 映射次数，
+    // 与 r4 节点同源，文案明确标注口径，避免被误读为代理组查询量。
+    { id: "g4", code: "PX", codeColor: isClaude ? "#B45309" : "#FBBF24", codeBg: isClaude ? "rgba(180,83,9,0.12)" : "rgba(245,158,11,0.15)", name: "代理组 (proxy)", sub: `远端解析 · ${groupAvgMs("proxy")} · FakeIP 映射 ${num(eStats.fakeip || 0)} 次` },
     { id: "g5", code: "BLK", codeColor: isClaude ? "#B91C1C" : "#F87171", codeBg: isClaude ? "rgba(185,28,28,0.12)" : "rgba(239,68,68,0.15)", name: "本地拦截黑洞", sub: `0.0.0.0 / NXDOMAIN · ${num(eStats.blocked || 0)} 拦截` }
   ];
   const allRealUps = [
@@ -7628,6 +8402,31 @@ async function renderOverview(container, context) {
       muted: Boolean(((_a3 = topoClients.find((c) => c.id === from)) == null ? void 0 : _a3.muted) || ((_b3 = topoServers.find((s) => s.id === to)) == null ? void 0 : _b3.muted))
     };
   });
+  const enabledUps = allRealUps.filter((x) => x.u.enabled !== false);
+  const faultyUps = enabledUps.filter((x) => x.m.err > 0 && (x.m.success !== null ? x.m.success < 80 : x.m.win === 0));
+  const healthyUpsCount = Math.max(0, enabledUps.length - faultyUps.length);
+  const domActiveUps = (groupUpstreams.domestic || []).filter((x) => x.u.enabled !== false && x.m.latency > 0);
+  const domAvgNum = domActiveUps.length ? domActiveUps.reduce((s, x) => s + x.m.latency, 0) / domActiveUps.length : 0;
+  const domAvgTxt = domActiveUps.length ? `${domAvgNum.toFixed(1)} ms` : "就绪";
+  const domTopAdopted = (groupUpstreams.domestic || []).filter((x) => x.u.enabled !== false && x.m.q > 0).sort((a, b) => b.m.adoption - a.m.adoption).slice(0, 2);
+  const domAdoptedTxt = domTopAdopted.map((x) => `${esc$1(x.u.tag)} ${Math.round(x.m.adoption)}% 采纳`).join(" · ");
+  const domShortLabel = domTopAdopted.length ? domTopAdopted.map((x) => x.u.tag).join("/") : "国内竞速";
+  const totalUpErr = allRealUps.reduce((s, x) => s + (+x.m.err || 0), 0);
+  const slowOver100Count = slowGroups.filter((g) => (+g.duration_ms || 0) >= 100).length;
+  const maxSlowMs = slowGroups.length ? Math.round(+slowGroups[0].duration_ms || 0) : Math.round(+stats.average_duration_ms || 0);
+  const p95Ms = slowGroups.length > 1 ? Math.round(+slowGroups[Math.min(1, slowGroups.length - 1)].duration_ms || 0) : maxSlowMs;
+  const clientModeText = clientMode === "fakeip" ? "指定 FakeIP" : clientMode === "realip" ? "指定 RealIP" : clientMode === "all" ? "全员分流" : "状态未知";
+  const shortcutsSummary = `当前策略：${clientModeText} · 核心缓存 ${cacheState === "on" ? "开" : cacheState === "off" ? "关" : "未知"} · 乐观过期 ${lazyState === "on" ? "开" : lazyState === "off" ? "关" : "未知"} · AdGuard ${sw.switch7 === "A" ? "已开启" : sw.switch7 === "B" ? "未启用" : "未知"}`;
+  (_c = trafficClientService.setOverviewContext) == null ? void 0 : _c.call(trafficClientService, {
+    avgLatencyMs: Number.isFinite(+stats.average_duration_ms) ? +stats.average_duration_ms : null,
+    upstreamAvgMs: domAvgNum > 0 ? domAvgNum : null,
+    upstreamLabel: domShortLabel,
+    p95Ms,
+    maxSlowMs,
+    failCount: totalUpErr,
+    slowOver100Count,
+    slowSpikes: slowGroups.slice(0, 2).map((g) => ({ domain: g.query_name, ms: +g.duration_ms || 0 }))
+  });
   const dsTotal = Math.max(1, outcomes.total);
   const outcomeColor = (key) => overviewInsightsService.color(key, isClaude ? "claude" : "glass");
   let dashOffset = 25;
@@ -7637,17 +8436,10 @@ async function renderOverview(container, context) {
     dashOffset -= pctVal;
     return circle;
   }).join("");
-  const rankTab = state.overviewRankTab || "client";
-  const rankItems = (rankTab === "client" ? clients || [] : domains || []).slice(0, 4);
-  const rankMax = Math.max(1, ...rankItems.map((x) => +x.count || 0));
   setHTML(page2, `
-      <div class="view-title-row">
+      <div class="view-title-row" data-shortcuts-summary="${esc$1(shortcutsSummary)}">
         <div style="display:flex;align-items:baseline;gap:12px">
-          <h1>运行概览</h1>
-          <span class="mono" style="font-size:12px;color:var(--text-3)">${esc$1([sys.version || (engineStatus == null ? void 0 : engineStatus.version) || "FJG20", sys.platform, sys.runtime !== "—" ? sys.runtime : ""].filter(Boolean).join(" · "))}</span>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button type="button" class="glass-btn" id="btn-overview-custom-bg">自定义壁纸与玻璃</button>
+          <h1>概览</h1>
         </div>
       </div>
 
@@ -7656,14 +8448,28 @@ async function renderOverview(container, context) {
           <div class="console-service-health">
             <span class="service-health-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path data-service-check d="m7 12 3 3 7-7"/></svg></span>
             <div class="service-health-copy">
-              <div class="service-health-title"><h2 id="service-summary-title">DNS 服务运行中</h2><span class="service-connection">已连接</span></div>
-              <p class="service-build mono">${esc$1([sys.version || (engineStatus == null ? void 0 : engineStatus.version) || "FJG20", sys.platform, sys.runtime !== "—" ? sys.runtime : ""].filter(Boolean).join(" · "))}</p>
+              <div class="service-health-title"><h2 id="service-summary-title">DNS 服务运行中</h2></div>
+              <p class="service-build mono">${esc$1([sys.version || (engineStatus == null ? void 0 : engineStatus.version) || "FJG20", sys.platform, sys.runtime !== "—" ? sys.runtime : ""].filter(Boolean).join(" · "))}${sys.start ? ` · 启动于 ${startTimeMarkup(sys.start)}` : ""}</p>
             </div>
           </div>
-          <div class="service-metric" data-service-metric="start"><div class="service-metric-label"><span>启动时间</span>${icon$1("clock")}</div><div class="service-value service-start-value">${startTimeMarkup(sys.start)}</div></div>
           <div class="service-metric" data-service-metric="uptime"><div class="service-metric-label"><span>运行时长</span>${icon$1("uptime")}</div><div class="service-value service-uptime-value">${sys.start ? overviewUptimeMarkup(sys.uptime) : "—"}</div></div>
-          <div class="service-metric" data-service-metric="cpu"><div class="service-metric-label"><span>进程 CPU</span>${icon$1("cpu")}</div><div class="service-value" data-display-number>${metrics.some((m) => m.name === "process_cpu_seconds_total") ? cpuPct.toFixed(1) + "%" : "—"}</div></div>
+          <div class="service-metric" data-service-metric="upstreams" data-route="upstreams" style="cursor:pointer" title="点击查看上游 DNS 节点与健康状态"><div class="service-metric-label"><span>上游 DNS 健康</span>${icon$1("globe")}</div><div class="service-value service-uptime-value"><span class="overview-duration-part"><span class="overview-duration-num" style="color:${faultyUps.length ? "var(--amber)" : "var(--console-success)"}">${enabledUps.length ? `${healthyUpsCount}/${enabledUps.length}` : "—"}</span><span class="overview-duration-unit">${enabledUps.length ? faultyUps.length ? `(${faultyUps.length} 异常)` : "在线" : "未启用"}</span></span></div></div>
+          <div class="service-metric" data-service-metric="cpu"><div class="service-metric-label"><span>进程 CPU</span>${icon$1("cpu")}</div><div class="service-value" data-display-number>${cpuPct != null ? cpuPct.toFixed(1) + "%" : "—"}</div></div>
           <div class="service-metric" data-service-metric="memory"><div class="service-metric-label"><span>内存占用</span>${icon$1("memory")}</div><div class="service-value" data-display-number>${metrics.some((m) => m.name === "process_resident_memory_bytes") ? fmtBytesBrief(sys.rss) : "—"}</div></div>
+        </div>
+        <div class="console-health-strip ${faultyUps.length ? "is-anomaly" : ""}">
+          <div class="chs-left">
+            <span class="chs-tag">${faultyUps.length ? `● ${faultyUps.length} 项待处理告警` : "✓ 链路健康"}</span>
+            <div class="chs-items">
+              ${faultyUps.length ? `<span>1. <strong>${esc$1(faultyUps[0].u.tag)}</strong> 累计 ${num(faultyUps[0].m.err)} 次连接超时或异常</span>
+                   <span>2. 最近 ${num(stats.total_queries)} 次查询 · 慢查询(&gt;100ms) ${num(slowOver100Count)} 组</span>` : `<span>国内池 <strong>${esc$1(domAdoptedTxt || "—")}</strong></span>
+                   <span>最近 ${num(stats.total_queries)} 次查询 <strong>${num(totalUpErr)} 次 SERVFAIL</strong> · 慢查询(&gt;100ms) ${slowOver100Count ? `仅 ${num(slowOver100Count)} 组` : "0 组"}</span>`}
+            </div>
+          </div>
+          <div class="chs-actions">
+            ${faultyUps.length ? `<button type="button" class="glass-btn" data-chs-lock="r3">定位超时拓扑路径</button>
+                 <button type="button" class="glass-btn" data-route="upstreams">去上游 DNS 排查 ›</button>` : `<button type="button" class="glass-btn" data-chs-lock="r1">高亮当前主流量路径</button>`}
+          </div>
         </div>
       </section>
 
@@ -7676,11 +8482,11 @@ async function renderOverview(container, context) {
           </div>
           <div class="cb-right">
             <div class="seg-group" role="group" aria-label="客户端分流策略">
-              <button type="button" class="seg-item ${clientMode === "all" ? "active" : ""}" data-client-mode="all" title="所有客户端均按分流规则正常解析">全员分流</button>
-              <button type="button" class="seg-item ${clientMode === "fakeip" ? "active" : ""}" data-client-mode="fakeip" title="switch2：只允许指定客户端科学">指定 FakeIP</button>
-              <button type="button" class="seg-item ${clientMode === "realip" ? "active" : ""}" data-client-mode="realip" title="switch12：指定客户端不允许科学">指定 RealIP</button>
+              <button type="button" class="seg-item ${clientMode === "all" ? "active" : ""}" data-client-mode="all" ${clientMode === "unknown" ? "disabled" : ""} title="${clientMode === "unknown" ? "分流开关读取失败，状态未知，暂不可切换" : "所有客户端均按分流规则正常解析"}">全员分流</button>
+              <button type="button" class="seg-item ${clientMode === "fakeip" ? "active" : ""}" data-client-mode="fakeip" ${clientMode === "unknown" ? "disabled" : ""} title="${clientMode === "unknown" ? "分流开关读取失败，状态未知，暂不可切换" : "switch2：只允许指定客户端科学"}">指定 FakeIP</button>
+              <button type="button" class="seg-item ${clientMode === "realip" ? "active" : ""}" data-client-mode="realip" ${clientMode === "unknown" ? "disabled" : ""} title="${clientMode === "unknown" ? "分流开关读取失败，状态未知，暂不可切换" : "switch12：指定客户端不允许科学"}">指定 RealIP</button>
             </div>
-            <button type="button" class="glass-btn" id="manage-alias">别名</button>
+            <button type="button" class="glass-btn" id="manage-alias">名单与别名 ›</button>
           </div>
         </div>
       </div>
@@ -7693,8 +8499,8 @@ async function renderOverview(container, context) {
           </div>
           <div class="cb-right">
             <div class="seg-group" role="group" aria-label="缓存功能开关">
-              <button type="button" class="seg-item ${!cacheDisabled ? "active" : ""}" id="btn-toggle-switch13" title="点击切换核心缓存 (switch13)">核心缓存 ${!cacheDisabled ? "开" : "关"}</button>
-              <button type="button" class="seg-item ${lazyEnabled ? "active" : ""}" id="btn-toggle-switch4" title="点击切换乐观过期缓存 (switch4)">过期缓存 ${lazyEnabled ? "开" : "关"}</button>
+              <button type="button" class="seg-item ${cacheState === "on" ? "active" : ""}" id="btn-toggle-switch13" ${cacheState === "unknown" ? "disabled" : ""} title="${cacheState === "unknown" ? "核心缓存开关读取失败，状态未知，暂不可切换" : "点击切换核心缓存 (switch13)"}">核心缓存 ${cacheState === "on" ? "开" : cacheState === "off" ? "关" : "未知"}</button>
+              <button type="button" class="seg-item ${lazyEnabled ? "active" : ""}" id="btn-toggle-switch4" ${lazyState === "unknown" ? "disabled" : ""} title="${lazyState === "unknown" ? "乐观过期缓存开关读取失败，状态未知，暂不可切换" : "点击切换乐观过期缓存 (switch4)"}">乐观过期 ${lazyState === "on" ? "开" : lazyState === "off" ? "关" : "未知"}</button>
             </div>
             <button type="button" class="glass-btn" id="btn-flush-all-cache">清空</button>
           </div>
@@ -7705,11 +8511,11 @@ async function renderOverview(container, context) {
         <div class="glass-card control-bar-card">
           <div class="cb-label">
             <span class="dot-online" aria-hidden="true"></span>
-            <span style="color:var(--text-1);font-weight:600">运行中 · ${duration(sys.uptime)}</span>
+            <span style="color:var(--text-1);font-weight:600">功能开关</span>
           </div>
           <div class="cb-right">
-            <button type="button" class="glass-btn" id="btn-toggle-switch7" title="点击切换 AdGuard 广告屏蔽 (switch7)">AdGuard ${sw.switch7 === "A" ? "已开启" : "已关闭"}</button>
-            <span style="font-size:12px;color:var(--text-2);cursor:pointer" data-route="management">${enabledCount}/8 项开启 ›</span>
+            <button type="button" class="glass-btn" id="btn-toggle-switch7" ${sw.switch7 === "?" ? "disabled" : ""} title="${sw.switch7 === "?" ? "AdGuard 开关读取失败，状态未知，暂不可切换" : "点击切换 AdGuard 广告屏蔽 (switch7)"}">AdGuard ${sw.switch7 === "A" ? "已开启" : sw.switch7 === "B" ? "已关闭" : "未知"}</button>
+            <span style="font-size:12px;color:var(--text-2);cursor:pointer" data-route="management">${enabledCount}/8 项开启${unknownSwitchCount ? ` · ${unknownSwitchCount} 项未知` : ""} ›</span>
           </div>
         </div>
       </div>
@@ -7722,7 +8528,7 @@ async function renderOverview(container, context) {
             <div class="sk-val tabular">${num(stats.total_queries)}</div>
             <svg class="sk-chart" viewBox="0 0 100 34" fill="none" aria-hidden="true"></svg>
           </div>
-          <div class="sk-note">${cacheDisabled ? "缓存已关闭" : "缓存命中占 " + pct(overallHitRate)}</div>
+          <div class="sk-note">${cacheState === "off" ? "缓存已关闭" : cacheState === "unknown" ? "缓存开关状态未知" : `缓存命中占 ${pct(overallHitRate)} · ${num(totalUpErr)} 失败`}</div>
         </div>
       </div>
 
@@ -7733,7 +8539,7 @@ async function renderOverview(container, context) {
             <div class="sk-val tabular">${cacheValue}</div>
             <svg class="sk-chart" viewBox="0 0 100 34" fill="none" aria-hidden="true"></svg>
           </div>
-          <div class="sk-note">${caches.filter((c) => (+c.q || 0) > 0).length} 个活跃缓存池</div>
+          <div class="sk-note">${cacheState === "off" ? "核心缓存已关闭" : cacheState === "unknown" ? "核心缓存状态未知" : `国内池 ${cDom.hit.toFixed(1)}% · 乐观过期 ${Math.max(cMain.lazy, cDom.lazy).toFixed(1)}%`}</div>
         </div>
       </div>
 
@@ -7744,29 +8550,34 @@ async function renderOverview(container, context) {
             <div class="sk-val tabular">${clientCount}</div>
             <svg class="sk-chart" viewBox="0 0 100 34" fill="none" aria-hidden="true"></svg>
           </div>
-          <div class="sk-note">活跃来源 IP</div>
+          <div class="sk-note">活跃来源 IP · ${clientModeText} ›</div>
         </div>
       </div>
 
       <div class="col-2">
-        <div class="glass-card spark-kpi-card" data-route="rules">
-          <div class="sk-top"><span class="sk-title">拦截请求</span><svg viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" aria-hidden="true"><path d="M12 3 4 7v5c0 5 3.4 9.3 8 10 4.6-.7 8-5 8-10V7l-8-4Z"/></svg></div>
+        <div class="glass-card spark-kpi-card" data-route="rules" title="${sw.switch7 === "A" ? "AdGuard 广告拦截运行中，点击管理规则" : "AdGuard 未启用，点击去分流页开启"}">
+          <div class="sk-top"><span class="sk-title">AdGuard 拦截</span><svg viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" aria-hidden="true"><path d="M12 3 4 7v5c0 5 3.4 9.3 8 10 4.6-.7 8-5 8-10V7l-8-4Z"/></svg></div>
+          ${sw.switch7 === "A" ? `
           <div class="sk-bottom">
             <div class="sk-val tabular">${fullNum(adguardBlocked)}</div>
             <svg class="sk-chart" viewBox="0 0 100 34" fill="none" aria-hidden="true"></svg>
           </div>
-          <div class="sk-note">${pct(totalQ > 0 ? adguardBlocked / totalQ * 100 : 0)} 的请求被拦截</div>
+          <div class="sk-note">${blockedPct != null ? `已拦截 ${blockedPctText} 请求` : "AdGuard 拦截已启用"}</div>` : `
+          <div class="sk-bottom">
+            <div class="sk-val tabular" style="font-size:15px;color:var(--text-3)">未启用</div>
+          </div>
+          <div class="sk-note">黑名单 ${num(rRules.block || 0)} 条 · 点击去开启 ›</div>`}
         </div>
       </div>
 
       <div class="col-2">
-        <div class="glass-card spark-kpi-card" data-route="upstreams">
+        <div class="glass-card spark-kpi-card" data-route="upstreams" title="口径：后端 average_duration_ms 全量均值；解析页为 Prometheus 分段求和均值，两处统计方式不同">
           <div class="sk-top"><span class="sk-title">平均响应</span><svg viewBox="0 0 24 24" fill="none" stroke="#60A5FA" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div>
           <div class="sk-bottom">
             <div class="sk-val tabular" style="color:#F59E0B">${ms(stats.average_duration_ms)}</div>
             <svg class="sk-chart" viewBox="0 0 100 34" fill="none" aria-hidden="true"></svg>
           </div>
-          <div class="sk-note">当前浏览器会话采样</div>
+          <div class="sk-note">上游竞速 <strong>${esc$1(domAvgTxt)}</strong> · P95 ${num(p95Ms)} ms</div>
         </div>
       </div>
 
@@ -7812,10 +8623,10 @@ async function renderOverview(container, context) {
                   <div class="t-node t-engine-card" data-node-id="e_core" data-route="management">
                     <div>
                       <div class="tec-top">
-                        <span class="tec-big tabular">${cacheDisabled ? "—" : overallHitRate.toFixed(1) + "%"}</span>
+                        <span class="tec-big tabular">${cacheState === "on" ? overallHitRate.toFixed(1) + "%" : "—"}</span>
                         <span class="tec-badge">${compactNum(stats.total_queries)} 请求</span>
                       </div>
-                      <div class="tec-desc">多级内存缓存命中 · ${cacheDisabled ? "核心缓存已关闭" : "4 个活跃缓存池"}</div>
+                      <div class="tec-desc">多级内存缓存命中 · ${cacheState === "off" ? "核心缓存已关闭" : cacheState === "unknown" ? "核心缓存状态未知" : `${activeCachePoolCount} 个活跃缓存池`}</div>
                     </div>
 
                     <div class="tec-bars">
@@ -7853,7 +8664,7 @@ async function renderOverview(container, context) {
                 <div class="topo-col-title"><span>03</span>分流规则集</div>
                 <div class="topo-col-body">
                   ${topoRules.map((r) => `
-                    <div class="t-node" data-node-id="${r.id}" data-rule-jump="${r.tab}">
+                    <div class="t-node" data-node-id="${r.id}" data-rule-jump="${r.tab}" data-zero-flow="${r.val === "0" || r.val === "—" ? "true" : "false"}">
                       <div class="tn-left">
                         <div class="tn-icon-box">${getNodeIcon(r.icon, r.iconColor)}</div>
                         <div class="tn-meta">
@@ -7871,7 +8682,7 @@ async function renderOverview(container, context) {
                 <div class="topo-col-title"><span>04</span>上游策略组</div>
                 <div class="topo-col-body">
                   ${topoGroups.map((g) => `
-                    <div class="t-node" data-node-id="${g.id}" data-route="upstreams">
+                    <div class="t-node" data-node-id="${g.id}" data-route="upstreams" data-zero-flow="${/\b0\s*(?:次|拦截)$/.test(g.sub) ? "true" : "false"}">
                       <div class="tn-left">
                         <div class="tn-icon-box" style="color:${g.codeColor};background:${g.codeBg};border-color:${g.codeColor}33">${esc$1(g.code)}</div>
                         <div class="tn-meta">
@@ -7888,7 +8699,7 @@ async function renderOverview(container, context) {
                 <div class="topo-col-title"><span>05</span>上游 DNS 节点</div>
                 <div class="topo-col-body">
                   ${topoServers.map((s) => `
-                    <div class="t-node" data-node-id="${s.id}" data-route="upstreams">
+                    <div class="t-node" data-node-id="${s.id}" data-route="upstreams" data-zero-flow="${s.muted || /^0\b/.test(s.badge) ? "true" : "false"}">
                       <div class="tn-left">
                         <div class="tn-icon-box">${getNodeIcon(s.icon, "#94A3B8")}</div>
                         <div class="tn-meta">
@@ -7911,10 +8722,6 @@ async function renderOverview(container, context) {
         <div class="glass-card">
           <div class="gc-head">
             <div class="gc-title">服务运行体征与查询吞吐监控</div>
-            <div style="display:flex;gap:8px;align-items:center">
-              <span class="tn-pill" style="color:#93C5FD;background:rgba(59,130,246,0.16)">启动于 ${startTimeMarkup(sys.start)}</span>
-              <span class="tn-pill" style="color:#34D399;background:rgba(16,185,129,0.15)">在线 ${duration(sys.uptime)}</span>
-            </div>
           </div>
           <div class="traffic-chart-body">
             <div class="console-chart-empty">正在积累趋势数据…</div>
@@ -7922,7 +8729,6 @@ async function renderOverview(container, context) {
               <div class="tcm-row"><span>国内直连</span><strong>${num(eStats.domestic || 0)}</strong></div>
               <div class="tcm-row"><span>国外无污染</span><strong>${num((+eStats.foreign || 0) + (+eStats.foreign_ecs || 0))}</strong></div>
               <div class="tcm-row"><span>FakeIP 映射</span><strong>${num(eStats.fakeip || 0)}</strong></div>
-              <div class="tcm-row"><span>平均耗时</span><strong>${ms(stats.average_duration_ms)}</strong></div>
             </div>
           </div>
         </div>
@@ -7935,16 +8741,23 @@ async function renderOverview(container, context) {
             <button type="button" class="glass-btn" id="outcome-detail-button">全部 ${allSets.length} 类</button>
           </div>
           <div class="outbound-donut-body">
+            ${ds.length > 1 ? `
             <div class="ring-wrap">
               <svg viewBox="0 0 42 42" width="124" height="124" aria-hidden="true">
                 <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="rgba(148,163,184,0.14)" stroke-width="4.8"></circle>
                 ${ringCircles}
               </svg>
-              <div class="ring-center" title="${fullNum(outcomes.total)} 次查询" aria-label="总查询 ${fullNum(outcomes.total)} 次">
+              <div class="ring-center" title="${fullNum(outcomes.total)} 次查询 · 当前保留日志窗口内" aria-label="总查询 ${fullNum(outcomes.total)} 次，当前保留日志窗口内">
                 <span class="ring-total">${compactNum(outcomes.total)}</span>
                 <span class="ring-caption">总查询</span>
               </div>
-            </div>
+            </div>` : `
+            <div class="ring-single">
+              <div class="ring-single-dot" style="background:${outcomeColor((_d = ds[0]) == null ? void 0 : _d.key)}"></div>
+              <div class="ring-single-label">${esc$1(((_e = ds[0]) == null ? void 0 : _e.label) || "暂无数据")}</div>
+              <div class="ring-single-count tabular">${compactNum(outcomes.total)}</div>
+              <div class="ring-single-sub">当前窗口内全部查询走同一分流结果</div>
+            </div>`}
             <div class="ring-legend">
               ${ds.map((x, i) => {
     const p = ((+x.count || 0) / dsTotal * 100).toFixed(1);
@@ -7956,7 +8769,6 @@ async function renderOverview(container, context) {
   }).join("") || `<div style="color:var(--text-3);font-size:12px">暂无分流分类统计</div>`}
             </div>
           </div>
-          <p class="overview-outcome-note">按查询次数排列；缓存命中不展开原始分流去向。${allSets.length >= 64 ? "接口最多读取 64 类，当前占比仅覆盖已返回分类。" : ""}</p>
         </div>
       </div>
 
@@ -7970,10 +8782,10 @@ async function renderOverview(container, context) {
             <div>
               <div class="gc-title-row">
                 <div class="gc-title">多级缓存池状态</div>
-                <span class="cache-status-pill ${cacheDisabled ? "is-off" : "is-on"}">${cacheDisabled ? "● 核心缓存已关闭" : "● 核心缓存运行中"}</span>
-                <span class="cache-status-pill ${lazyEnabled ? "is-lazy" : "is-muted"}">乐观过期 ${lazyEnabled ? "开启" : "关闭"}</span>
+                <span class="cache-status-pill ${cacheState === "off" ? "is-off" : cacheState === "unknown" ? "is-muted" : "is-on"}">${cacheState === "off" ? "● 核心缓存已关闭" : cacheState === "unknown" ? "● 核心缓存状态未知" : "● 核心缓存运行中"}</span>
+                <span class="cache-status-pill ${lazyEnabled ? "is-lazy" : "is-muted"}">乐观过期 ${lazyState === "on" ? "开启" : lazyState === "off" ? "关闭" : "未知"}</span>
               </div>
-              <p class="workspace-subline cache-panel-subline">4 级独立缓存池实时命中率、请求量与驻留条目数 · 综合命中率 ${pct(overallHitRate)}</p>
+              <p class="workspace-subline cache-panel-subline">4 级独立缓存池实时命中率、请求量与驻留条目数 · 综合命中率（全池加权） ${pct(overallHitRate)}</p>
             </div>
             <div class="cache-head-actions">
               <span class="gc-sub" style="cursor:pointer" data-route="management">缓存管理 ›</span>
@@ -8018,7 +8830,6 @@ async function renderOverview(container, context) {
               </div>`;
   }).join("")}
           </div>
-          <p class="overview-outcome-note">命中率 = 命中数 ÷ 本池查询数；条目数为当前值。查询与命中计数来自核心运行指标，统计周期与审计日志不同。</p>
         </div>
       </div>
 
@@ -8029,11 +8840,11 @@ async function renderOverview(container, context) {
             <div class="overview-slow-tools"><label for="overview-slow-limit">显示条数</label><select id="overview-slow-limit">${[5, 10, 20].map((n) => `<option value="${n}" ${state.overviewSlowLimit === n ? "selected" : ""}>${n} 条</option>`).join("")}</select><button type="button" class="glass-btn" id="slow-detail-button">详情</button></div>
           </div>
           <div class="overview-slow-table-wrap" tabindex="0" role="region" aria-label="慢查询列表，可滚动查看更多记录"><table class="overview-slow-table"><thead><tr><th scope="col">序号</th><th scope="col">域名</th><th scope="col">查询类型</th><th scope="col">客户端</th><th scope="col">最大耗时</th></tr></thead><tbody id="overview-slow-rows">${slowOverviewRowsHtml(slowGroups)}</tbody></table></div>
-          <p class="overview-outcome-note" id="overview-slow-count">显示 ${Math.min(state.overviewSlowLimit, slowGroups.length)} / ${slowGroups.length} 组 · 点击域名查看对应查询日志</p>
         </div>
       </div>
     `);
   const topologyWrap = $("#topo-stage-wrap");
+  if (degradedParts.length) toast("部分数据暂不可用", "info", `${degradedParts.join("、")}读取失败，相关区域已按空数据展示。`);
   const redraw = () => {
     if ((topologyWrap == null ? void 0 : topologyWrap.isConnected) && $("#topo-stage-wrap") === topologyWrap) drawTopoCurves(topoEdges);
   };
@@ -8064,48 +8875,84 @@ async function renderOverview(container, context) {
       if (btn) btn.click();
     };
   });
-  if ($("#btn-overview-custom-bg")) {
-    $("#btn-overview-custom-bg").onclick = (e) => {
-      var _a3;
-      e.stopPropagation();
-      (_a3 = $("#btn-open-bg-customizer")) == null ? void 0 : _a3.click();
-    };
-  }
+  let clientModeGen = 0;
   $$("[data-client-mode]", page2).forEach((btn) => {
     btn.onclick = async () => {
       const m = btn.dataset.clientMode;
+      const targets = { all: ["B", "B"], fakeip: ["A", "B"], realip: ["B", "A"] };
+      const target = targets[m];
+      if (!target) return;
+      if (sw.switch2 === "?" || sw.switch12 === "?") return;
+      const gen = ++clientModeGen;
+      const isStale = () => gen !== clientModeGen;
+      const modeBtns = $$("[data-client-mode]", page2);
+      modeBtns.forEach((b) => {
+        b.disabled = true;
+      });
+      const original = [sw.switch2, sw.switch12];
+      const postSwitch = (tag, value) => api.json(`/plugins/${tag}/post`, "POST", { value });
+      const readSwitches = async () => {
+        const [v2, v12] = await Promise.all([api.request("/plugins/switch2/show"), api.request("/plugins/switch12/show")]);
+        return [String(v2 || "").trim().toUpperCase(), String(v12 || "").trim().toUpperCase()];
+      };
       try {
-        if (m === "all") {
-          await Promise.all([
-            api.json("/plugins/switch2/post", "POST", { value: "B" }),
-            api.json("/plugins/switch12/post", "POST", { value: "B" })
-          ]);
-          toast("已切换为全员分流模式");
-        } else if (m === "fakeip") {
-          await api.json("/plugins/switch2/post", "POST", { value: "A" });
-          await api.json("/plugins/switch12/post", "POST", { value: "B" });
-          toast("已启用：指定 Client FakeIP");
-        } else if (m === "realip") {
-          await api.json("/plugins/switch12/post", "POST", { value: "A" });
-          await api.json("/plugins/switch2/post", "POST", { value: "B" });
-          toast("已启用：指定 Client RealIP");
+        const steps = [{ tag: "switch2", value: target[0] }, { tag: "switch12", value: target[1] }].sort((a, b) => (a.value === "A") - (b.value === "A"));
+        for (const step of steps) {
+          await postSwitch(step.tag, step.value);
+          if (isStale()) return;
         }
-        renderRoute(true, true);
+        const actual = await readSwitches();
+        if (isStale()) return;
+        if (actual[0] !== target[0] || actual[1] !== target[1]) throw new Error(`开关状态与目标不一致（当前 switch2=${actual[0] || "?"}, switch12=${actual[1] || "?"}）`);
+        toast(m === "all" ? "已切换为全员分流模式" : m === "fakeip" ? "已启用：指定 Client FakeIP" : "已启用：指定 Client RealIP");
       } catch (e) {
-        toast("切换失败", "error", e.message);
+        if (isStale()) return;
+        let note;
+        let beforeRollback;
+        try {
+          beforeRollback = await readSwitches();
+        } catch {
+          beforeRollback = null;
+        }
+        if (isStale()) return;
+        if (beforeRollback && beforeRollback[0] === original[0] && beforeRollback[1] === original[1]) {
+          note = "回滚前回读已是切换前状态，未重复回写。";
+        } else if (beforeRollback && beforeRollback[0] === target[0] && beforeRollback[1] === target[1]) {
+          note = "回滚前回读显示目标组合已生效，未执行回滚，请刷新页面确认。";
+        } else {
+          try {
+            await postSwitch("switch2", original[0]);
+            await postSwitch("switch12", original[1]);
+            const actual = await readSwitches();
+            note = actual[0] === original[0] && actual[1] === original[1] ? "已恢复切换前状态。" : `回滚未完全生效，当前实际状态：switch2=${actual[0] || "?"}, switch12=${actual[1] || "?"}。`;
+          } catch {
+            note = "回滚失败，请刷新页面确认当前分流状态。";
+          }
+        }
+        if (isStale()) return;
+        toast("切换失败", "error", `${e.message} ${note}`);
       }
+      if (isStale()) return;
+      modeBtns.forEach((b) => {
+        b.disabled = false;
+      });
+      renderRoute(true, true);
     };
   });
   const bindSwitchBtn = (sel, tag, curVal, label) => {
     const el = $(sel);
     if (!el) return;
     el.onclick = async () => {
+      if (curVal !== "A" && curVal !== "B") return;
+      if (el.disabled) return;
+      el.disabled = true;
       const nextVal = curVal === "A" ? "B" : "A";
       try {
         await api.json(`/plugins/${tag}/post`, "POST", { value: nextVal });
         toast(`${label}已${nextVal === "A" ? "开启" : "关闭"}`);
         renderRoute(true, true);
       } catch (e) {
+        el.disabled = false;
         toast("操作失败", "error", e.message);
       }
     };
@@ -8115,20 +8962,16 @@ async function renderOverview(container, context) {
   bindSwitchBtn("#btn-toggle-switch7", "switch7", sw.switch7, "AdGuard 广告拦截");
   if ($("#btn-flush-all-cache")) {
     $("#btn-flush-all-cache").onclick = async () => {
-      if (!confirm("确定清空全部 DNS 缓存？将同时清空全部、国内、国外与国外 ECS 缓存。")) return;
+      if (!await confirmDialog({ message: "确定清空全部 DNS 缓存？将同时清空全部、国内、国外与国外 ECS 缓存。", danger: true })) return;
       const ct = ["cache_main", "cache_domestic", "cache_foreign", "cache_foreign_ecs"];
-      await Promise.allSettled(ct.map((t) => api.request(`/plugins/${t}/flush`)));
-      toast("全部 4 个 DNS 缓存池已清空");
+      const results = await Promise.allSettled(ct.map((t) => api.request(`/plugins/${t}/flush`)));
+      const failedTags = ct.filter((t, i) => results[i].status === "rejected");
+      if (!failedTags.length) toast("全部 4 个 DNS 缓存池已清空");
+      else toast("清空缓存未全部成功", "error", `未清掉：${failedTags.map(cacheName).join("、")}，其余缓存池已清空。`);
       renderRoute(true, true);
     };
   }
   workspaceService.bindRanks(page2, { domains: domains || [], clients: clients || [], sets: sets || [], aliases: clientAliases });
-  $$("[data-rank-tab]", page2).forEach((btn) => {
-    btn.onclick = () => {
-      state.overviewRankTab = btn.dataset.rankTab;
-      renderRoute(true, true);
-    };
-  });
   $$("[data-overview-cache-view]", page2).forEach((btn) => {
     btn.onclick = async () => {
       const tag = btn.dataset.overviewCacheView;
@@ -8143,7 +8986,7 @@ async function renderOverview(container, context) {
   $$("[data-overview-cache-flush]", page2).forEach((btn) => {
     btn.onclick = async () => {
       const tag = btn.dataset.overviewCacheFlush;
-      if (!confirm(`确定清空 ${cacheName(tag)}？`)) return;
+      if (!await confirmDialog({ message: `确定清空 ${cacheName(tag)}？`, danger: true })) return;
       try {
         await api.request(`/plugins/${tag}/flush`);
         toast(`${cacheName(tag)}已清空`);
@@ -8153,15 +8996,9 @@ async function renderOverview(container, context) {
       }
     };
   });
-  if ($("#manage-alias")) $("#manage-alias").onclick = openAliasModal;
-  if ($("#kpi-card-clients")) $("#kpi-card-clients").onclick = openAliasModal;
+  if ($("#manage-alias")) $("#manage-alias").onclick = () => navigate("devices");
+  if ($("#kpi-card-clients")) $("#kpi-card-clients").onclick = () => navigate("devices");
   if ($("#kpi-card-domains")) $("#kpi-card-domains").onclick = () => openDomainDetailModal(domains || []);
-  if ($("#domain-detail-button")) {
-    $("#domain-detail-button").onclick = () => {
-      if ((state.overviewRankTab || "client") === "client") openAliasModal();
-      else openDomainDetailModal(domains || []);
-    };
-  }
   if ($("#slow-detail-button")) $("#slow-detail-button").onclick = () => openSlowDetailModal(slowGroups);
   const bindSlowRows = () => $$("[data-slow-record]", page2).forEach((button) => button.onclick = () => {
     const row = slowGroups[Number(button.dataset.slowRecord)];
@@ -8175,7 +9012,6 @@ async function renderOverview(container, context) {
     state.overviewSlowLimit = limit;
     storage.set("localdns-overview-slow-limit:" + (API_BASE || location.host), limit);
     setHTML($("#overview-slow-rows"), slowOverviewRowsHtml(slowGroups));
-    $("#overview-slow-count").textContent = `显示 ${Math.min(limit, slowGroups.length)} / ${slowGroups.length} 组 · 点击域名查看对应查询日志`;
     bindSlowRows();
   };
   $("#outcome-detail-button").onclick = () => openOutcomeDetail(allSets, outcomes.total);
@@ -8195,7 +9031,12 @@ function logViewModel(record2, aliases = {}) {
   return {
     record: record2,
     time: fmtDate(record2.query_time),
-    mobileTime: new Date(record2.query_time).toLocaleTimeString("zh-CN", { hour12: false }),
+    mobileTime: (() => {
+      if (!record2.query_time) return "—";
+      const d = new Date(record2.query_time);
+      if (Number.isNaN(d.getTime()) || d.getUTCFullYear() <= 1) return "—";
+      return d.toLocaleTimeString("zh-CN", { hour12: false });
+    })(),
     domain: String(record2.query_name || ""),
     type,
     queryType: String(record2.query_type || ""),
@@ -8236,6 +9077,9 @@ function auditStorage(value) {
       throw new ApiError("日志存储统计格式无效。", 0, null, "contract");
     }
   }
+  if (data.persist !== void 0 && typeof data.persist !== "boolean") {
+    throw new ApiError("日志存盘状态格式无效。", 0, null, "contract");
+  }
   return data;
 }
 async function readAuditStorage(request2) {
@@ -8267,9 +9111,13 @@ async function openAuditModal() {
     return;
   }
   if (scope.signal.aborted) return;
-  modalOpen("审计控制", "管理 DNS 查询日志的记录状态、容量与存放位置", `
+  const persistAvailable = !!storage2 && typeof storage2.persist === "boolean";
+  modalOpen("审计控制", "管理 DNS 查询日志的记录状态、容量、存盘与存放位置", `
     <div class="audit-settings">
       <div class="kv-list"><div class="kv-row"><span class="kv-key">当前状态</span><span class="kv-value"><span class="badge ${status.capturing ? "success" : "danger"}">${status.capturing ? "运行中" : "已停止"}</span></span></div></div>
+      ${persistAvailable ? `<div class="audit-persist-field">
+        <label class="switch audit-persist-switch" for="audit-persist"><input id="audit-persist" type="checkbox" ${storage2.persist ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">记录存盘 <span class="settings-compact-note">把查询记录压缩写入磁盘目录</span></span></label>
+        <p class="form-note" id="audit-persist-help">关闭时只保留内存中的最新记录，磁盘占用保持 0。切换立即生效并写入 <code>config/settings/querylog.json</code>：关闭记为 <code>persist: false</code>，开启是默认值、文件中会省略该键，重启后按文件恢复。</p></div>` : ""}
       <div class="field"><label for="audit-cap">日志容量 <span class="settings-compact-note">最多保留的查询记录数</span></label>
         <div class="settings-refresh-row audit-settings-row"><input id="audit-cap" type="number" min="100" max="1000000" step="1" required value="${capacity.capacity}"><button type="button" class="button primary" id="audit-cap-save">保存容量</button></div></div>
       ${storage2 ? `<div class="field"><label for="audit-dir">日志存储位置</label>
@@ -8313,7 +9161,8 @@ async function openAuditModal() {
       button.textContent = original;
     }
   }
-  $("#audit-cap-save").onclick = (event) => {
+  $("#audit-cap-save").onclick = async (event) => {
+    const button = event.currentTarget;
     const input = $("#audit-cap");
     if (!input.reportValidity()) return;
     const value = Number(input.value);
@@ -8321,8 +9170,8 @@ async function openAuditModal() {
       message("日志容量应为 100 到 1,000,000 之间的整数。", true);
       return;
     }
-    if (value < capacity.capacity && !confirm("降低日志容量可能移除较早的查询记录。确定保存容量？")) return;
-    return perform(event.currentTarget, "保存中…", async () => {
+    if (value < capacity.capacity && !await confirmDialog({ message: "降低日志容量可能移除较早的查询记录。确定保存容量？", danger: true })) return;
+    return perform(button, "保存中…", async () => {
       await api.json("/api/v1/audit/capacity", "POST", { capacity: value });
       if (!active2()) return;
       capacity = { capacity: value };
@@ -8339,7 +9188,41 @@ async function openAuditModal() {
       if (active2()) message("日志容量已保存。");
     });
   };
-  if (storage2) $("#audit-dir-save").onclick = (event) => {
+  if (persistAvailable) $("#audit-persist").onchange = async (event) => {
+    const input = event.currentTarget;
+    const next = input.checked;
+    const controls = $$("button, input", $("#modal-content"));
+    const states = controls.map((control) => control.disabled);
+    controls.forEach((control) => {
+      control.disabled = true;
+    });
+    feedback.hidden = true;
+    try {
+      const result = await api.json("/api/v1/audit/settings", "POST", { persist: next });
+      if (!active2()) return;
+      let updated = null;
+      try {
+        updated = auditStorage(result);
+      } catch {
+        message(next ? "服务器已开启存盘，但返回信息无效。请重新打开审计控制确认。" : "服务器已关闭存盘，但返回信息无效。请重新打开审计控制确认。", true);
+        return;
+      }
+      storage2 = updated;
+      input.checked = storage2.persist === true;
+      refreshOnClose = true;
+      message(storage2.persist ? "已开启记录存盘，查询记录会压缩写入磁盘目录。" : "已关闭记录存盘，只保留内存中的最新记录。");
+    } catch (error) {
+      if (!active2()) return;
+      input.checked = !next;
+      message(error.message, true);
+    } finally {
+      controls.forEach((control, i) => {
+        control.disabled = states[i];
+      });
+    }
+  };
+  if (storage2) $("#audit-dir-save").onclick = async (event) => {
+    const button = event.currentTarget;
     let directory;
     try {
       directory = auditDirectory($("#audit-dir").value);
@@ -8352,8 +9235,8 @@ async function openAuditModal() {
       message("日志目录未变更。");
       return;
     }
-    if (!confirm("切换日志目录会清空当前查询记录，旧压缩文件留在原目录。确定保存目录？")) return;
-    return perform(event.currentTarget, "保存中…", async () => {
+    if (!await confirmDialog({ message: "切换日志目录会清空当前查询记录，旧压缩文件留在原目录。确定保存目录？", danger: true })) return;
+    return perform(button, "保存中…", async () => {
       const result = await api.json("/api/v1/audit/settings", "POST", { dir: directory });
       if (!active2()) return;
       try {
@@ -8372,16 +9255,21 @@ async function openAuditModal() {
     modalClose();
     openAuditModal();
   });
-  $("#modal-audit-toggle").onclick = (event) => perform(event.currentTarget, "更新中…", async () => {
-    await api.request(`/api/v1/audit/${status.capturing ? "stop" : "start"}`, { method: "POST" });
-    if (!active2()) return;
-    toast("审计状态已更新");
-    modalClose();
-    renderRoute(true);
-  });
-  $("#modal-audit-clear").onclick = (event) => {
-    if (!confirm("确定清空所有查询日志？此操作无法撤销。")) return;
-    return perform(event.currentTarget, "清空中…", async () => {
+  $("#modal-audit-toggle").onclick = async (event) => {
+    const button = event.currentTarget;
+    if (status.capturing && !await confirmDialog({ message: "确定关闭审计？关闭期间新的查询日志将不再记录，直至重新开启。", danger: true })) return;
+    return perform(button, "更新中…", async () => {
+      await api.request(`/api/v1/audit/${status.capturing ? "stop" : "start"}`, { method: "POST" });
+      if (!active2()) return;
+      toast("审计状态已更新");
+      modalClose();
+      renderRoute(true);
+    });
+  };
+  $("#modal-audit-clear").onclick = async (event) => {
+    const button = event.currentTarget;
+    if (!await confirmDialog({ message: "确定清空所有查询日志？此操作无法撤销。", danger: true })) return;
+    return perform(button, "清空中…", async () => {
       await api.request("/api/v1/audit/clear", { method: "POST" });
       if (!active2()) return;
       toast("日志已清空");
@@ -8403,18 +9291,20 @@ function logRow(view) {
   return `<tr data-log='${esc$1(JSON.stringify(view.record))}'><td title="${esc$1(view.time)}"><span class="log-time-full">${view.time}</span><span class="log-time-mobile">${esc$1(view.mobileTime)}</span></td><td class="td-domain" data-qtype="${esc$1(view.type)}" data-qtype-short="${esc$1(view.shortType)}" data-blocked="${view.blocked ? 1 : 0}"><strong class="copyable" role="button" tabindex="0" data-copy="${esc$1(view.domain)}" title="点击复制域名">${esc$1(view.domain)}</strong><div style="color:var(--muted);font-size:11px;max-width:360px;overflow:hidden;text-overflow:ellipsis">${esc$1(view.answer)}</div></td><td>${esc$1(view.queryType)}</td><td>${logBadge(view.set)}</td><td>${ms(view.duration)}</td><td><span class="copyable value-chip" role="button" tabindex="0" data-copy="${esc$1(view.client)}" title="点击复制客户端 IP">${esc$1(view.clientLabel)}</span></td><td><span class="badge ${view.success ? "success" : "danger"}">${esc$1(view.code)}</span></td><td><button class="icon-button row-action log-detail" type="button" aria-label="查看查询详情" title="查看详情"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.6"/></svg></button></td></tr>`;
 }
 async function renderLogs(container, context) {
-  var _a2, _b2, _c;
+  var _a2, _b2, _c, _d, _e;
   const renderScope = context.scope, page2 = container;
   const p = state.logs;
   await loadAliases(renderScope);
   const data = await readLogs(p, clientAliases, renderScope);
   const rows = data.rows, filters = data.filters;
   const topPager = `<div class="logs-top-pagination">${paginationHtml(data.pagination)}</div>`;
-  const choices = (items, selected) => [...new Set([...items || [], selected].filter(Boolean))].sort();
+  const choices = (items, selected) => [...new Set([...items || [], selected].filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "zh-CN"));
   const options = (items, value, label) => `<option value="">${label}</option>${choices(items, value).map((v) => `<option value="${esc$1(v)}" ${v === value ? "selected" : ""}>${esc$1(v)}</option>`).join("")}`;
+  const hasFilter = !!(p.q || p.type || p.set || p.code || p.client || p.exact);
+  const emptyRow = hasFilter ? '<tr><td colspan="8" class="table-empty">没有符合筛选的记录<div style="margin-top:10px"><button type="button" class="button small" id="logs-clear-filters">清除筛选</button></div></td></tr>' : '<tr><td colspan="8" class="table-empty">暂无查询日志，可在「审计控制」中开启查询日志审计<div style="margin-top:10px"><button type="button" class="button small" id="logs-open-audit">打开审计控制</button></div></td></tr>';
   setHTML(page2, `<div class="view-title-row"><div><h1>查询日志</h1></div><div class="workspace-actions"><button type="button" class="glass-btn" id="log-pause" aria-pressed="${!!state.logsPaused}">${state.logsPaused ? "继续刷新" : "暂停刷新"}</button><button type="button" class="glass-btn" id="audit-control">审计控制</button><button type="button" class="glass-btn" id="alias-control">客户端管理</button></div></div>
-    ${card("查询与过滤", `<div class="log-filter-bar"><div class="lf-search"><span class="search-icon">${icon$1("search")}</span><input id="log-q" value="${esc$1(p.q)}" placeholder="域名、IP、响应值" aria-label="搜索查询"></div><select id="log-type" aria-label="请求类型">${options(filters.query_types, p.type, "全部类型")}</select><select id="log-set" aria-label="分流结果">${options(filters.domain_sets, p.set, "全部分流")}</select><button type="button" class="lf-more" id="lf-more" aria-expanded="${!!(p.code || p.client || p.exact)}" aria-controls="log-filter-more">更多筛选</button><button type="button" class="lf-reset" id="lf-reset">重置</button><button type="button" class="button primary" id="log-search">查询</button></div><div class="log-filter-more" id="log-filter-more" ${p.code || p.client || p.exact ? "" : "hidden"}><div class="field"><label for="log-code">响应码</label><select id="log-code">${options(filters.response_codes, p.code, "全部响应码")}</select></div><div class="field"><label for="log-client">客户端</label><input id="log-client" value="${esc$1(p.client)}" placeholder="客户端 IP"></div><label class="switch"><input id="log-exact" type="checkbox" ${p.exact ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">精确匹配</span></label></div>${workspaceService.logTools(p)}`, { iconName: "logs" })}
-    ${card("DNS 请求记录", `${topPager}<div class="table-wrap"><table class="workspace-log-table"><thead><tr><th>时间</th><th>域名 / 响应</th><th>类型</th><th>分流</th><th>耗时</th><th>客户端</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.length ? rows.map(logRow).join("") : '<tr><td colspan="8" class="table-empty">没有符合条件的记录</td></tr>'}</tbody></table></div>${paginationHtml(data.pagination)}`, { iconName: "logs", subtitle: `共 ${num(((_a2 = data.pagination) == null ? void 0 : _a2.total_items) || 0)} 条 · 第 ${num(((_b2 = data.pagination) == null ? void 0 : _b2.current_page) || 1)} / ${num(((_c = data.pagination) == null ? void 0 : _c.total_pages) || 1)} 页` })}`);
+    ${card("查询与过滤", `<div class="log-filter-bar"><div class="lf-search"><span class="search-icon">${icon$1("search")}</span><input id="log-q" value="${esc$1(p.q)}" placeholder="域名、IP、响应值" aria-label="搜索查询"></div><select id="log-type" aria-label="请求类型">${options(filters.query_types, p.type, "全部类型")}</select><select id="log-set" aria-label="分流结果">${options(filters.domain_sets, p.set, "全部分流结果")}</select><button type="button" class="lf-more" id="lf-more" aria-expanded="${!!(p.code || p.client || p.exact)}" aria-controls="log-filter-more">更多筛选</button><button type="button" class="lf-reset" id="lf-reset">重置</button><button type="button" class="button primary" id="log-search">查询</button></div><div class="log-filter-more" id="log-filter-more" ${p.code || p.client || p.exact ? "" : "hidden"}><div class="field"><label for="log-code">响应码</label><select id="log-code">${options(filters.response_codes, p.code, "全部响应码")}</select></div><div class="field"><label for="log-client">客户端</label><input id="log-client" value="${esc$1(p.client)}" placeholder="客户端 IP"></div><label class="switch"><input id="log-exact" type="checkbox" ${p.exact ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">精确匹配</span></label></div>${workspaceService.logTools(p)}`, { iconName: "logs" })}
+    ${card("DNS 请求记录", `${topPager}<div class="table-wrap"><table class="workspace-log-table"><thead><tr><th>时间</th><th>域名 / 响应</th><th>类型</th><th>分流结果</th><th>耗时</th><th>客户端</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.length ? rows.map(logRow).join("") : emptyRow}</tbody></table></div>${paginationHtml(data.pagination)}`, { iconName: "logs", subtitle: `共 ${num(((_a2 = data.pagination) == null ? void 0 : _a2.total_items) || 0)} 条 · 第 ${num(((_b2 = data.pagination) == null ? void 0 : _b2.current_page) || 1)} / ${num(((_c = data.pagination) == null ? void 0 : _c.total_pages) || 1)} 页` })}`);
   $("#log-search").onclick = () => {
     Object.assign(p, { page: 1, q: $("#log-q").value.trim(), type: $("#log-type").value, set: $("#log-set").value, code: $("#log-code").value, client: $("#log-client").value.trim(), exact: $("#log-exact").checked });
     renderRoute(true);
@@ -8427,21 +9317,37 @@ async function renderLogs(container, context) {
     box.hidden = !box.hidden;
     $("#lf-more").setAttribute("aria-expanded", String(!box.hidden));
   };
-  $("#lf-reset").onclick = () => {
+  const resetFilters = () => {
     Object.assign(p, { page: 1, q: "", type: "", set: "", code: "", client: "", exact: false });
     renderRoute(true);
   };
+  $("#lf-reset").onclick = resetFilters;
+  (_d = $("#logs-clear-filters")) == null ? void 0 : _d.addEventListener("click", resetFilters);
+  (_e = $("#logs-open-audit")) == null ? void 0 : _e.addEventListener("click", () => openAuditModal());
   $$(".log-detail", page2).forEach((b) => b.onclick = () => openLogPath(JSON.parse(b.closest("tr").dataset.log)));
   $$(".pagination button[data-page]", page2).forEach((b) => b.onclick = () => {
     p.page = +b.dataset.page;
     renderRoute(true);
+  });
+  $$(".pagination-jump-input", page2).forEach((inp) => {
+    const go = () => {
+      const v = Math.max(1, Math.min(+inp.max || 1, Math.floor(+inp.value) || p.page));
+      if (v !== p.page) {
+        p.page = v;
+        renderRoute(true);
+      } else inp.value = p.page;
+    };
+    inp.onkeydown = (e) => {
+      if (e.key === "Enter") go();
+    };
+    inp.onchange = go;
   });
   $("#audit-control").onclick = openAuditModal;
   $("#alias-control").onclick = openAliasModal;
   workspaceService.bindLogs(page2, data.records);
 }
 function openLogPath(record2) {
-  openDrawer("解析路径", record2.query_name, logDetailHtml(record2));
+  openDrawer("分流结果", record2.query_name, logDetailHtml(record2));
   queryPathService.bind($("#drawer-content"), record2, clientAliases);
 }
 function paginationHtml(p) {
@@ -8449,7 +9355,7 @@ function paginationHtml(p) {
   const cur = p.current_page, total = p.total_pages;
   let arr = [];
   for (let i = Math.max(1, cur - 2); i <= Math.min(total, cur + 2); i++) arr.push(i);
-  return `<div class="pagination"><button data-page="${cur - 1}" ${cur <= 1 ? "disabled" : ""}>‹</button>${arr.map((i) => `<button data-page="${i}" class="${i === cur ? "active" : ""}">${i}</button>`).join("")}<button data-page="${cur + 1}" ${cur >= total ? "disabled" : ""}>›</button></div>`;
+  return `<div class="pagination"><button data-page="1" ${cur <= 1 ? "disabled" : ""}>首页</button><button data-page="${cur - 1}" ${cur <= 1 ? "disabled" : ""}>‹</button>${arr.map((i) => `<button data-page="${i}" class="${i === cur ? "active" : ""}">${i}</button>`).join("")}<button data-page="${cur + 1}" ${cur >= total ? "disabled" : ""}>›</button><button data-page="${total}" ${cur >= total ? "disabled" : ""}>末页</button><label class="pagination-jump">跳至<input class="pagination-jump-input" type="number" min="1" max="${total}" value="${cur}" aria-label="跳至页码">页</label></div>`;
 }
 function logDetailHtml(record2) {
   return queryPathService.html(record2, clientAliases);
@@ -8458,19 +9364,25 @@ const logsRoute = { mount(container, context) {
   return renderLogs(container, context);
 } };
 async function readUpstreams(scope) {
-  const [config, tags, rawMetrics, ecs] = await scope.guard(Promise.all([
-    api.request("/api/v1/upstream/config"),
-    api.request("/api/v1/upstream/tags"),
-    api.metrics(),
-    api.request("/api/v1/upstream/ecs")
+  const [configResult, tagsResult] = await scope.guard(Promise.all([
+    safeResult(() => api.request("/api/v1/upstream/config")),
+    safeResult(() => api.request("/api/v1/upstream/tags"))
   ]));
+  if (!configResult.ok) throw configResult.error;
+  if (!tagsResult.ok) throw tagsResult.error;
+  const config = configResult.data, tags = tagsResult.data;
+  const [metricsResult, ecsResult] = await Promise.all([
+    safeResult(() => api.metrics()),
+    safeResult(() => api.request("/api/v1/upstream/ecs"))
+  ]);
+  const ecs = ecsResult.ok ? ecsResult.data : null;
   const groups2 = Array.isArray(tags) ? tags : Object.keys(config);
-  const metrics = parseProm(rawMetrics), rows = [];
+  const metrics = parseProm(metricsResult.ok ? metricsResult.data : ""), rows = [];
   groups2.forEach((group) => (config[group] || []).forEach((upstream, index) => {
     rows.push({ g: group, u: upstream, i: index, m: upstreamMetrics(metrics, group, upstream.tag) });
   }));
   rows.sort((a, b) => Number(b.u.enabled !== false) - Number(a.u.enabled !== false));
-  return { config, ecs: typeof (ecs == null ? void 0 : ecs.ecs) === "string" ? ecs.ecs : "", groups: groups2, rows };
+  return { config, ecs: typeof (ecs == null ? void 0 : ecs.ecs) === "string" ? ecs.ecs : "", groups: groups2, rows, degraded: { metrics: !metricsResult.ok, ecs: !ecsResult.ok } };
 }
 function writeUpstreamGroup(group, candidate, ecs) {
   const body2 = { plugin_tag: group, upstreams: candidate || [] };
@@ -8479,9 +9391,17 @@ function writeUpstreamGroup(group, candidate, ecs) {
 }
 async function renderUpstreams(container, context) {
   const renderScope = context.scope, page2 = container;
-  const { config, ecs, groups: groups2, rows } = await readUpstreams(renderScope);
-  const model = { config, ecs };
+  const { config, ecs, groups: groups2, rows, degraded } = await readUpstreams(renderScope);
+  const model = { config, ecs, groups: groups2 };
   setHTML(page2, `<div class="view-title-row"><div><h1>DNS 管理</h1></div><button type="button" class="glass-btn primary" id="up-add">添加上游节点</button></div><div class="col-12">${workspaceService.upstreams(rows, groups2)}</div>`);
+  if ((degraded == null ? void 0 : degraded.metrics) || (degraded == null ? void 0 : degraded.ecs)) {
+    const note = document.createElement("p");
+    note.className = "form-note";
+    note.textContent = `部分数据暂不可用：${[degraded.metrics ? "上游指标" : null, degraded.ecs ? "ECS 设置" : null].filter(Boolean).join("、")}读取失败，已按空数据展示。`;
+    const titleRow = page2.querySelector(".view-title-row");
+    if (titleRow) titleRow.after(note);
+    else page2.append(note);
+  }
   $$(".up-toggle", page2).forEach((x) => x.onchange = () => toggleUpstream(x.closest("tr"), x.checked));
   $$(".up-edit", page2).forEach((x) => x.onclick = () => openUpstreamModal(x.closest("tr")));
   $$(".up-delete", page2).forEach((x) => x.onclick = () => deleteUpstream(x.closest("tr")));
@@ -8513,8 +9433,9 @@ async function renderUpstreams(container, context) {
     }
   }
   async function deleteUpstream(row) {
-    if (!confirm("确定删除这个上游 DNS 吗？")) return;
-    const g = row.dataset.group, i = +row.dataset.index, old = model.config[g].slice();
+    const g = row.dataset.group, i = +row.dataset.index, u = model.config[g][i], name = u && (u.tag || u.addr);
+    if (!await confirmDialog({ message: name ? `确定删除上游 ${name} 吗？` : "确定删除这个上游 DNS 吗？", danger: true })) return;
+    const old = model.config[g].slice();
     model.config[g].splice(i, 1);
     try {
       await saveUpstreamGroup(g);
@@ -8528,10 +9449,10 @@ async function renderUpstreams(container, context) {
   }
   function openUpstreamModal(row) {
     const edit = !!row;
-    const group = edit ? row.dataset.group : Object.keys(model.config || {})[0] || "domestic";
+    const groups3 = model.groups && model.groups.length ? model.groups : Object.keys(model.config || {});
+    const group = edit ? row.dataset.group : groups3[0] || "domestic";
     const idx = edit ? +row.dataset.index : -1;
     const u = edit ? model.config[group][idx] : { tag: "", protocol: "udp", addr: "", enabled: true };
-    const groups3 = Object.keys(model.config || {});
     const hasSocks = (g) => g === "foreign" || g === "foreign_ecs";
     const fieldsHtml = (g, v) => {
       const f = (id, label, value, extra = "") => `<div class="field"><label>${label}</label><input id="${id}" ${extra} value="${esc$1(value)}"></div>`;
@@ -8543,7 +9464,12 @@ async function renderUpstreams(container, context) {
       ${g === "foreign_ecs" ? f("u-ecs", "ECS", v.ecs, 'placeholder="一个 IPv4 或 IPv6，可留空；IPv4 默认 /24，IPv6 默认 /56"') : ""}
       ${f("u-timeout", "查询超时（ms）", v.timeout, 'type="number" min="0"')}`;
     };
-    const readForm = () => ({ tag: $("#u-tag").value, protocol: $("#u-protocol").value, addr: $("#u-addr").value, dial: $("#u-dial").value, socks: $("#u-socks") ? $("#u-socks").value : "", ecs: $("#u-ecs") ? $("#u-ecs").value : model.ecs || "", timeout: $("#u-timeout").value });
+    let cachedEcs = null;
+    const readForm = () => {
+      const ecsField = $("#u-ecs");
+      if (ecsField) cachedEcs = ecsField.value;
+      return { tag: $("#u-tag").value, protocol: $("#u-protocol").value, addr: $("#u-addr").value, dial: $("#u-dial").value, socks: $("#u-socks") ? $("#u-socks").value : "", ecs: ecsField ? ecsField.value : (cachedEcs ?? model.ecs) || "", timeout: $("#u-timeout").value };
+    };
     const initial = { tag: u.tag || "", protocol: u.protocol || "udp", addr: u.addr || u.server_addr || "", dial: u.dial_addr || "", socks: u.socks5 || "", ecs: model.ecs || "", timeout: u.upstream_query_timeout || 0 };
     modalOpen(edit ? "编辑上游 DNS" : "添加上游 DNS", "保存后立即生效", `<div class="grid grid-2">
       <div class="field"><label>所属组</label><select id="u-group" ${edit ? "disabled" : ""}>${groups3.map((g) => `<option value="${esc$1(g)}" ${g === group ? "selected" : ""}>${esc$1(groupName(g))}</option>`).join("")}</select></div>
@@ -8560,7 +9486,7 @@ async function renderUpstreams(container, context) {
       const timeout = +v.timeout || 0;
       if (timeout > 0) item.upstream_query_timeout = timeout;
       else delete item.upstream_query_timeout;
-      for (const k of ["bootstrap", "enable_http3", "enable_pipeline", "account_id", "access_key_id", "access_key_secret", "server_addr", "ecs_client_ip", "ecs_client_mask", "ecs_mask"]) delete item[k];
+      if (!edit) for (const k of ["bootstrap", "enable_http3", "enable_pipeline", "account_id", "access_key_id", "access_key_secret", "server_addr", "ecs_client_ip", "ecs_client_mask", "ecs_mask"]) delete item[k];
       const candidate = (model.config[g] || []).slice();
       if (edit) candidate[idx] = item;
       else candidate.push(item);
@@ -8602,17 +9528,25 @@ function initialize$6() {
   "use strict";
   const $2 = (s, r = document) => r.querySelector(s);
   const esc2 = (value) => String(value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-  const names = { whitelist: "白名单", blocklist: "黑名单", greylist: "灰名单", force_realip: "强制 RealIP", ddns_domains: "DDNS 域名", pcdn_domains: "PCDN 域名", pcdn_regex_v4: "PCDN IPv4", pcdn_regex_v6: "PCDN IPv6", client_ip: "客户端 IP", direct_ip: "直连 IP", rewrite: "重定向" };
+  const names = { whitelist: "白名单", blocklist: "黑名单", greylist: "灰名单", force_realip: "强制 RealIP", ddns_domains: "DDNS 域名", pcdn_domains: "PCDN 域名", pcdn_regex_v4: "PCDN IPv4 规则", pcdn_regex_v6: "PCDN IPv6 规则", direct_ip: "直连 IP", rewrite: "重定向" };
+  const notes = {
+    whitelist: "强制走国内直连解析，最高优先级放行 · 修改先保留为草稿，点击右侧“保存”后生效",
+    greylist: "强制走代理解析组（FakeIP / 远程无污染解析）· 修改先保留为草稿，保存后生效",
+    blocklist: "直接拦截并拒绝解析请求 · 修改先保留为草稿，保存后生效",
+    force_realip: "匹配域名禁用 FakeIP，强制返回真实 IP 地址 · 修改先保留为草稿，保存后生效",
+    ddns_domains: "动态域名直连解析并缩短缓存生存周期 · 修改先保留为草稿，保存后生效",
+    direct_ip: "指定目的 IP 或 CIDR 网段强制直连 · 修改先保留为草稿，保存后生效",
+    rewrite: "自定义域名重定向或 A/AAAA/CNAME 静态映射 · 修改先保留为草稿，保存后生效",
+    pcdn_domains: "匹配常见 PCDN 节点域名并抑制解析 · 修改先保留为草稿，保存后生效",
+    pcdn_regex_v4: "按正则表达式识别并过滤 PCDN IPv4 节点请求 · 修改先保留为草稿，保存后生效",
+    pcdn_regex_v6: "按正则表达式识别并过滤 PCDN IPv6 节点请求 · 修改先保留为草稿，保存后生效"
+  };
   function syncMode() {
     const host = $2("#rv-root");
     if (!host) {
       document.body.classList.remove("has-rules-workbench");
-      const heading = $2(".view-title-row h1");
-      if (heading && heading.textContent === "清单工作台") heading.textContent = "规则管理";
-      const note = $2(".view-title-row .gc-sub");
-      if (note && note.textContent === "逐条编辑名单，随时切换原文。") note.textContent = "维护本地名单、广告拦截与在线分流规则。";
+      return;
     }
-    if (!host) return;
     const raw = host.classList.contains("raw");
     for (const b of host.querySelectorAll("[data-wb-mode]")) b.setAttribute("aria-pressed", String(b.dataset.wbMode === "raw" === raw));
   }
@@ -8627,24 +9561,16 @@ function initialize$6() {
     const host = $2("#rv-root");
     if (!host) {
       document.body.classList.remove("has-rules-workbench");
-      const heading2 = $2(".view-title-row h1");
-      if (heading2 && heading2.textContent === "清单工作台") heading2.textContent = "规则管理";
-      const note = $2(".view-title-row .gc-sub");
-      if (note && note.textContent === "逐条编辑名单，随时切换原文。") note.textContent = "维护本地名单、广告拦截与在线分流规则。";
     }
-    const titleArea = $2(".view-title-row>div:first-child");
-    if (host && titleArea && !$2("h1", titleArea)) insertHTML(titleArea, "afterbegin", '<h1>清单工作台</h1><span class="gc-sub">逐条编辑名单，随时切换原文。</span>');
     if (!host || host.dataset.workbench) return;
     host.dataset.workbench = "1";
     document.body.classList.add("has-rules-workbench");
-    const title = $2(".view-title-row h1");
-    if (title) title.textContent = "清单工作台";
-    const sub = $2(".view-title-row .gc-sub");
-    if (sub) sub.textContent = "逐条编辑名单，随时切换原文。";
     const bar = $2(".rv-toolbar", host), actions = $2(".section-header-actions", bar);
+    const activeTag = (_a2 = $2(".rule-menu [data-rule-tag].active")) == null ? void 0 : _a2.dataset.ruleTag;
     const heading = document.createElement("div");
     heading.className = "wb-list-heading";
-    setHTML(heading, `<div><h2>${esc2(names[(_a2 = $2(".rule-menu button.active")) == null ? void 0 : _a2.dataset.ruleTag] || "名单管理")}</h2><p>启停与编辑先保留为草稿，保存后生效。</p></div><div class="wb-list-tools"><span class="wb-author">名单视图由 clone-fan 贡献</span></div>`);
+    const note = (notes[activeTag] || "").split(" · ")[0] || "本地名单";
+    setHTML(heading, `<div><h2>${esc2(names[activeTag] || "名单管理")}</h2><p>${esc2(note)}</p></div><div class="wb-list-tools"><button type="button" class="workspace-text-button" data-route="devices">客户端 IP 与分流模式已移至「设备」›</button></div>`);
     bar.before(heading);
     const modes = document.createElement("div");
     modes.className = "wb-modes";
@@ -8732,7 +9658,6 @@ function initialize$5() {
       if (pending || lifecycle.signal.aborted) return;
       pending = true;
       try {
-        paintCounts();
         tick();
       } catch {
       }
@@ -8763,7 +9688,7 @@ function initialize$5() {
   }
   var PREFIX = { domain: "domain:", full: "full:", keyword: "keyword:", regexp: "regexp:" };
   var NAME = { domain: "域名", full: "完整域名", keyword: "关键字", regexp: "正则", raw: "原文", comment: "注释" };
-  var HOST_RE = /^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
+  var HOST_RE = /^(\*\.)?[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?(\.[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?)+$/i;
   var REGEX_CHAR_RE = /[\\^$[\](){}|?+]/;
   var PREFIX_RE = /^\s*(domain|full|keyword|regexp)\s*[:：]\s*/i;
   var esc2 = function(s) {
@@ -8785,7 +9710,7 @@ function initialize$5() {
   var hist = [], histAt = -1, histLock = false, savedText = "";
   var dragIds = [];
   var sheetBaseline = "", sheetOff = false, pendingLeave = null, focusTimer = null, mainWasInert = false, ownsInert = false;
-  var rawTags = { client_ip: true, direct_ip: true, rewrite: true };
+  var rawTags = { direct_ip: true, rewrite: true };
   var rawMode = false;
   var sheetEl = null, scrimEl = null;
   var sheetBack = null;
@@ -8794,7 +9719,6 @@ function initialize$5() {
   var groupSelBase = "";
   var groupRole = "title";
   var groupMode = false, editingGroup = null, groupBase = null;
-  var counts = {}, countsAt = 0, countsBusy = false, lastTag = null;
   function say(msg, type, detail) {
     try {
       if (typeof toast === "function") {
@@ -8899,7 +9823,9 @@ function initialize$5() {
     histLock = false;
     syncSiteState();
     var counter = document.getElementById("rule-lines");
-    if (counter) counter.textContent = "共 " + ta.value.split("\n").filter(Boolean).length + " 行";
+    if (counter) counter.textContent = "共 " + ta.value.split("\n").filter(function(x) {
+      return x.trim();
+    }).length + " 行";
     paintHist();
   }
   function undo() {
@@ -8921,7 +9847,7 @@ function initialize$5() {
     say("已重做（" + (histAt + 1) + "/" + hist.length + "）");
   }
   function activeTag() {
-    var b = document.querySelector(".rule-menu button.active");
+    var b = document.querySelector(".rule-menu [data-rule-tag].active");
     return b && b.dataset.ruleTag;
   }
   function setDirty(v) {
@@ -8944,12 +9870,46 @@ function initialize$5() {
     };
     api2.__rvHooked = true;
   }
-  function visibleRows() {
+  function computeShow() {
+    buildGroups();
     var kw = q.trim().toLowerCase();
-    if (!kw) return rows;
+    var hits = function(r) {
+      return String(r.value || "").toLowerCase().indexOf(kw) >= 0 || String(NAME[r.type] || "").toLowerCase().indexOf(kw) >= 0;
+    };
+    var show = {};
+    if (!kw) {
+      rows.forEach(function(r) {
+        show[r.id] = true;
+      });
+      return show;
+    }
+    groups2.forEach(function(g) {
+      if (!hits(g.title) && !g.notes.some(hits)) return;
+      show[g.id] = true;
+      g.notes.forEach(function(n) {
+        show[n.id] = true;
+      });
+      g.children.forEach(function(id) {
+        show[id] = true;
+      });
+    });
+    rows.forEach(function(r) {
+      if (r.kind === "blank" || r.kind === "sep" || !hits(r)) return;
+      show[r.id] = true;
+      var g = groupOf(r.id) || groupById(lineGroup[r.id]);
+      if (g) {
+        show[g.id] = true;
+        g.notes.forEach(function(n) {
+          show[n.id] = true;
+        });
+      }
+    });
+    return show;
+  }
+  function visibleRows() {
+    var show = computeShow();
     return rows.filter(function(r) {
-      if (r.kind === "blank" || r.kind === "sep") return false;
-      return (r.value || "").toLowerCase().indexOf(kw) >= 0 || NAME[r.type].indexOf(kw) >= 0;
+      return show[r.id] && r.kind !== "blank" && r.kind !== "sep";
     });
   }
   function selectableRows() {
@@ -8980,6 +9940,7 @@ function initialize$5() {
   var ANNO_KEY = /^(?:注意|注释|提示|匹配|仅处理|仅|另外|补充|来源)/;
   var DOC_COLON = /^说明\s*[:：]/;
   var DOC_PUNCT = /[，。；、]/;
+  var VALUE_LIKE_RE = /^(?:(\*\.)?[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?(\.[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?)+|(?:\d{1,3}\.){3}\d{1,3}(?:\/\d{1,2})?|[0-9a-fA-F]*:[0-9a-fA-F:]+(?:\/\d{1,3})?)$/i;
   function isAnno(r) {
     return ANNO_KEY.test(commentLine(r).replace(/^#\s*/, "").trim());
   }
@@ -8991,6 +9952,7 @@ function initialize$5() {
     if (NOTE_RE_ANY.test(t)) return "note";
     if (TITLE_RE.test(t)) return "title";
     var body2 = t.replace(/^#\s*/, "").trim();
+    if (VALUE_LIKE_RE.test(body2)) return "doc";
     if (isAnno(r)) return cur && !cur.children.length ? "gnote" : "note";
     if (DOC_COLON.test(body2) || DOC_PUNCT.test(body2)) return "doc";
     return "title";
@@ -9039,6 +10001,10 @@ function initialize$5() {
   function openCommentSheet(row) {
     openGroupSheet({ id: row.id, title: row, notes: [], lines: [row], children: [], docOnly: true });
   }
+  function openSingleCommentSheet(row) {
+    if (!row.role) row.role = commentRole(row, null);
+    openGroupSheet({ id: row.id, title: row, notes: [], lines: [row], children: [] });
+  }
   function groupById(id) {
     for (var i = 0; i < groups2.length; i++) if (groups2[i].id === id) return groups2[i];
     return null;
@@ -9086,39 +10052,7 @@ function initialize$5() {
   }
   function renderList() {
     var box = root.querySelector(".rv-list");
-    buildGroups();
-    var kw = q.trim().toLowerCase();
-    var hits = function(r) {
-      return String(r.value || "").toLowerCase().indexOf(kw) >= 0 || String(NAME[r.type] || "").toLowerCase().indexOf(kw) >= 0;
-    };
-    var show = {};
-    if (!kw) {
-      rows.forEach(function(r) {
-        show[r.id] = true;
-      });
-    } else {
-      groups2.forEach(function(g) {
-        if (!hits(g.title) && !g.notes.some(hits)) return;
-        show[g.id] = true;
-        g.notes.forEach(function(n) {
-          show[n.id] = true;
-        });
-        g.children.forEach(function(id) {
-          show[id] = true;
-        });
-      });
-      rows.forEach(function(r) {
-        if (r.kind === "blank" || r.kind === "sep" || !hits(r)) return;
-        show[r.id] = true;
-        var g = groupOf(r.id) || groupById(lineGroup[r.id]);
-        if (g) {
-          show[g.id] = true;
-          g.notes.forEach(function(n) {
-            show[n.id] = true;
-          });
-        }
-      });
-    }
+    var show = computeShow();
     var anyReal = rows.some(function(r) {
       return show[r.id] && r.kind !== "blank";
     });
@@ -9126,7 +10060,7 @@ function initialize$5() {
       var hasRows = rows.some(function(r) {
         return r.kind !== "blank";
       });
-      setHTML(box, '<div class="rv-empty"><b>' + (hasRows ? "没有匹配的规则" : "这个名单还是空的") + "</b>" + (hasRows ? "换个关键词试试" : "点右上角「新增规则」加一条") + "</div>");
+      setHTML(box, '<div class="rv-empty"><b>' + (hasRows ? "没有匹配的规则" : "这个名单还是空的") + "</b>" + (hasRows ? "换个关键词试试" : "点工具条「新增」加一条") + "</div>");
     } else {
       var out = [];
       rows.forEach(function(r) {
@@ -9207,11 +10141,12 @@ function initialize$5() {
         openRolePicker(this, row);
       };
       if (!host) return;
-      var target = row;
+      var target = row, hasNextRule = false;
       if (row.kind === "comment") {
         for (var k = rows.indexOf(row) + 1; k < rows.length; k++) {
           if (rows[k].kind === "rule" || rows[k].kind === "raw") {
             target = rows[k];
+            hasNextRule = true;
             break;
           }
         }
@@ -9219,6 +10154,7 @@ function initialize$5() {
       var openRow = function() {
         lastTrigger = el.querySelector("[data-act=edit]");
         if (row.kind === "comment" && row.role === "doc") openCommentSheet(row);
+        else if (row.kind === "comment" && !hasNextRule) openSingleCommentSheet(row);
         else openSheet(target, false);
       };
       host.setAttribute("role", "button");
@@ -9302,12 +10238,12 @@ function initialize$5() {
     renderList();
     say("已新增标题：" + title + "（记得点保存）");
   }
-  function dropGroup(g) {
+  async function dropGroup(g) {
     if (!g) return;
     var txt = g.lines.map(function(l) {
       return "# " + l.value;
     }).join("\n");
-    if (!window.confirm("删除这个标题块？\n" + txt + "\n\n下面的 " + g.children.length + " 条规则会保留。")) return;
+    if (!await confirmDialog({ message: "删除这个标题块？\n" + txt + "\n\n下面的 " + g.children.length + " 条规则会保留。", danger: true })) return;
     var ids = g.lines.map(function(l) {
       return l.id;
     });
@@ -9379,9 +10315,9 @@ function initialize$5() {
       say(selfGroup ? "已移到「" + groupTitle(selfGroup) + "」下面" : "已调整顺序");
     });
   }
-  function dropRow(row, confirmed) {
+  async function dropRow(row, confirmed) {
     var pn = row.kind === "comment" ? { idx: -1 } : prevNote(row);
-    if (!confirmed && !window.confirm("删除这条规则？\n" + lineOf(row) + (pn.idx >= 0 ? "\n（它上面的备注行一起删掉）" : ""))) return;
+    if (!confirmed && !await confirmDialog({ message: "删除这条规则？\n" + lineOf(row) + (pn.idx >= 0 ? "\n（它上面的备注行一起删掉）" : ""), danger: true })) return;
     rows = rows.filter(function(r, i) {
       return r.id !== row.id && i !== pn.idx;
     });
@@ -9392,11 +10328,11 @@ function initialize$5() {
     renderList();
     say("已删除 " + row.value);
   }
-  function groupToNote(g) {
+  async function groupToNote(g) {
     if (!g || !g.children.length) return;
     var t = stripTitlePrefix(groupTitle(g));
     if (!t) return;
-    if (!window.confirm("把「" + t + "」改成下面第一条规则的备注？\n这一行的 # 会写成「# 备注：" + t + "」。")) return;
+    if (!await confirmDialog({ message: "把「" + t + "」改成下面第一条规则的备注？\n这一行的 # 会写成「# 备注：" + t + "」。" })) return;
     g.title.value = "备注：" + t;
     g.title.touched = true;
     g.title.role = "note";
@@ -9647,7 +10583,7 @@ function initialize$5() {
     var pending = !!pm || hash;
     var bad = !rawMode && !pending && !!body2 && !valid(body2, t);
     inp.classList.toggle("bad", bad);
-    var rawLabels = { client_ip: "客户端 IP", direct_ip: "IP 或网段", rewrite: "重定向条目" };
+    var rawLabels = { direct_ip: "IP 或网段", rewrite: "重定向条目" };
     sheet().querySelector("#rv-value-label").textContent = rawMode ? rawLabels[activeTag()] || "原文" : NAME[t];
     inp.placeholder = rawMode ? activeTag() === "rewrite" ? "例如 home.example.com 192.0.2.10" : "例如 192.0.2.10" : "例如 " + TYPE_TIP[t].ph;
     var note = sheet().dataset.note;
@@ -9715,7 +10651,7 @@ function initialize$5() {
     sheet().querySelector("#rv-rulefields").hidden = false;
     sheet().querySelector("#rv-grpfields").hidden = true;
     sheet().querySelector("#rv-sheet-tip").textContent = "应用到名单后，点击名单页保存才生效";
-    var scope = document.querySelector(".rule-menu button.active span");
+    var scope = document.querySelector(".rule-menu [data-rule-tag].active span");
     sheet().querySelector("#rv-sheet-title").textContent = fresh ? "新增规则" : "编辑规则";
     sheet().querySelector("#rv-sheet-scope").textContent = scope ? scope.textContent : "名单";
     sheet().querySelector("#rv-del").style.display = fresh ? "none" : "";
@@ -9770,7 +10706,7 @@ function initialize$5() {
     armedEnter = false;
     rawMode = false;
     var docOnly = !!(g && g.docOnly);
-    var scope = document.querySelector(".rule-menu button.active span");
+    var scope = document.querySelector(".rule-menu [data-rule-tag].active span");
     var lines = g ? g.lines : [];
     var title = g ? stripTitlePrefix(groupTitle(g)) : "";
     var notes = g ? g.notes.map(function(n) {
@@ -10012,21 +10948,33 @@ function initialize$5() {
     }
     var target;
     if (isNew) {
-      var dup = rows.some(function(r) {
+      var dupRow = rows.find(function(r) {
         return (r.kind === "rule" || r.kind === "raw") && r.value === v && r.type === (rawMode ? "raw" : t);
       });
-      if (dup) {
+      if (dupRow && !!dupRow.off === !!sheetOff) {
         say("列表里已经有这条：" + (PREFIX[t] || "") + v);
         sheet().querySelector("#rv-value").focus();
         return;
       }
+      if (dupRow) say("已有一条" + (dupRow.off ? "停用" : "启用") + "的同名规则，本次将按" + (sheetOff ? "停用" : "启用") + "保存：" + (PREFIX[t] || "") + v);
       target = { id: "r" + ++seq, kind: rawMode ? "raw" : "rule", type: rawMode ? "raw" : t, value: v, off: sheetOff, touched: true };
       rows.push(target);
     } else if (editing) {
+      dupRow = rows.find(function(r) {
+        return r !== editing && (r.kind === "rule" || r.kind === "raw") && r.value === v && r.type === (rawMode ? "raw" : t);
+      });
+      if (dupRow && !!dupRow.off === !!sheetOff) {
+        say("列表里已经有这条：" + (PREFIX[t] || "") + v);
+        sheet().querySelector("#rv-value").focus();
+        return;
+      }
+      if (dupRow) say("已有一条" + (dupRow.off ? "停用" : "启用") + "的同名规则，本次将按" + (sheetOff ? "停用" : "启用") + "保存：" + (PREFIX[t] || "") + v);
       if (rawMode) {
         editing.type = "raw";
         editing.value = v;
         editing.kind = "raw";
+      } else if (editing.kind === "comment") {
+        editing.value = v;
       } else {
         editing.type = t;
         editing.value = v;
@@ -10161,7 +11109,7 @@ function initialize$5() {
       this.textContent = raw ? "列表" : "原文";
     };
     Array.prototype.forEach.call(root.querySelectorAll("[data-bulk]"), function(b) {
-      b.onclick = function() {
+      b.onclick = async function() {
         var act = b.dataset.bulk, n = sel.length;
         if (act === "clear") {
           sel = [];
@@ -10169,9 +11117,16 @@ function initialize$5() {
           return;
         }
         if (!n) return;
-        if (act === "del" && !window.confirm("删除选中的 " + n + " 条规则？")) return;
-        if (act === "del") rows = rows.filter(function(r) {
-          return sel.indexOf(r.id) < 0;
+        var dropIdx = {};
+        if (act === "del") rows.forEach(function(r, i) {
+          if (sel.indexOf(r.id) < 0) return;
+          var pn = prevNote(r);
+          if (pn.idx >= 0) dropIdx[pn.idx] = true;
+        });
+        var dropNotes = Object.keys(dropIdx).length;
+        if (act === "del" && !await confirmDialog({ message: "删除选中的 " + n + " 条规则？" + (dropNotes ? "\n（" + dropNotes + " 行备注一起删掉）" : ""), danger: true })) return;
+        if (act === "del") rows = rows.filter(function(r, i) {
+          return sel.indexOf(r.id) < 0 && !dropIdx[i];
         });
         else rows.forEach(function(r) {
           if (sel.indexOf(r.id) < 0) return;
@@ -10253,7 +11208,7 @@ function initialize$5() {
     sv.querySelector("#rv-close").onclick = function() {
       closeSheet();
     };
-    sv.querySelector("#rv-del").onclick = function() {
+    sv.querySelector("#rv-del").onclick = async function() {
       if (groupMode) {
         var g = editingGroup;
         if (!g) {
@@ -10265,7 +11220,7 @@ function initialize$5() {
       }
       var r = editing;
       if (!r) return;
-      if (!window.confirm("删除这条规则？\n" + lineOf(r))) return;
+      if (!await confirmDialog({ message: "删除这条规则？\n" + lineOf(r), danger: true })) return;
       closeSheet(true);
       dropRow(r, true);
     };
@@ -10340,11 +11295,6 @@ function initialize$5() {
       setHTML(dl, dl.innerHTML.replace(/下载列表/, "导出"));
     }
     if (dl) dl.classList.add("rv-ghost");
-    loadCounts();
-  }
-  function paintCounts() {
-  }
-  function loadCounts() {
   }
   function openPaste() {
     var wrap = document.getElementById("rp-wrap");
@@ -10376,7 +11326,7 @@ function initialize$5() {
   function pastedRows() {
     var input = document.getElementById("rp-text"), list = parsePaste(input ? input.value : ""), seen2 = /* @__PURE__ */ new Set();
     function key(r) {
-      return r.kind + "|" + r.type + "|" + r.value;
+      return r.kind + "|" + r.type + "|" + r.value + "|" + (r.off ? "off" : "on");
     }
     rows.forEach(function(r) {
       if (r.kind === "rule" || r.kind === "raw") seen2.add(key(r));
@@ -10418,7 +11368,18 @@ function initialize$5() {
     }
     var paste = document.getElementById("rp-wrap");
     if (paste && paste.open) {
-      if (paste.querySelector("#rp-text").value.trim() && !confirm("批量粘贴尚未加入名单，放弃并离开吗？")) return false;
+      if (paste.querySelector("#rp-text").value.trim()) {
+        if (typeof next === "function") pendingLeave = next;
+        confirmDialog({ message: "批量粘贴尚未加入名单，放弃并离开吗？", danger: true }).then(function(ok) {
+          var pend = pendingLeave;
+          pendingLeave = null;
+          if (ok) {
+            closePaste();
+            if (typeof pend === "function") pend();
+          }
+        });
+        return false;
+      }
       closePaste();
     }
     return true;
@@ -10577,50 +11538,11 @@ function downloadText(name, text2) {
   downloadBlob(name, new Blob([text2], { type: "text/plain;charset=utf-8" }));
 }
 function navHtml() {
-  return `
-      <div class="nav-group">
-        <div class="nav-group-head"><span>活动</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></div>
-        <div class="nav-items">
-          <button type="button" class="nav-item active" data-route="overview">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" aria-hidden="true"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm0 14a4 4 0 1 1 4-4 4 4 0 0 1-4 4Z"/></svg>
-            <span>运行概览</span>
-          </button>
-        </div>
-      </div>
-
-      <div class="nav-group">
-        <div class="nav-group-head"><span>观测</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></div>
-        <div class="nav-items">
-          <button type="button" class="nav-item" data-route="logs">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#14B8A6" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
-            <span>查询日志</span>
-          </button>
-        </div>
-      </div>
-
-      <div class="nav-group">
-        <div class="nav-group-head"><span>路由</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></div>
-        <div class="nav-items">
-          <button type="button" class="nav-item" data-route="upstreams">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#60A5FA" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
-            <span>DNS 管理</span>
-          </button>
-          <button type="button" class="nav-item" data-route="rules">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" aria-hidden="true"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
-            <span>规则管理</span>
-          </button>
-        </div>
-      </div>
-
-      <div class="nav-group">
-        <div class="nav-group-head"><span>设置</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></div>
-        <div class="nav-items">
-          <button type="button" class="nav-item" data-route="management">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0-4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
-            <span>系统管理</span>
-          </button>
-        </div>
-      </div>`;
+  return `<div class="nav-items">${routeDefs.map((r, i) => `
+      <button type="button" class="nav-item${i === 0 ? " active" : ""}" data-route="${r.id}" title="${r.label}" aria-label="${r.label}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">${r.navSvg}</svg>
+        <span>${r.label}</span>
+      </button>`).join("")}</div>`;
 }
 function fitRuleLayoutHeight() {
   const layout = $(".rule-layout");
@@ -10638,8 +11560,7 @@ function fitRuleLayoutHeight() {
 function initShell() {
   document.title = CONFIG.title;
   setHTML($("#side-nav"), navHtml());
-  const mobile = [["overview", "overview", "概览"], ["logs", "logs", "日志"], ["upstreams", "upstream", "DNS"], ["rules", "rules", "规则"], ["management", "management", "管理"]];
-  setHTML($("#mobile-nav"), mobile.map(([r, i, l]) => `<button data-route="${r}">${icon$1(i)}<span>${l}</span></button>`).join(""));
+  setHTML($("#mobile-nav"), routeDefs.map((r) => `<button data-route="${r.id}">${icon$1(r.icon)}<span>${r.label}</span></button>`).join(""));
   setHTML($("#theme-toggle"), icon$1("theme"));
   setHTML($("#refresh-button"), icon$1("refresh"));
   setHTML($("#restart-button"), icon$1("power"));
@@ -10729,10 +11650,9 @@ function initShell() {
     searchInput.onkeydown = (e) => {
       if (e.key === "Enter") {
         const q = searchInput.value.trim();
-        if (["概览", "overview"].includes(q)) return navigate("overview");
-        if (["上游", "dns", "upstreams"].includes(q.toLowerCase())) return navigate("upstreams");
-        if (["规则", "rules"].includes(q.toLowerCase())) return navigate("rules");
-        if (["系统", "管理", "management"].includes(q.toLowerCase())) return navigate("management");
+        const qLower = q.toLowerCase();
+        const matchedRoute = routeDefs.find((r) => r.label === q || r.id === qLower || Array.isArray(r.keywords) && r.keywords.includes(qLower));
+        if (matchedRoute) return navigate(matchedRoute.id);
         state.logs.q = q;
         state.logs.page = 1;
         navigate("logs");
@@ -10746,6 +11666,7 @@ function initShell() {
   });
   $("#refresh-button").onclick = () => renderRoute(true);
   $("#restart-button").onclick = restartService;
+  if ($("#sidebar-restart-button")) $("#sidebar-restart-button").onclick = restartService;
   if (!(skinService == null ? void 0 : skinService.toggleTheme)) {
     $("#theme-toggle").onclick = () => {
       var _a2;
@@ -10864,7 +11785,12 @@ function initialize$4() {
     navigate(location.hash.replace(/^#\/?/, "") || "overview", false);
   });
 }
-const ruleProfiles = [["whitelist", "白名单"], ["blocklist", "黑名单"], ["greylist", "灰名单"], ["force_realip", "强制 RealIP"], ["ddns_domains", "DDNS 域名"], ["pcdn_domains", "PCDN 域名"], ["pcdn_regex_v4", "PCDN IPv4 规则"], ["pcdn_regex_v6", "PCDN IPv6 规则"], ["client_ip", "客户端 IP"], ["direct_ip", "直连 IP"], ["rewrite", "重定向"]];
+const ruleGroups = [
+  ["核心分流", [["whitelist", "白名单"], ["greylist", "灰名单"], ["blocklist", "黑名单"]]],
+  ["解析控制", [["force_realip", "强制 RealIP"], ["ddns_domains", "DDNS 域名"], ["direct_ip", "直连 IP"], ["rewrite", "重定向"]]],
+  ["PCDN 抑制", [["pcdn_domains", "PCDN 域名"], ["pcdn_regex_v4", "PCDN IPv4 规则"], ["pcdn_regex_v6", "PCDN IPv6 规则"]]]
+];
+const ruleProfiles = ruleGroups.flatMap(([, items]) => items);
 let ruleViews, activeTab = "lists", diversionUpdating = false;
 const updateRule = (path) => api.request(path, { method: "POST", timeout: 3e5 });
 const updateUncertain = (error) => ["timeout", "network", "invalid-json"].includes(error == null ? void 0 : error.code);
@@ -10873,7 +11799,7 @@ function updateError(error, label = "更新失败") {
   else toast(label, "error", error.message);
 }
 function syncDiversionUpdateState(body2) {
-  $$(".div-update,#div-update-all", body2).forEach((button2) => {
+  $$(".div-update,#div-update-all,[data-div-update-group]", body2).forEach((button2) => {
     button2.disabled = diversionUpdating;
   });
   const button = $("#div-update-all", body2);
@@ -10921,9 +11847,11 @@ async function renderListRules(body2) {
     if (renderScope.signal.aborted) return;
     loadError = e;
   }
-  const menu = `<div class="rule-menu">${ruleProfiles.map(([t, n]) => `<button data-rule-tag="${t}" class="${t === tag ? "active" : ""}"><span>${n}</span><span class="rule-count"></span></button>`).join("")}</div>`;
-  if (loadError) {
-    setHTML(body2, `<section class="card"><div class="rule-layout">${menu}<div class="rule-editor"><div class="section-header"><div><h2>${profile[1]}</h2><p>读取失败时禁止保存，现有规则不会被覆盖。</p></div><button class="button" id="rule-retry">${icon$1("refresh")}重试</button></div><div class="error-panel"><strong>规则列表加载失败</strong><p>${esc$1(loadError.message)}</p></div></div></div></section>`);
+  const activeGroup = ruleGroups.find(([, items]) => items.some(([t]) => t === tag)) || ruleGroups[0];
+  const menuOptions = esc$1(JSON.stringify(ruleProfiles.map(([t, n]) => ({ tag: t, label: n, group: (ruleGroups.find(([, items]) => items.some(([x]) => x === t)) || [""])[0] }))));
+  const cardHead = `<div class="card-header rule-card-header"><div class="card-title"><span class="icon">${icon$1("rules")}</span><div><h2>名单管理</h2><p>本地名单 · 启停与编辑先保留为草稿</p></div></div><div class="card-actions"><div class="rule-menu-level1" role="group" aria-label="规则分组">${ruleGroups.map(([gLabel]) => `<button type="button" class="rule-group-btn${gLabel === activeGroup[0] ? " active" : ""}" data-rule-group="${esc$1(gLabel)}">${esc$1(gLabel)}</button>`).join("")}</div></div></div>`;
+  const menu = `<div class="rule-menu" data-rule-options="${menuOptions}"><div class="rule-menu-items" role="group" aria-label="${esc$1(activeGroup[0])}名单">${activeGroup[1].map(([t, n]) => `<button type="button" data-rule-tag="${t}" class="${t === tag ? "active" : ""}"><span>${n}</span><span class="rule-count"></span></button>`).join("")}</div></div>`;
+  const bindMenu = () => {
     $$("[data-rule-tag]").forEach((x) => x.onclick = () => {
       const go = () => {
         state.ruleTag = x.dataset.ruleTag;
@@ -10931,22 +11859,30 @@ async function renderListRules(body2) {
       };
       if ((rulesWorkbenchService == null ? void 0 : rulesWorkbenchService.canLeave(go)) !== false) go();
     });
+    $$("[data-rule-group]").forEach((x) => x.onclick = () => {
+      const entry = ruleGroups.find(([g]) => g === x.dataset.ruleGroup);
+      if (!entry || !entry[1].length) return;
+      const go = () => {
+        state.ruleTag = entry[1][0][0];
+        renderListRules(body2);
+      };
+      if ((rulesWorkbenchService == null ? void 0 : rulesWorkbenchService.canLeave(go)) !== false) go();
+    });
+  };
+  if (loadError) {
+    setHTML(body2, `<section class="card">${cardHead}<div class="rule-layout">${menu}<div class="rule-editor"><div class="section-header"><div><h2>${profile[1]}</h2><p>读取失败时禁止保存，现有规则不会被覆盖。</p></div><button class="button" id="rule-retry">${icon$1("refresh")}重试</button></div><div class="error-panel"><strong>规则列表加载失败</strong><p>${esc$1(loadError.message)}</p></div></div></div></section>`);
+    bindMenu();
     $("#rule-retry").onclick = () => renderListRules(body2);
     requestAnimationFrame(fitRuleLayoutHeight);
     return;
   }
   const trimmed = String(text2).trim();
-  setHTML(body2, `<section class="card"><div class="rule-layout">${menu}<div class="rule-editor"><div class="section-header"><div><h2>${profile[1]}</h2><p>一行一条；完整读取后才允许保存</p></div><div class="section-header-actions"><button class="button small" id="rule-download">${icon$1("download")}下载列表</button><button class="button primary" id="rule-save">${icon$1("save")}保存</button></div></div><textarea id="rule-text" class="rule-textarea" spellcheck="false">${esc$1(trimmed)}</textarea><div class="rule-editor-footer"><span id="rule-lines">共 ${trimmed ? trimmed.split("\n").length : 0} 行</span></div></div></div></section>`);
-  $$("[data-rule-tag]").forEach((x) => x.onclick = () => {
-    const go = () => {
-      state.ruleTag = x.dataset.ruleTag;
-      renderListRules(body2);
-    };
-    if ((rulesWorkbenchService == null ? void 0 : rulesWorkbenchService.canLeave(go)) !== false) go();
-  });
-  $("#rule-text").oninput = () => $("#rule-lines").textContent = `共 ${$("#rule-text").value.split("\n").filter(Boolean).length} 行`;
+  setHTML(body2, `<section class="card">${cardHead}<div class="rule-layout">${menu}<div class="rule-editor"><div class="section-header"><div><h2>${profile[1]}</h2><p>一行一条；完整读取后才允许保存</p></div><div class="section-header-actions"><button class="button small" id="rule-download">${icon$1("download")}下载列表</button><button class="button primary" id="rule-save">${icon$1("save")}保存</button></div></div><textarea id="rule-text" class="rule-textarea" spellcheck="false">${esc$1(trimmed)}</textarea><div class="rule-editor-footer"><span id="rule-lines">共 ${trimmed ? trimmed.split("\n").filter((line) => line.trim()).length : 0} 行</span></div></div></div></section>`);
+  bindMenu();
+  $("#rule-text").oninput = () => $("#rule-lines").textContent = `共 ${$("#rule-text").value.split("\n").filter((line) => line.trim()).length} 行`;
   $("#rule-save").onclick = async () => {
     const button = $("#rule-save"), text3 = $("#rule-text"), value = text3.value, baseline = text3.dataset.original;
+    if (!value.trim() && !await confirmDialog({ message: "确定要清空这份名单吗？", danger: true })) return;
     button.disabled = true;
     try {
       await ruleSaveService.save(tag, value, baseline, () => api.request(`/plugins/${tag}/show?all=1`), (values) => api.json(`/plugins/${tag}/post`, "POST", { values }));
@@ -10974,7 +11910,7 @@ async function renderAdguard(body2) {
   }
   rules.sort((a, b) => Number(Boolean(b.enabled)) - Number(Boolean(a.enabled)));
   const sourceErrors = rules.filter((r) => r.last_error);
-  setHTML(body2, card("广告拦截规则", `${sourceErrors.length ? `<div class="error-panel">${sourceErrors.map((r) => `${esc$1(r.name)}：${esc$1(r.last_error)}`).join("；")}</div>` : ""}<div class="table-wrap adguard-table-wrap mobile-card-table"><table class="adguard-rules-table adguard-card-table"><colgroup><col class="col-enabled"><col class="col-name"><col class="col-url"><col class="col-count"><col class="col-auto"><col class="col-updated"><col class="col-actions"></colgroup><thead><tr><th>启用</th><th>名称</th><th>订阅地址</th><th>规则数</th><th>自动更新</th><th>上次更新</th><th>操作</th></tr></thead><tbody>${rules.length ? rules.map((r) => `<tr data-id="${esc$1(r.id)}"><td class="ad-enabled-cell mobile-toggle-cell"><label class="switch"><input class="ad-enable" type="checkbox" ${r.enabled ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span></label></td><td class="ad-name-cell mobile-name-cell" title="${esc$1(r.name)}"><strong>${esc$1(r.name)}</strong></td><td class="ad-url-cell mobile-url-cell" data-label="订阅地址" title="${esc$1(r.url)}"><span class="table-ellipsis mobile-ellipsis">${esc$1(r.url)}</span></td><td class="ad-count-cell mobile-count-cell" data-label="规则数">${num(r.rule_count)}</td><td class="ad-auto-cell mobile-auto-cell" data-label="自动更新">${r.auto_update ? "是" : "否"}</td><td class="ad-updated-cell mobile-updated-cell" data-label="上次更新">${fmtDate(r.last_updated)}</td><td class="ad-actions-cell mobile-actions-cell"><div class="table-row-actions card-actions"><button class="button small ad-update">更新</button><button class="button small ad-edit">编辑</button><button class="button small danger ad-delete">删除</button></div></td></tr>`).join("") : `<tr><td colspan="7" class="table-empty">暂无规则</td></tr>`}</tbody></table></div>`, { iconName: "rules", actions: '<button class="button" id="ad-update-all">更新全部</button><button class="button primary" id="ad-add">' + icon$1("plus") + "添加订阅</button>" }));
+  setHTML(body2, card("广告拦截规则", `${sourceErrors.length ? `<div class="error-panel">${sourceErrors.map((r) => `${esc$1(r.name)}：${esc$1(r.last_error)}`).join("；")}</div>` : ""}<div class="table-wrap adguard-table-wrap mobile-card-table"><table class="adguard-rules-table adguard-card-table"><colgroup><col class="col-enabled"><col class="col-name"><col class="col-url"><col class="col-count"><col class="col-auto"><col class="col-updated"><col class="col-actions"></colgroup><thead><tr><th>启用</th><th>名称</th><th>订阅地址</th><th>规则数</th><th>自动更新</th><th>上次更新</th><th>操作</th></tr></thead><tbody>${rules.length ? rules.map((r) => `<tr data-id="${esc$1(r.id)}"><td class="ad-enabled-cell mobile-toggle-cell"><label class="switch"><input class="ad-enable" type="checkbox" ${r.enabled ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span></label></td><td class="ad-name-cell mobile-name-cell" title="${esc$1(r.name)}"><strong>${esc$1(r.name)}</strong></td><td class="ad-url-cell mobile-url-cell" data-label="订阅地址" title="${esc$1(r.url)}"><span class="table-ellipsis mobile-ellipsis">${esc$1(r.url)}</span></td><td class="ad-count-cell mobile-count-cell" data-label="规则数">${num(r.rule_count)}</td><td class="ad-auto-cell mobile-auto-cell" data-label="自动更新">${r.auto_update ? "是" : "否"}</td><td class="ad-updated-cell mobile-updated-cell" data-label="上次更新">${fmtDate(r.last_updated)}</td><td class="ad-actions-cell mobile-actions-cell"><div class="table-row-actions card-actions"><button class="button small ad-update">更新</button><button class="button small ad-edit">编辑</button><button class="button small danger ad-delete">删除</button></div></td></tr>`).join("") : `<tr><td colspan="7" class="table-empty">暂无订阅，点右上「添加订阅」从 URL 添加一条</td></tr>`}</tbody></table></div>`, { iconName: "rules", actions: '<button class="button" id="ad-update-all">更新全部</button><button class="button primary" id="ad-add">' + icon$1("plus") + "添加订阅</button>" }));
   const findRule = (tr) => rules.find((r) => String(r.id) === tr.dataset.id);
   $$(".ad-enable").forEach((x) => x.onchange = async () => {
     const rule = findRule(x.closest("tr"));
@@ -11008,7 +11944,7 @@ async function renderAdguard(body2) {
   $$(".ad-edit").forEach((x) => x.onclick = () => openAdguardModal(findRule(x.closest("tr")), body2));
   $$(".ad-delete").forEach((x) => x.onclick = async () => {
     const rule = findRule(x.closest("tr"));
-    if (!rule || !confirm(`确定删除广告规则“${rule.name}”？`)) return;
+    if (!rule || !await confirmDialog({ message: `确定删除广告规则“${rule.name}”？`, danger: true })) return;
     x.disabled = true;
     try {
       await api.request(`/plugins/adguard/rules/${encodeURIComponent(rule.id)}`, { method: "DELETE" });
@@ -11049,7 +11985,9 @@ async function updateAdguard(rule, patch) {
 function openAdguardModal(rule, body2) {
   rule = rule || { name: "", url: "", files: "", enabled: true, auto_update: true, update_interval_hours: 24 };
   modalOpen(rule.id ? "编辑广告规则" : "添加广告规则", "支持 AdGuard DNS 过滤规则；订阅下载与合并由内核完成。", `<div class="stack"><div class="field"><label>名称</label><input id="ad-name" value="${esc$1(rule.name)}"></div><div class="field"><label>订阅地址</label><input id="ad-url" value="${esc$1(rule.url)}" placeholder="https://example.com/adblock.txt"></div><div class="field"><label>源缓存文件（可选）</label><input id="ad-files" value="${esc$1(rule.files || "")}" placeholder="留空时从 URL 自动生成"><p class="form-note">统一保存到 rules/online/adguard/，后缀固定为 .txt；留空时从 URL 路径提取文件名，query/fragment 不会写入文件名。</p></div><div class="grid grid-2"><label class="switch"><input id="ad-enabled" type="checkbox" ${rule.enabled ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">启用</span></label><label class="switch"><input id="ad-auto" type="checkbox" ${rule.auto_update ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">自动更新</span></label></div><div class="field"><label>更新间隔（小时）</label><input id="ad-hours" type="number" min="1" value="${rule.update_interval_hours || 24}"></div></div>`, async () => {
-    const payload = { name: $("#ad-name").value.trim(), url: $("#ad-url").value.trim(), files: $("#ad-files").value.trim(), enabled: $("#ad-enabled").checked, auto_update: $("#ad-auto").checked, update_interval_hours: +$("#ad-hours").value || 24 };
+    const hours = normalizeUpdateHours($("#ad-hours").value);
+    if (hours.note) toast(hours.note, "info");
+    const payload = { name: $("#ad-name").value.trim(), url: $("#ad-url").value.trim(), files: $("#ad-files").value.trim(), enabled: $("#ad-enabled").checked, auto_update: $("#ad-auto").checked, update_interval_hours: hours.hours };
     if (!payload.name || !payload.url) throw new Error("名称和地址不能为空");
     if (rule.rule_count !== void 0) payload.rule_count = rule.rule_count;
     if (rule.last_updated) payload.last_updated = rule.last_updated;
@@ -11061,14 +11999,21 @@ function openAdguardModal(rule, body2) {
 }
 const diversionDefs = [
   { tag: "custom_cn", type: "custom_cn", label: "国内规则", domainRules: true },
-  { tag: "custom_non_cn", type: "custom_non_cn", label: "国外规则", domainRules: true },
+  { tag: "custom_non_cn", type: "custom_non_cn", label: "海外规则", domainRules: true },
   { tag: "geoip_cn", type: "geoip_cn", label: "GeoIP CN", domainRules: false },
+  { tag: "geoip_non_cn", type: "geoip_non_cn", label: "GeoIP 非 CN", domainRules: false },
   { tag: "geosite_cn", type: "geosite_cn", label: "Geosite CN", domainRules: true },
   { tag: "geosite_non_cn", type: "geosite_non_cn", label: "Geosite 非 CN", domainRules: true }
 ];
 const diversionDefByTag = (tag) => diversionDefs.find((x) => x.tag === tag);
 const diversionDefByType = (type) => diversionDefs.find((x) => x.type === type);
 const diversionFormatLabel = (r) => ruleConversionService.label(r);
+function normalizeUpdateHours(raw) {
+  const n = Number(raw);
+  if (raw === "" || raw === null || raw === void 0 || !Number.isFinite(n)) return { hours: 24, note: "更新间隔无效，已恢复为 24 小时" };
+  if (n < 1) return { hours: 1, note: "更新间隔不能小于 1 小时，已调整为 1 小时" };
+  return { hours: n, note: null };
+}
 function diversionPayload(rule) {
   const target = diversionDefByType(rule.type);
   const payload = {
@@ -11078,7 +12023,7 @@ function diversionPayload(rule) {
     url: String(rule.url || "").trim(),
     dataset: String(rule.dataset || "").trim(),
     auto_update: Boolean(rule.auto_update),
-    update_interval_hours: +rule.update_interval_hours || 24,
+    update_interval_hours: normalizeUpdateHours(rule.update_interval_hours).hours,
     enabled: rule.enabled !== false
   };
   if (target && target.domainRules !== false) payload.enable_regexp = true;
@@ -11088,16 +12033,33 @@ function diversionPayload(rule) {
   if (rule.detected_format) payload.detected_format = rule.detected_format;
   return payload;
 }
-async function saveDiversionRule(rule, original = null) {
+let staleOriginal = null;
+async function deleteOriginalConfig(ref) {
+  const path = `/plugins/${ref.tag}/config/${encodeURIComponent(ref.name)}`;
+  return ruleConversionService.deleteOriginalWithRetry(() => api.request(path, { method: "DELETE" }));
+}
+async function saveDiversionRule(rule, original = null, options = {}) {
   const target = diversionDefByType(rule.type);
   if (!target) throw new Error("请选择有效的规则类型");
   const payload = diversionPayload(ruleConversionService.withMetadata(rule, original));
   if (!payload.name) throw new Error("名称不能为空");
   if (!payload.url) throw new Error("订阅地址不能为空");
+  try {
+    const existing = await api.request(`/plugins/${target.tag}/config`);
+    const clash = Array.isArray(existing) && existing.some((item) => String((item == null ? void 0 : item.name) || "") === payload.name && !(original && original.tag === target.tag && String(original.name || "") === payload.name));
+    if (clash) throw new Error("该名称已存在");
+  } catch (e) {
+    if (e.message === "该名称已存在") throw e;
+  }
   const response = await api.json(`/plugins/${target.tag}/config/${encodeURIComponent(payload.name)}`, "PUT", payload);
-  const saved = await ruleConversionService.finishSave(response, () => updateRule(`/plugins/${target.tag}/update/${encodeURIComponent(payload.name)}`));
+  const saved = await ruleConversionService.finishSave(response, () => updateRule(`/plugins/${target.tag}/update/${encodeURIComponent(payload.name)}`), options);
   if (original && (original.tag !== target.tag || original.name !== payload.name)) {
-    await api.request(`/plugins/${original.tag}/config/${encodeURIComponent(original.name)}`, { method: "DELETE" });
+    if (await deleteOriginalConfig(original)) {
+      if (staleOriginal && staleOriginal.tag === original.tag && staleOriginal.name === original.name) staleOriginal = null;
+    } else {
+      staleOriginal = { tag: original.tag, name: original.name };
+      toast("新配置已保存，旧配置未能删除", "error", `旧配置「${original.name}」仍保留在列表中，可在分流规则页顶部重试删除。`);
+    }
   }
   return saved;
 }
@@ -11110,7 +12072,8 @@ function openDiversionDatasetPrompt(rule, datasets, body2, original = rule) {
     if (!dataset) throw new Error(typed ? "请填写 AS 号" : "请选择数据集");
     const saved = await saveDiversionRule({ ...rule, dataset }, original);
     workspaceService.clearRuleDraft(original);
-    toast("识别与转换完成", "success", ruleConversionService.message(saved));
+    if (saved && saved.savedButUnrecognized) toast("配置已保存，但来源尚未识别", "warning", "请检查订阅地址后重试更新。");
+    else toast("识别与转换完成", "success", ruleConversionService.message(saved));
     await renderDiversion(body2);
   });
 }
@@ -11157,8 +12120,49 @@ async function renderDiversion(body2) {
     update_interval_hours: +i.update_interval_hours || 24
   })));
   rows.sort((a, b) => Number(b.enabled) - Number(a.enabled));
-  setHTML(body2, card("在线分流规则", workspaceService.diversion(rows, errors, diversionFormatLabel), { iconName: "rules", actions: '<button class="button" id="div-update-all">更新全部</button><button class="button primary" id="div-add">' + icon$1("plus") + "添加规则</button>" }));
+  setHTML(body2, card("在线分流规则", workspaceService.diversion(rows, errors, diversionFormatLabel, diversionDefs.map(({ tag, label, domainRules }) => ({ tag, label, domainRules }))), { iconName: "rules", actions: '<button class="button" id="div-update-all">更新全部</button><button class="button primary" id="div-add">' + icon$1("plus") + "添加规则</button>" }));
   workspaceService.bindDiversion(body2);
+  $$("[data-div-update-group]", body2).forEach((button) => button.onclick = async () => {
+    var _a2;
+    if (diversionUpdating) return;
+    const tag = button.dataset.divUpdateGroup, label = ((_a2 = diversionDefByTag(tag)) == null ? void 0 : _a2.label) || tag;
+    if (!rows.some((r) => r.tag === tag && r.enabled && r.url)) {
+      toast(`${label}没有可更新的已启用规则`, "info");
+      return;
+    }
+    diversionUpdating = true;
+    syncDiversionUpdateState(body2);
+    try {
+      const result = await updateRule(`/plugins/${tag}/update-all`);
+      const failed = Number((result == null ? void 0 : result.failed) || 0);
+      if (failed) toast(`${label}：${Number((result == null ? void 0 : result.updated) || 0)} 个来源已更新，${failed} 个失败`, "error", (result.errors || []).map((x) => `${x.name}：${x.error}`).join("；"));
+      else toast(`${label}：${Number((result == null ? void 0 : result.updated) || 0)} 个来源已更新`);
+      await renderDiversion(body2);
+    } catch (e) {
+      updateError(e, `${label} 更新失败`);
+    } finally {
+      diversionUpdating = false;
+      syncDiversionUpdateState(body2);
+    }
+  });
+  if (staleOriginal) {
+    const notice = document.createElement("div");
+    notice.className = "error-panel";
+    setHTML(notice, `<div><strong>新配置已保存，旧配置未能删除。</strong><p>旧配置「${esc$1(staleOriginal.name)}」仍保留，新旧两份会同时生效。</p></div><button class="button" id="div-stale-retry">重试删除旧配置</button>`);
+    body2.prepend(notice);
+    notice.querySelector("#div-stale-retry").onclick = async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      if (await deleteOriginalConfig(staleOriginal)) {
+        staleOriginal = null;
+        toast("旧配置已删除");
+        await renderDiversion(body2);
+      } else {
+        toast("旧配置仍删除失败", "error", "请稍后重试，或检查配置服务状态。");
+        button.disabled = false;
+      }
+    };
+  }
   syncDiversionUpdateState(body2);
   $$(".div-detail", body2).forEach((button) => button.onclick = () => {
     const el = button.closest("[data-tag][data-name]"), r = rows.find((r2) => r2.tag === el.dataset.tag && String(r2.name) === el.dataset.name);
@@ -11171,7 +12175,7 @@ async function renderDiversion(body2) {
     x.disabled = true;
     try {
       const next = { ...rule, enabled: x.checked };
-      await saveDiversionRule(next, rule);
+      await saveDiversionRule(next, rule, { configOnly: true });
       rule.enabled = x.checked;
       toast(`规则“${rule.name}”已${x.checked ? "启用" : "关闭"}，配置已保存`);
       await renderDiversion(body2);
@@ -11200,7 +12204,7 @@ async function renderDiversion(body2) {
     if (rule) openDiversionModal(rule, body2);
   });
   $$(".div-delete").forEach((x) => x.onclick = async () => {
-    if (!confirm("确定删除此在线规则？配置文件中的对应项目也会被删除。")) return;
+    if (!await confirmDialog({ message: "确定删除此在线规则？配置文件中的对应项目也会被删除。", danger: true })) return;
     const tr = x.closest("[data-tag][data-name]");
     x.disabled = true;
     try {
@@ -11261,13 +12265,18 @@ async function renderDiversion(body2) {
         }
         completed += item.kind === "batch" ? Number(((_e = item.data) == null ? void 0 : _e.updated) || 0) : item.count;
         if (item.kind === "batch") {
-          failed += Number(((_f = item.data) == null ? void 0 : _f.failed) || 0);
-          datasetNeeded += Number(((_g = item.data) == null ? void 0 : _g.dataset_required) || 0);
-          if (Array.isArray((_h = item.data) == null ? void 0 : _h.errors)) details.push(...item.data.errors.map((e) => `${e.name}：${e.error}`));
+          const batchErrors = Array.isArray((_f = item.data) == null ? void 0 : _f.errors) ? item.data.errors : [];
+          const transportErrors = batchErrors.filter((e) => (e == null ? void 0 : e.transport) === true);
+          failed += Math.max(0, Number(((_g = item.data) == null ? void 0 : _g.failed) || 0) - transportErrors.length);
+          uncertain += transportErrors.length;
+          datasetNeeded += Number(((_h = item.data) == null ? void 0 : _h.dataset_required) || 0);
+          details.push(...batchErrors.map((e) => (e == null ? void 0 : e.transport) === true ? `${e.name}：未收到更新结果，服务器可能仍在处理，请稍后刷新查看更新时间` : `${e.name}：${e.error}`));
         }
       });
       const detailText = details.join("；");
-      if (uncertain) toast(`已更新 ${completed} 条；${uncertain} 条结果待确认${failed ? `；失败 ${failed} 条` : ""}${datasetNeeded ? `；${datasetNeeded} 条需要选择数据集` : ""}`, failed || datasetNeeded ? "error" : "info", detailText + "；请勿重复提交更新任务。");
+      const failedOther = Math.max(0, failed - datasetNeeded);
+      if (uncertain) toast(`已更新 ${completed} 条；${uncertain} 条结果待确认${failedOther ? `；失败 ${failedOther} 条` : ""}${datasetNeeded ? `；${datasetNeeded} 条需要选择数据集` : ""}`, failedOther || datasetNeeded ? "error" : "info", detailText + "；请勿重复提交更新任务。");
+      else if (datasetNeeded && failedOther) toast(`更新完成 ${completed} 条；失败 ${failedOther} 条；${datasetNeeded} 条需要单独选择数据集`, "error", detailText);
       else if (datasetNeeded) toast(`更新完成 ${completed} 条；${datasetNeeded} 条需要单独选择数据集`, "error", detailText);
       else if (failed) toast(`更新任务完成，失败 ${failed} 条`, "error", detailText);
       else toast(`已更新 ${completed} 条在线分流规则`);
@@ -11284,7 +12293,9 @@ function openDiversionModal(rule, body2) {
   rule.dataset = String(rule.dataset || "");
   modalOpen(original ? "编辑在线分流规则" : "添加在线分流规则", "远程规则由后端按内容自动识别，并统一转换为 SRS；无需手工选择源格式或匹配方式。", `<div class="stack"><div class="grid grid-2"><div class="field"><label>名称</label><input id="div-name" value="${esc$1(rule.name)}" placeholder="例如：direct_tld_cn"></div><div class="field"><label>规则类型</label><select id="div-type">${diversionDefs.map((d) => `<option value="${d.type}" ${d.type === rule.type ? "selected" : ""}>${esc$1(d.label)}</option>`).join("")}</select></div></div><div class="field"><label>订阅地址</label><input id="div-url" value="${esc$1(rule.url || "")}" placeholder="https://example.com/rules"></div><div class="field"><label>源缓存文件（可选）</label><input id="div-files" value="${esc$1(rule.files || "")}" placeholder="留空时自动生成"><p class="form-note">每个订阅源下载后统一转换为 SRS，存放在 rules/online/规则组/；同组来源合并去重后生成 rules/compiled/规则组.srs，运行时只加载这个文件。</p></div><div class="grid grid-2"><label class="switch"><input id="div-enabled" type="checkbox" ${rule.enabled !== false ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">启用</span></label><label class="switch"><input id="div-auto" type="checkbox" ${rule.auto_update ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">自动更新</span></label></div><div class="field"><label>更新间隔（小时）</label><input id="div-hours" type="number" min="1" value="${rule.update_interval_hours || 24}"></div><p class="form-note">支持的来源按内容自动识别；只有多数据集 DAT 才会在更新时要求选择一次数据集。所有成功识别的来源最终统一转换为 SRS 后加载。</p></div>`, async () => {
     var _a2;
-    const payload = { name: $("#div-name").value.trim(), type: $("#div-type").value, url: $("#div-url").value.trim(), files: $("#div-files").value.trim(), dataset: rule.dataset, enabled: $("#div-enabled").checked, auto_update: $("#div-auto").checked, update_interval_hours: +$("#div-hours").value || 24 };
+    const hours = normalizeUpdateHours($("#div-hours").value);
+    if (hours.note) toast(hours.note, "info");
+    const payload = { name: $("#div-name").value.trim(), type: $("#div-type").value, url: $("#div-url").value.trim(), files: $("#div-files").value.trim(), dataset: rule.dataset, enabled: $("#div-enabled").checked, auto_update: $("#div-auto").checked, update_interval_hours: hours.hours };
     let saved;
     try {
       saved = await saveDiversionRule(payload, original);
@@ -11295,7 +12306,8 @@ function openDiversionModal(rule, body2) {
       throw err;
     }
     workspaceService.clearRuleDraft(original);
-    toast("保存与转换完成", "success", ruleConversionService.message(saved));
+    if (saved && saved.savedButUnrecognized) toast("配置已保存，但来源尚未识别", "warning", "请检查订阅地址后重试更新。");
+    else toast("保存与转换完成", "success", ruleConversionService.message(saved));
     await renderDiversion(body2);
   });
   workspaceService.trackRuleDraft(original);
@@ -11306,6 +12318,618 @@ const rulesRoute = {
   },
   canLeave() {
     return rulesWorkbenchService.requestLeave();
+  }
+};
+const IP_OR_CIDR_RE = /^((?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-fA-F:]*:[0-9a-fA-F:.]+)(?:\/\d{1,3})?)(?:\s+#\s*(.*))?$/i;
+function parseClientIpLines(rawText) {
+  const lines = String(rawText || "").replace(/\r\n/g, "\n").split("\n");
+  const entries2 = [];
+  let pendingNote = null;
+  lines.forEach((rawLine, lineIndex) => {
+    const trimmed = rawLine.trim();
+    if (!trimmed) {
+      pendingNote = null;
+      return;
+    }
+    const noteMatch = trimmed.match(/^#\s*(?:备注|note)\s*[:：]\s*(.*)$/i);
+    if (noteMatch) {
+      pendingNote = { lineIndex, text: noteMatch[1].trim() };
+      return;
+    }
+    if (trimmed.startsWith("#")) {
+      const body2 = trimmed.replace(/^#\s*(?:停用原文[:：]\s*)?/, "").trim();
+      const disabledMatch = body2.match(IP_OR_CIDR_RE);
+      if (disabledMatch) {
+        entries2.push({
+          lineIndex,
+          noteLineIndex: pendingNote ? pendingNote.lineIndex : null,
+          ip: disabledMatch[1].trim(),
+          note: (disabledMatch[2] || (pendingNote ? pendingNote.text : "")).trim(),
+          enabled: false
+        });
+      }
+      pendingNote = null;
+      return;
+    }
+    const activeMatch = trimmed.match(/^([^\s#]+)(?:\s+#\s*(.*))?$/);
+    if (activeMatch) {
+      entries2.push({
+        lineIndex,
+        noteLineIndex: pendingNote ? pendingNote.lineIndex : null,
+        ip: activeMatch[1].trim(),
+        note: (activeMatch[2] || (pendingNote ? pendingNote.text : "")).trim(),
+        enabled: true
+      });
+    }
+    pendingNote = null;
+  });
+  return { lines, entries: entries2 };
+}
+function serializeToggleLine(rawText, lineIndex, nextEnabled) {
+  const lines = String(rawText || "").replace(/\r\n/g, "\n").split("\n");
+  if (lineIndex < 0 || lineIndex >= lines.length) return String(rawText || "");
+  const trimmed = lines[lineIndex].trim();
+  if (nextEnabled) {
+    lines[lineIndex] = trimmed.replace(/^#\s*(?:停用原文[:：]\s*)?/, "");
+  } else if (!trimmed.startsWith("#")) {
+    lines[lineIndex] = `# 停用原文：${trimmed}`;
+  }
+  return lines.filter((l, idx) => idx < lines.length - 1 || l.trim()).join("\n");
+}
+function serializeDeleteLine(rawText, lineIndex, noteLineIndex = null) {
+  const lines = String(rawText || "").replace(/\r\n/g, "\n").split("\n");
+  if (lineIndex < 0 || lineIndex >= lines.length) return String(rawText || "");
+  const indicesToRemove = /* @__PURE__ */ new Set([lineIndex]);
+  if (Number.isInteger(noteLineIndex) && noteLineIndex >= 0 && noteLineIndex < lines.length) {
+    indicesToRemove.add(noteLineIndex);
+  }
+  return lines.filter((_, idx) => !indicesToRemove.has(idx)).join("\n").trim();
+}
+async function renderDevices(container, context) {
+  const renderScope = context.scope;
+  const page2 = container;
+  const reqOpt = { signal: renderScope.signal };
+  const safe2 = (fn) => safeResult(fn);
+  const [sw2Res, sw12Res, clientIpRes, clientsRes] = await renderScope.guard(Promise.all([
+    safe2(() => api.request("/plugins/switch2/show", reqOpt)),
+    safe2(() => api.request("/plugins/switch12/show", reqOpt)),
+    safe2(() => api.request("/plugins/client_ip/show?all=1", reqOpt)),
+    safe2(() => api.rank("client", 200, reqOpt)),
+    loadAliases(renderScope)
+  ]));
+  const sw2 = sw2Res.ok ? String(sw2Res.data || "").trim().toUpperCase() : "?";
+  const sw12 = sw12Res.ok ? String(sw12Res.data || "").trim().toUpperCase() : "?";
+  const swKnown = (sw2 === "A" || sw2 === "B") && (sw12 === "A" || sw12 === "B");
+  const clientMode = !swKnown ? "unknown" : sw2 === "A" ? "fakeip" : sw12 === "A" ? "realip" : "all";
+  const clientIpText = clientIpRes.ok ? String(clientIpRes.data || "").trim() : "";
+  const clientIpLoadError = clientIpRes.ok ? null : clientIpRes.error;
+  const { entries: controlledEntries } = parseClientIpLines(clientIpText);
+  const controlledIpSet = new Set(controlledEntries.map((e) => e.ip));
+  const observedClients = clientsRes.ok && Array.isArray(clientsRes.data) ? clientsRes.data : [];
+  const recordedMap = new Map(observedClients.map((c) => [String(c.key), +c.count || 0]));
+  const effectivePolicy = (entry) => {
+    if (clientMode === "fakeip") return entry.enabled ? "fakeip" : "realip";
+    if (clientMode === "realip") return entry.enabled ? "realip" : "fakeip";
+    if (clientMode === "all") return "all";
+    return "unknown";
+  };
+  const aliasOf = (ip) => clientAliases[ip] || null;
+  const devices = [
+    ...controlledEntries.map((entry) => ({
+      kind: "controlled",
+      entry,
+      ip: entry.ip,
+      alias: aliasOf(entry.ip) || entry.note || "",
+      count: recordedMap.get(entry.ip) || 0,
+      policy: effectivePolicy(entry)
+    })),
+    ...[.../* @__PURE__ */ new Set([
+      ...observedClients.map((c) => String(c.key)).filter(Boolean),
+      ...Object.keys(clientAliases || {})
+    ])].filter((ip) => !controlledIpSet.has(ip)).map((ip) => {
+      const isLoopback = ip === "127.0.0.1" || ip === "::1";
+      return {
+        kind: "active",
+        entry: null,
+        ip,
+        alias: aliasOf(ip) || (isLoopback ? "LocalDNS" : ""),
+        count: recordedMap.get(ip) || 0,
+        policy: "none",
+        isLoopback
+      };
+    })
+  ];
+  const AUTO_KEY = "localdns-devices-auto-collect";
+  const autoCollectOn = (() => {
+    try {
+      return localStorage.getItem(AUTO_KEY) === "1";
+    } catch {
+      return false;
+    }
+  })();
+  if (autoCollectOn && !autoCollecting) {
+    const missing = devices.filter((d) => d.kind === "active" && !d.alias && d.count > 0 && !d.isLoopback);
+    if (missing.length) {
+      autoCollecting = true;
+      const next = { ...clientAliases };
+      missing.forEach((d) => {
+        next[d.ip] = `设备 ${d.ip.split(".").pop()}`;
+      });
+      api.json("/plugins/client_name", "PUT", next).then(() => {
+        renderRoute(true);
+      }).catch((error) => toast("自动收录设备失败", "error", error.message)).finally(() => {
+        autoCollecting = false;
+      });
+    }
+  }
+  const maxCount = Math.max(1, ...devices.map((d) => d.count));
+  const counts = { all: devices.length, fakeip: 0, realip: 0, none: 0 };
+  devices.forEach((d) => {
+    if (d.policy === "fakeip") counts.fakeip++;
+    else if (d.policy === "realip") counts.realip++;
+    else if (d.policy === "none") counts.none++;
+  });
+  const badgeHtml = (d) => {
+    if (d.policy === "fakeip") return '<span class="dev-pill is-fakeip">✓ FakeIP 科学分流</span>';
+    if (d.policy === "realip") return '<span class="dev-pill is-realip">→ RealIP 真实解析</span>';
+    if (d.policy === "all") return `<span class="dev-pill is-standby">全员分流${d.entry && !d.entry.enabled ? " · 已停用" : ""}</span>`;
+    if (d.policy === "none") return '<span class="dev-pill is-none">未受控</span>';
+    return '<span class="dev-pill is-none">未知</span>';
+  };
+  const controlHtml = (d) => {
+    if (d.kind !== "controlled") {
+      if (d.isLoopback) return '<span class="dev-sys-tag">本机系统</span>';
+      if (clientIpLoadError) return '<span class="dev-sys-tag">名单加载失败</span>';
+      const label = clientMode === "fakeip" ? "+ 加入 FakeIP 名单" : clientMode === "realip" ? "+ 加入 RealIP 名单" : "+ 加入名单";
+      return `<button type="button" class="dev-join" data-devices-add-ip="${esc$1(d.ip)}">${label}</button>`;
+    }
+    const entry = d.entry;
+    const entryBtnAttrs = (text2) => clientIpLoadError ? 'disabled title="名单加载失败，暂不可操作"' : `title="${text2}"`;
+    if (clientMode === "fakeip" || clientMode === "realip") {
+      const fakeNextEnabled = clientMode === "fakeip" ? "1" : "0";
+      const realNextEnabled = clientMode === "realip" ? "1" : "0";
+      return `
+        <span class="dev-mseg" role="group" aria-label="单机分流策略 ${esc$1(entry.ip)}">
+          <button type="button" class="${d.policy === "fakeip" ? "on" : ""}" data-devices-toggle-line="${entry.lineIndex}" data-devices-next-enabled="${fakeNextEnabled}" data-devices-target-policy="fakeip" aria-pressed="${d.policy === "fakeip"}" ${entryBtnAttrs(`让 ${esc$1(entry.ip)} 走 FakeIP 科学分流`)}>指定 FakeIP</button>
+          <button type="button" class="${d.policy === "realip" ? "on" : ""}" data-devices-toggle-line="${entry.lineIndex}" data-devices-next-enabled="${realNextEnabled}" data-devices-target-policy="realip" aria-pressed="${d.policy === "realip"}" ${entryBtnAttrs(`让 ${esc$1(entry.ip)} 走 RealIP 真实解析`)}>指定 RealIP</button>
+        </span>`;
+    }
+    return `<button type="button" class="dev-join" data-devices-toggle-line="${entry.lineIndex}" data-devices-next-enabled="${entry.enabled ? "0" : "1"}" ${clientIpLoadError ? 'disabled title="名单加载失败，暂不可操作"' : ""}>${entry.enabled ? "停用" : "启用"}</button>`;
+  };
+  const rowHtml = (d) => {
+    const pct2 = Math.max(4, Math.round(d.count / maxCount * 100));
+    const aliasBtn = `<button type="button" class="dev-alias-btn" data-devices-edit-alias title="管理设备别名">${esc$1(d.alias) || '<span class="dev-noalias">未命名设备</span>'}</button>`;
+    return `
+    <div class="dev-row${d.kind === "active" ? " is-uncontrolled" : ""}" data-ip="${esc$1(d.ip)}" data-q="${esc$1((d.alias + d.ip).toLowerCase())}" data-policy="${d.policy}" data-req="${d.count}">
+      <div><input type="checkbox" class="dev-ck" data-devices-ck="${esc$1(d.ip)}" aria-label="选择 ${esc$1(d.ip)}"></div>
+      <div class="dev-main">
+        <div class="dev-alias">${aliasBtn}${d.kind === "controlled" ? '<span class="dev-tag">受控</span>' : ""}</div>
+        <button type="button" class="dev-ip" data-devices-log-ip="${esc$1(d.ip)}" title="查看 ${esc$1(d.ip)} 的查询日志">${esc$1(d.ip)}</button>
+      </div>
+      <div>${badgeHtml(d)}</div>
+      <div class="dev-actcol"><div class="dev-bar"><i style="width:${pct2}%"></i></div><div class="dev-num">${num(d.count)} 次</div></div>
+      <div>${controlHtml(d)}</div>
+      <div class="dev-ops">
+        <button type="button" class="dev-iconbtn" data-devices-edit-alias title="管理设备别名">${icon$1("edit")}</button>
+        <button type="button" class="dev-iconbtn" data-devices-menu="${esc$1(d.ip)}" title="更多操作">${icon$1("more")}</button>
+      </div>
+    </div>`;
+  };
+  setHTML(page2, `
+  <div class="devices-dark">
+    <div class="dev-topbar">
+      <div>
+        <h1>设备</h1>
+        <p class="dev-sub">内网客户端分流策略 · 别名与受控名单</p>
+      </div>
+      <div class="dev-modebox">
+        <span class="dev-mode-label">全局客户端策略</span>
+        <div class="dev-seg" role="group" aria-label="客户端分流策略">
+          <button type="button" class="${clientMode === "all" ? "on" : ""}" data-devices-mode="all" ${clientMode === "unknown" ? "disabled" : ""}>全员分流</button>
+          <button type="button" class="${clientMode === "fakeip" ? "on" : ""}" data-devices-mode="fakeip" ${clientMode === "unknown" ? "disabled" : ""}>指定 FakeIP</button>
+          <button type="button" class="${clientMode === "realip" ? "on" : ""}" data-devices-mode="realip" ${clientMode === "unknown" ? "disabled" : ""}>指定 RealIP</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="dev-stats">
+      <div class="dev-stat"><div><div class="dev-stat-k">设备总数</div><div class="dev-stat-v">${counts.all}</div><div class="dev-stat-d">受控 ${controlledEntries.length} · 未受控 ${counts.none}</div></div><div class="dev-stat-ic">⧉</div></div>
+      <div class="dev-stat"><div><div class="dev-stat-k">FakeIP 科学分流</div><div class="dev-stat-v is-green">${counts.fakeip}</div><div class="dev-stat-d">指定客户端</div></div><div class="dev-stat-ic is-green">✓</div></div>
+      <div class="dev-stat"><div><div class="dev-stat-k">RealIP 真实解析</div><div class="dev-stat-v is-amber">${counts.realip}</div><div class="dev-stat-d">指定客户端 · 直连优先</div></div><div class="dev-stat-ic is-amber">→</div></div>
+      <div class="dev-stat"><div><div class="dev-stat-k">未受控</div><div class="dev-stat-v is-gray">${counts.none}</div><div class="dev-stat-d">跟随全局默认</div></div><div class="dev-stat-ic">○</div></div>
+    </div>
+
+    <div class="dev-filterbar">
+      <div class="dev-ftabs" id="devices-ftabs" role="group" aria-label="按策略过滤">
+        <button type="button" class="${devView.filter === "all" ? "on" : ""}" data-devices-filter="all">全部设备 <span class="n">${counts.all}</span></button>
+        <button type="button" class="${devView.filter === "fakeip" ? "on" : ""}" data-devices-filter="fakeip">FakeIP 科学分流 <span class="n">${counts.fakeip}</span></button>
+        <button type="button" class="${devView.filter === "realip" ? "on" : ""}" data-devices-filter="realip">RealIP 真实解析 <span class="n">${counts.realip}</span></button>
+        <button type="button" class="${devView.filter === "none" ? "on" : ""}" data-devices-filter="none">未受控 <span class="n">${counts.none}</span></button>
+      </div>
+      <div class="dev-search">
+        <div class="dev-searchbox"><input type="text" id="devices-q" placeholder="搜索别名、IP…" autocomplete="off" value="${esc$1(devView.q)}"></div>
+        <button type="button" class="dev-sortbtn" id="devices-sort">${icon$1("chevron")} ${devView.sort === "req" ? "请求数 ↓" : "IP 地址 ↑"}</button>
+      
+        <button type="button" class="dev-sortbtn" id="devices-bulk-alias" title="批量修改别名，或给还没出现过的 IP 预置名称">批量别名</button>
+        <button type="button" class="dev-sortbtn" id="devices-auto-collect" aria-pressed="${autoCollectOn}" title="自动把有查询记录但没有别名的活跃 IP 写进别名表">自动收录 ${autoCollectOn ? "开" : "关"}</button>
+        <button type="button" class="dev-addbtn" id="devices-add-controlled" ${clientIpLoadError ? 'disabled title="名单加载失败，暂不可操作"' : ""}>+ 新增受控 IP</button>
+      </div>
+    </div>
+
+    ${clientIpLoadError ? `<div class="dev-errpanel"><strong>受控客户端 IP 名单读取失败</strong><p>${esc$1(clientIpLoadError.message)}</p></div>` : ""}
+
+    <div class="dev-table">
+      <div class="dev-thead">
+        <div><input type="checkbox" class="dev-ck" id="devices-ck-all" aria-label="全选"></div>
+        <div>设备</div><div>生效策略</div><div class="dev-col-act">活跃度</div><div class="dev-col-ctl">单机策略</div>
+        <div class="dev-col-ops"></div>
+      </div>
+      <div id="devices-rows">${devices.map(rowHtml).join("") || '<div class="dev-empty">暂无设备记录</div>'}</div>
+      <div class="dev-empty" id="devices-empty-filter" hidden>无匹配设备，试试更换关键词或 <button type="button" class="dev-linkbtn" id="devices-clear-filter">清除筛选</button></div>
+    </div>
+    <div class="dev-batchbar" id="devices-batchbar">
+      <span id="devices-batch-n">已选 0 台</span>
+      <button type="button" data-devices-batch="fakeip">设为 FakeIP</button>
+      <button type="button" data-devices-batch="realip">设为 RealIP</button>
+      <button type="button" data-devices-batch="rm">移出名单</button>
+      <button type="button" data-devices-batch="cancel">取消</button>
+    </div>
+  </div>`);
+  const applyView = () => {
+    const q = (devView.q || "").toLowerCase();
+    const rows = [...$$(".dev-row", page2)];
+    rows.forEach((r) => {
+      const hitQ = !q || r.dataset.q.includes(q);
+      const hitF = devView.filter === "all" || r.dataset.policy === devView.filter;
+      r.style.display = hitQ && hitF ? "" : "none";
+    });
+    const body2 = $("#devices-rows", page2);
+    const visible = rows.filter((r) => r.style.display !== "none");
+    visible.sort((a, b) => devView.sort === "req" ? +b.dataset.req - +a.dataset.req : a.dataset.ip.localeCompare(b.dataset.ip)).forEach((r) => body2.appendChild(r));
+    const emptyFilter = $("#devices-empty-filter", page2);
+    if (emptyFilter) emptyFilter.hidden = rows.length === 0 || visible.length > 0;
+    syncBatchUI();
+  };
+  $("#devices-ftabs", page2).addEventListener("click", (e) => {
+    const b = e.target.closest("[data-devices-filter]");
+    if (!b) return;
+    $$("#devices-ftabs [data-devices-filter]", page2).forEach((x) => x.classList.remove("on"));
+    b.classList.add("on");
+    devView.filter = b.dataset.devicesFilter;
+    applyView();
+  });
+  const qInput = $("#devices-q", page2);
+  qInput.addEventListener("input", () => {
+    devView.q = qInput.value;
+    applyView();
+  });
+  $("#devices-sort", page2).onclick = function() {
+    devView.sort = devView.sort === "req" ? "ip" : "req";
+    this.innerHTML = `${icon$1("chevron")} ${devView.sort === "req" ? "请求数 ↓" : "IP 地址 ↑"}`;
+    applyView();
+  };
+  const clearFilterBtn = $("#devices-clear-filter", page2);
+  if (clearFilterBtn) clearFilterBtn.onclick = () => {
+    devView.q = "";
+    devView.filter = "all";
+    qInput.value = "";
+    $$("#devices-ftabs [data-devices-filter]", page2).forEach((x) => x.classList.toggle("on", x.dataset.devicesFilter === "all"));
+    applyView();
+  };
+  const devSel = /* @__PURE__ */ new Set();
+  const syncBatchUI = () => {
+    const bar = $("#devices-batchbar", page2);
+    bar.classList.toggle("show", devSel.size > 0);
+    $("#devices-batch-n", page2).textContent = `已选 ${devSel.size} 台`;
+    const visible = [...$$(".dev-row", page2)].filter((r) => r.style.display !== "none").map((r) => r.dataset.ip);
+    const all = $("#devices-ck-all", page2);
+    if (all) all.checked = visible.length > 0 && visible.every((ip) => devSel.has(ip));
+  };
+  $("#devices-ck-all", page2).onchange = function() {
+    [...$$(".dev-row", page2)].filter((r) => r.style.display !== "none").forEach((r) => {
+      this.checked ? devSel.add(r.dataset.ip) : devSel.delete(r.dataset.ip);
+    });
+    applyView();
+  };
+  const saveClientIpList = async (nextText, successMessage) => {
+    await ruleSaveService.save(
+      "client_ip",
+      nextText,
+      clientIpText,
+      () => api.request("/plugins/client_ip/show?all=1"),
+      (values) => api.json("/plugins/client_ip/post", "POST", { values })
+    );
+    toast(successMessage);
+    renderRoute(true, true);
+  };
+  const doToggleLine = async (entry, nextEnabled, targetPolicy, btn) => {
+    if (clientIpLoadError) return;
+    if (btn) btn.disabled = true;
+    try {
+      const nextText = serializeToggleLine(clientIpText, entry.lineIndex, nextEnabled);
+      const msg = targetPolicy === "fakeip" ? "已将该设备切换为 FakeIP 科学分流" : targetPolicy === "realip" ? "已将该设备切换为 RealIP 真实解析" : nextEnabled ? "受控客户端已启用" : "受控客户端已停用";
+      await saveClientIpList(nextText, msg);
+    } catch (e) {
+      if (btn) btn.disabled = false;
+      toast("操作失败", "error", e.message);
+    }
+  };
+  const doDeleteLine = async (entry, btn) => {
+    if (clientIpLoadError) return;
+    if (btn) btn.disabled = true;
+    try {
+      const nextText = serializeDeleteLine(clientIpText, entry.lineIndex, entry.noteLineIndex);
+      await saveClientIpList(nextText, "已从受控名单移除");
+    } catch (e) {
+      if (btn) btn.disabled = false;
+      toast("移除失败", "error", e.message);
+    }
+  };
+  const doAddIp = async (ip, btn) => {
+    if (clientIpLoadError || !ip) return;
+    if (btn) btn.disabled = true;
+    try {
+      const nextText = clientIpText ? `${clientIpText}
+${ip}` : ip;
+      await saveClientIpList(nextText, `已将 ${ip} 加入受控名单`);
+    } catch (e) {
+      if (btn) btn.disabled = false;
+      toast("添加失败", "error", e.message);
+    }
+  };
+  const goLog = (ip) => {
+    if (!ip) return;
+    state.logs.client = ip;
+    state.logs.page = 1;
+    navigate("logs");
+  };
+  let modeGen = 0;
+  $$("[data-devices-mode]", page2).forEach((btn) => {
+    btn.onclick = async () => {
+      const m = btn.dataset.devicesMode;
+      const targets = { all: ["B", "B"], fakeip: ["A", "B"], realip: ["B", "A"] };
+      const target = targets[m];
+      if (!target || !swKnown) return;
+      const gen = ++modeGen;
+      const isStale = () => gen !== modeGen;
+      const modeBtns = $$("[data-devices-mode]", page2);
+      modeBtns.forEach((b) => {
+        b.disabled = true;
+      });
+      const original = [sw2, sw12];
+      const postSwitch = (tag, value) => api.json(`/plugins/${tag}/post`, "POST", { value });
+      const readSwitches = async () => {
+        const [v2, v12] = await Promise.all([api.request("/plugins/switch2/show"), api.request("/plugins/switch12/show")]);
+        return [String(v2 || "").trim().toUpperCase(), String(v12 || "").trim().toUpperCase()];
+      };
+      try {
+        const steps = [{ tag: "switch2", value: target[0] }, { tag: "switch12", value: target[1] }].sort((a, b) => (a.value === "A") - (b.value === "A"));
+        for (const step of steps) {
+          await postSwitch(step.tag, step.value);
+          if (isStale()) return;
+        }
+        const actual = await readSwitches();
+        if (isStale()) return;
+        if (actual[0] !== target[0] || actual[1] !== target[1]) {
+          throw new Error(`开关状态与目标不一致（当前 switch2=${actual[0] || "?"}, switch12=${actual[1] || "?"}）`);
+        }
+        toast(m === "all" ? "已切换为全员分流模式" : m === "fakeip" ? "已启用：指定 FakeIP" : "已启用：指定 RealIP");
+      } catch (e) {
+        if (isStale()) return;
+        let note = "请刷新页面确认当前分流状态。";
+        try {
+          await postSwitch("switch2", original[0]);
+          await postSwitch("switch12", original[1]);
+          note = "已恢复切换前状态。";
+        } catch {
+        }
+        if (isStale()) return;
+        toast("切换失败", "error", `${e.message} ${note}`);
+      }
+      if (isStale()) return;
+      modeBtns.forEach((b) => {
+        b.disabled = false;
+      });
+      renderRoute(true, true);
+    };
+  });
+  $$("[data-devices-toggle-line]", page2).forEach((btn) => {
+    btn.onclick = () => {
+      if (btn.classList.contains("on")) return;
+      const entry = controlledEntries.find((e) => e.lineIndex === Number(btn.dataset.devicesToggleLine));
+      if (!entry) return;
+      doToggleLine(entry, btn.dataset.devicesNextEnabled === "1", btn.dataset.devicesTargetPolicy, btn);
+    };
+  });
+  $$("[data-devices-add-ip]", page2).forEach((btn) => {
+    btn.onclick = () => doAddIp(btn.dataset.devicesAddIp, btn);
+  });
+  $$("[data-devices-ck]", page2).forEach((ck) => {
+    ck.onchange = () => {
+      ck.checked ? devSel.add(ck.dataset.devicesCk) : devSel.delete(ck.dataset.devicesCk);
+      syncBatchUI();
+    };
+  });
+  $("#devices-batchbar", page2).addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-devices-batch]");
+    if (!b) return;
+    const action = b.dataset.devicesBatch;
+    if (action === "cancel") {
+      devSel.clear();
+      syncBatchUI();
+      return;
+    }
+    if (clientIpLoadError || devSel.size === 0) return;
+    b.disabled = true;
+    try {
+      let nextText = clientIpText;
+      const selControlled = controlledEntries.filter((en) => devSel.has(en.ip));
+      const selNew = [...devSel].filter((ip) => !controlledIpSet.has(ip) && ip !== "127.0.0.1" && ip !== "::1");
+      if (action === "rm") {
+        selControlled.map((en) => ({ li: en.lineIndex, ni: en.noteLineIndex })).sort((x, y) => y.li - x.li).forEach(({ li, ni }) => {
+          nextText = serializeDeleteLine(nextText, li, ni);
+        });
+        await saveClientIpList(nextText, `已将 ${selControlled.length} 台移出受控名单`);
+      } else {
+        const toPolicy = action;
+        selControlled.forEach((en) => {
+          const nextEnabled = clientMode === "fakeip" ? toPolicy === "fakeip" : clientMode === "realip" ? toPolicy === "realip" : true;
+          nextText = serializeToggleLine(nextText, en.lineIndex, nextEnabled);
+        });
+        if (selNew.length) nextText = nextText ? `${nextText}
+${selNew.join("\n")}` : selNew.join("\n");
+        await saveClientIpList(nextText, `已批量更新 ${devSel.size} 台`);
+      }
+    } catch (err) {
+      b.disabled = false;
+      toast("批量操作失败", "error", err.message);
+    }
+  });
+  let openMenu = null;
+  const closeMenu = () => {
+    if (openMenu) {
+      openMenu.remove();
+      openMenu = null;
+    }
+  };
+  const placeMenu = (m, btn) => {
+    const r = btn.getBoundingClientRect();
+    const mw = m.offsetWidth, mh = m.offsetHeight;
+    let left = Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8));
+    let top = r.bottom + 6;
+    if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 6);
+    m.style.left = `${left}px`;
+    m.style.top = `${top}px`;
+  };
+  const menuCloser = (e) => {
+    if (openMenu && !e.target.closest(".dev-menu") && !e.target.closest("[data-devices-menu]")) closeMenu();
+  };
+  const menuDismiss = () => closeMenu();
+  document.addEventListener("click", menuCloser);
+  document.addEventListener("scroll", menuDismiss, true);
+  window.addEventListener("resize", menuDismiss);
+  renderScope.signal.addEventListener("abort", () => {
+    document.removeEventListener("click", menuCloser);
+    document.removeEventListener("scroll", menuDismiss, true);
+    window.removeEventListener("resize", menuDismiss);
+  }, { once: true });
+  $$("[data-devices-menu]", page2).forEach((btn) => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const ip = btn.dataset.devicesMenu;
+      const entry = controlledEntries.find((en) => en.ip === ip);
+      if (openMenu) {
+        closeMenu();
+        return;
+      }
+      const m = document.createElement("div");
+      m.className = "dev-menu";
+      m.innerHTML = `<button type="button" data-m="log">查看查询日志</button>` + (entry ? `<button type="button" data-m="rm" class="danger">移出受控名单</button>` : `<button type="button" data-m="join">加入受控名单</button>`);
+      document.body.appendChild(m);
+      placeMenu(m, btn);
+      openMenu = m;
+      m.onclick = (ev) => {
+        const b = ev.target.closest("[data-m]");
+        if (!b) return;
+        const mm = b.dataset.m;
+        closeMenu();
+        if (mm === "log") goLog(ip);
+        else if (mm === "rm" && entry) doDeleteLine(entry, null);
+        else if (mm === "join") doAddIp(ip, null);
+      };
+    };
+  });
+  const autoBtn = $("#devices-auto-collect", page2);
+  if (autoBtn) autoBtn.onclick = () => {
+    const on = autoBtn.getAttribute("aria-pressed") !== "true";
+    try {
+      localStorage.setItem("localdns-devices-auto-collect", on ? "1" : "0");
+    } catch {
+    }
+    renderRoute(true);
+  };
+  const addControlledBtn = $("#devices-add-controlled", page2);
+  if (addControlledBtn) {
+    addControlledBtn.onclick = () => {
+      if (clientIpLoadError) {
+        toast("名单未成功加载，暂不可编辑", "error");
+        return;
+      }
+      let mode = "single";
+      modalOpen(
+        "受控客户端 IP",
+        "逐条添加，或切到原文批量维护整份名单",
+        `<div class="stack">
+          <div class="dev-modeswitch" role="group" aria-label="编辑方式">
+            <button type="button" class="on" data-ipmode="single">逐条添加</button>
+            <button type="button" data-ipmode="raw">原文批量</button>
+          </div>
+          <div id="devices-panel-single">
+            <div class="field"><label for="devices-new-ip">客户端 IP / CIDR 网段</label><input id="devices-new-ip" placeholder="例如：192.168.8.50 或 192.168.8.0/24" autocomplete="off"></div>
+            <div class="field"><label for="devices-new-note">备注说明（可选）</label><input id="devices-new-note" placeholder="例如：书房电脑" autocomplete="off"></div>
+          </div>
+          <div id="devices-panel-raw" hidden>
+            <div class="field"><label for="devices-raw-textarea">客户端 IP 名单 (/plugins/client_ip)</label><textarea id="devices-raw-textarea" class="rule-textarea" rows="12" spellcheck="false">${esc$1(clientIpText)}</textarea></div>
+            <div><button type="button" class="button small" id="devices-download-raw">${icon$1("download")}下载 client_ip.txt</button></div>
+          </div>
+        </div>`,
+        async () => {
+          if (mode === "raw") {
+            await saveClientIpList($("#devices-raw-textarea").value.trim(), "受控客户端 IP 名单已保存");
+            return;
+          }
+          const ip = $("#devices-new-ip").value.trim();
+          const note = $("#devices-new-note").value.trim();
+          if (!ip || /\s/.test(ip) || !IP_OR_CIDR_RE.test(ip)) throw new Error("请输入有效的客户端 IP 或 CIDR 网段");
+          const block = note ? `# 备注：${note}
+${ip}` : ip;
+          await saveClientIpList(clientIpText ? `${clientIpText}
+${block}` : block, `已添加受控客户端 ${ip}`);
+        }
+      );
+      $$("[data-ipmode]").forEach((button) => {
+        button.onclick = () => {
+          mode = button.dataset.ipmode;
+          $$("[data-ipmode]").forEach((other) => other.classList.toggle("on", other === button));
+          const single = $("#devices-panel-single"), raw = $("#devices-panel-raw");
+          if (single) single.hidden = mode !== "single";
+          if (raw) raw.hidden = mode !== "raw";
+        };
+      });
+      const dl = $("#devices-download-raw");
+      if (dl) dl.onclick = () => downloadText("client_ip.txt", $("#devices-raw-textarea").value);
+    };
+  }
+  $$("[data-devices-edit-alias]", page2).forEach((btn) => {
+    btn.onclick = () => {
+      var _a2;
+      const ip = (_a2 = btn.closest("[data-ip]")) == null ? void 0 : _a2.dataset.ip;
+      if (!ip) return;
+      modalOpen(
+        "设备别名",
+        ip,
+        `<div class="stack"><div class="field"><label for="devices-alias-name">设备别名</label><input id="devices-alias-name" value="${esc$1(clientAliases[ip] || "")}" placeholder="例如：书房电脑" autocomplete="off"></div></div>`,
+        async () => {
+          const name = $("#devices-alias-name").value.trim();
+          const next = { ...clientAliases };
+          if (name) next[ip] = name;
+          else delete next[ip];
+          await api.json("/plugins/client_name", "PUT", next);
+          toast(name ? `已更新 ${ip} 的别名` : `已清除 ${ip} 的别名`);
+          renderRoute(true);
+        }
+      );
+    };
+  });
+  const bulkAliasBtn = $("#devices-bulk-alias", page2);
+  if (bulkAliasBtn) bulkAliasBtn.onclick = openAliasModal;
+  applyView();
+}
+let autoCollecting = false;
+const devView = { filter: "all", sort: "req", q: "" };
+const devicesRoute = {
+  mount(container, context) {
+    return renderDevices(container, context);
   }
 };
 const managementRoute = { mount(container, context) {
@@ -11418,7 +13042,9 @@ const icons = {
 };
 const icon = (name) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.file}</svg>`;
 const brands = { mihomo: { name: "Mihomo", format: "YAML", logo: "assets/img/proxy-panel.svg" }, "sing-box": { name: "sing-box", format: "JSON", logo: "assets/img/proxy-panel.svg" } };
+const brandOf = (id) => brands[id] || { name: String(id || "未知核心"), format: "", logo: "assets/img/proxy-panel.svg" };
 let active = null;
+let fallbackDispose = null;
 const vendor = () => __vitePreload(() => import("./editor-A1rycQg2.js"), true ? [] : void 0);
 function dialog(title, content, actions = "", wide = false) {
   const origin = document.activeElement;
@@ -11448,6 +13074,11 @@ function confirmDiscard(action) {
 }
 async function mount(parent, context) {
   const { notify, navigate: navigate2, scope } = context;
+  if (fallbackDispose) {
+    const run = fallbackDispose;
+    fallbackDispose = null;
+    run();
+  }
   const abort = new AbortController();
   let editor, tools, cores = [], core = "mihomo", path = "", revision = "", base = "", newline = "\n", busy = false, programmatic = false, serviceReady = false, activeFile = false, groupRevision = "", fragmentMode = false, groupCount = 0, alive = true, mode = "file", directory = "", directoryCore = "mihomo", directoryFiles = [], browseSequence = 0, browsing = false;
   let workspace = {};
@@ -11482,6 +13113,7 @@ async function mount(parent, context) {
     $2("#pc-result-detail").textContent = detail;
     $2("#pc-result").open = open;
   };
+  let lastSaveLabel = "";
   const sync = () => {
     if (!alive) return;
     const loaded = !!revision;
@@ -11491,7 +13123,11 @@ async function mount(parent, context) {
     $2("#pc-diff").disabled = busy || !dirty();
     $2("#pc-save").disabled = busy || !loaded || !dirty();
     for (const id of ["pc-http-toggle", "pc-http-read", "pc-http-url", "pc-keep-controller"]) $2("#" + id).disabled = busy || !serviceReady;
-    setHTML($2("#pc-save"), icon("save") + (activeFile ? "保存并应用" : "保存文件"));
+    const saveLabel = icon("save") + (activeFile ? "保存并应用" : "保存文件");
+    if (saveLabel !== lastSaveLabel) {
+      lastSaveLabel = saveLabel;
+      setHTML($2("#pc-save"), saveLabel);
+    }
     $2("#pc-core-select").disabled = busy || !serviceReady;
     $2("#pc-core-select").value = core;
     for (const button of root.querySelectorAll("[data-pc-mode],#pc-directory-form button,#pc-directory-parent")) button.disabled = busy || !serviceReady || browsing;
@@ -11559,15 +13195,15 @@ async function mount(parent, context) {
         editor.set(base, core);
         programmatic = false;
       }
-      $2("#pc-logo").src = brands[core].logo;
-      $2("#pc-logo").alt = brands[core].name;
+      $2("#pc-logo").src = brandOf(core).logo;
+      $2("#pc-logo").alt = brandOf(core).name;
       $2("#pc-name").textContent = path.split("/").pop();
       $2("#pc-path").textContent = path;
       $2("#pc-path").title = path;
-      $2("#pc-format").textContent = brands[core].format;
+      $2("#pc-format").textContent = brandOf(core).format;
       $2("#pc-encoding").textContent = "UTF-8 · " + (newline === "\r\n" ? "CRLF" : "LF");
       $2("#pc-active-note").textContent = fragmentMode ? `运行分片 · 与 ${groupCount} 份文件合并校验，保存后重载整套配置` : activeFile ? "启动配置 · 保存后自动重载" : "备用配置 · 保存后不切换当前运行配置";
-      $2("#pc-http-note").textContent = `保存目标：${path}${activeFile ? " · 保存后应用到 " + brands[core].name : " · 备用文件，保存后不应用"}`;
+      $2("#pc-http-note").textContent = `保存目标：${path}${activeFile ? " · 保存后应用到 " + brandOf(core).name : " · 备用文件，保存后不应用"}`;
       $2(".pc-directory-note").textContent = ((_a2 = cores.find((item) => item.id === core)) == null ? void 0 : _a2.mode) === "fragments" ? "运行分片会按完整集合合并校验，目录外备用文件单独保存。" : "备用配置仅保存文件；启动配置保存后自动应用。";
       result("idle", fragmentMode ? `已读取运行分片 · 共 ${groupCount} 份` : "已读取配置，尚未检查", activeFile ? "修改后可检查配置、查看差异，再保存并应用。" : "此文件独立校验并保存。当前启动配置：" + ((_b2 = cores.find((item) => item.id === core)) == null ? void 0 : _b2.path));
       renderDirectoryFiles();
@@ -11765,7 +13401,7 @@ ${draft.preserved ? "已保留目标核心的控制地址和密钥。\n" : ""}${
     var _a2, _b2;
     if (busy) return;
     let selected = core, directory2 = "";
-    const element = dialog("选择配置文件", `<div class="pc-core-options">${cores.map((item) => `<label class="pc-core-option"><input type="radio" name="pc-core" value="${esc(item.id)}" ${item.id === core ? "checked" : ""} ${item.available ? "" : "disabled"}/><img src="${brands[item.id].logo}" alt=""/><span>${brands[item.id].name}${item.available ? "" : " · 未安装"}</span></label>`).join("")}</div><div class="pc-directorybar"><code id="pc-directory"></code><button class="button small" type="button" id="pc-parent">上一级</button></div><div class="pc-files" id="pc-files" aria-live="polite"></div><form id="pc-file-form"><label class="field">配置文件绝对路径<input type="text" id="pc-picker-path" autocomplete="off" spellcheck="false" value="${esc(path)}" required/></label><p class="pc-note" id="pc-picker-roots"></p><p class="pc-form-error" id="pc-picker-error" role="alert" hidden></p></form>`, '<button class="button" data-pc-close>取消</button><button type="submit" form="pc-file-form" class="button primary">读取配置</button>');
+    const element = dialog("选择配置文件", `<div class="pc-core-options">${cores.map((item) => `<label class="pc-core-option"><input type="radio" name="pc-core" value="${esc(item.id)}" ${item.id === core ? "checked" : ""} ${item.available ? "" : "disabled"}/><img src="${brandOf(item.id).logo}" alt=""/><span>${brandOf(item.id).name}${item.available ? "" : " · 未安装"}</span></label>`).join("")}</div><div class="pc-directorybar"><code id="pc-directory"></code><button class="button small" type="button" id="pc-parent">上一级</button></div><div class="pc-files" id="pc-files" aria-live="polite"></div><form id="pc-file-form"><label class="field">配置文件绝对路径<input type="text" id="pc-picker-path" autocomplete="off" spellcheck="false" value="${esc(path)}" required/></label><p class="pc-note" id="pc-picker-roots"></p><p class="pc-form-error" id="pc-picker-error" role="alert" hidden></p></form>`, '<button class="button" data-pc-close>取消</button><button type="submit" form="pc-file-form" class="button primary">读取配置</button>');
     const field = element.querySelector("#pc-picker-path"), error = element.querySelector("#pc-picker-error");
     const showError = (text2) => {
       error.textContent = text2;
@@ -11829,7 +13465,7 @@ ${draft.preserved ? "已保留目标核心的控制地址和密钥。\n" : ""}${
       cores = response.cores;
       serviceReady = true;
       $2("#pc-setup").hidden = true;
-      setHTML($2("#pc-core-select"), cores.map((item) => `<option value="${esc(item.id)}" ${item.available ? "" : "disabled"}>${brands[item.id].name} · ${brands[item.id].format}${item.mode === "fragments" ? " 分片" : ""}${item.available ? "" : " · 未安装"}</option>`).join(""));
+      setHTML($2("#pc-core-select"), cores.map((item) => `<option value="${esc(item.id)}" ${item.available ? "" : "disabled"}>${brandOf(item.id).name} · ${brandOf(item.id).format}${item.mode === "fragments" ? " 分片" : ""}${item.available ? "" : " · 未安装"}</option>`).join(""));
       if (loadDefault) {
         let preferred;
         try {
@@ -11952,6 +13588,7 @@ ${draft.preserved ? "已保留目标核心的控制地址和密钥。\n" : ""}${
     window.removeEventListener("resize", resize);
     document.querySelectorAll(".pc-dialog").forEach((element) => element.close());
     if (active === current) active = null;
+    if (fallbackDispose === dispose) fallbackDispose = null;
   };
   scope == null ? void 0 : scope.add(dispose);
   sync();
@@ -11961,7 +13598,10 @@ ${draft.preserved ? "已保留目标核心的控制地址和密钥。\n" : ""}${
   } catch (error) {
     if (alive) report(error);
   }
-  if (!scope) return dispose;
+  if (!scope) {
+    fallbackDispose = dispose;
+    return dispose;
+  }
 }
 function requestLeave() {
   if (active == null ? void 0 : active.isBusy()) {
@@ -11980,16 +13620,91 @@ function requestLeave() {
   });
 }
 const proxyConfigRoute = { mount, canLeave: requestLeave };
+let heartbeatTimer = null, probing = false;
+function startConnectionHeartbeat() {
+  if (heartbeatTimer !== null || typeof window === "undefined" || typeof document === "undefined") return;
+  const interval = Math.max(15e3, ((CONFIG == null ? void 0 : CONFIG.refreshInterval) || 30) * 1e3);
+  const probe = async () => {
+    if (document.hidden || probing) return;
+    probing = true;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1e4);
+    try {
+      await fetch(`${API_BASE}/api/v1/status`, { method: "GET", cache: "no-store", signal: controller.signal });
+      setApiStatus(true);
+    } catch {
+      setApiStatus(false);
+    } finally {
+      clearTimeout(timeout);
+      probing = false;
+    }
+  };
+  heartbeatTimer = setInterval(probe, interval);
+  if (typeof heartbeatTimer.unref === "function") heartbeatTimer.unref();
+}
 function setApiStatus(ok, text2) {
   const box = $("#sidebar-status"), dot = $(".status-dot", box), strong = $("strong", box);
   dot.className = `status-dot ${ok ? "online" : "offline"}`;
-  strong.textContent = ((identityService == null ? void 0 : identityService.getName()) || "LocalDNS") + (ok ? " 运行正常" : " 连接异常");
+  strong.textContent = ((identityService == null ? void 0 : identityService.getName()) || "LocalDNS") + (ok ? " 在线" : " 离线");
   $("#api-endpoint-label").textContent = text2 || (API_BASE || location.host);
   shellInterfaceService == null ? void 0 : shellInterfaceService.connection(ok, text2);
+  startConnectionHeartbeat();
+}
+const quote = (value) => `"${value.replace(/["\\]/g, "\\$&")}"`;
+function structuralPath(el, root) {
+  const parts2 = [];
+  for (let node = (
+    /** @type {Element | null} */
+    el
+  ); node && node !== root; node = node.parentElement) {
+    const parent = (
+      /** @type {Element | null} */
+      node.parentElement
+    );
+    if (!parent) return null;
+    const tag = node.tagName.toLowerCase();
+    const index = [...parent.children].filter((child) => child.tagName === (node == null ? void 0 : node.tagName)).indexOf(node) + 1;
+    parts2.unshift(`${tag}:nth-of-type(${index})`);
+  }
+  return parts2.length ? `:scope > ${parts2.join(" > ")}` : null;
+}
+function focusSelectors(el, root) {
+  if (!el || el === root || !root.contains(el)) return [];
+  const tag = el.tagName.toLowerCase();
+  const selectors = [];
+  if (el.id) selectors.push(`[id=${quote(el.id)}]`);
+  const data = [...el.attributes].filter((attribute) => attribute.name.startsWith("data-"));
+  if (data.length) selectors.push(tag + data.map((attribute) => `[${attribute.name}=${quote(attribute.value)}]`).join(""));
+  const label = el.getAttribute("aria-label");
+  if (label) selectors.push(`${tag}[aria-label=${quote(label)}]`);
+  const path = structuralPath(el, root);
+  if (path) selectors.push(path);
+  return selectors;
+}
+function restoreFocus(selectors, root) {
+  if (!selectors.length) return false;
+  const active2 = document.activeElement;
+  if (active2 && active2 !== document.body && active2 !== root && active2.isConnected) return false;
+  for (const selector of selectors) {
+    let matches;
+    try {
+      matches = root.querySelectorAll(selector);
+    } catch {
+      continue;
+    }
+    if (matches.length !== 1) continue;
+    matches[0].focus({ preventScroll: true });
+    return document.activeElement === matches[0];
+  }
+  return false;
 }
 let navigationSeq = 0;
+const routeModules = { overview: overviewRoute, logs: logsRoute, upstreams: upstreamsRoute, rules: rulesRoute, devices: devicesRoute, management: managementRoute, "proxy-config": proxyConfigRoute };
 function routeModule(id) {
-  return { overview: overviewRoute, logs: logsRoute, upstreams: upstreamsRoute, rules: rulesRoute, management: managementRoute, "proxy-config": proxyConfigRoute }[id];
+  return routeModules[
+    /** @type {keyof typeof routeModules} */
+    id
+  ];
 }
 async function navigate(id, write = true) {
   const sequence = ++navigationSeq;
@@ -12009,9 +13724,15 @@ async function navigate(id, write = true) {
 }
 function updateNav() {
   const r = routeDefs.find((x) => x.id === state.route);
+  if (!r) return;
+  setPageLabel(r.label);
   $("#page-title").textContent = r.label;
   $("#page-subtitle").textContent = r.subtitle;
-  $$("[data-route]").forEach((x) => x.classList.toggle("active", x.dataset.route === state.route));
+  $$("[data-route]").forEach((x) => x.classList.toggle(
+    "active",
+    /** @type {HTMLElement} */
+    x.dataset.route === state.route
+  ));
 }
 function trackRouteCleanup(fn) {
   return currentScope().add(fn);
@@ -12025,10 +13746,22 @@ function viewSnapshot() {
   return {
     y: window.scrollY,
     inner: scrollers.map((el) => [el.scrollTop, el.scrollLeft]),
-    fields: fields.map((el) => [el.id, el.type === "checkbox" ? el.checked : el.value])
+    fields: fields.map((el) => {
+      const field = (
+        /** @type {HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement} */
+        el
+      );
+      return (
+        /** @type {[string, string | boolean]} */
+        [field.id, field.type === "checkbox" && "checked" in field ? field.checked : field.value]
+      );
+    }),
+    dirty: /* @__PURE__ */ new Set(),
+    focus: focusSelectors(document.activeElement, page)
   };
 }
 function viewRestore(snap) {
+  var _a2;
   if (!snap) return;
   const el = document.documentElement, prev = el.style.scrollBehavior;
   el.style.scrollBehavior = "auto";
@@ -12040,13 +13773,23 @@ function viewRestore(snap) {
     n.scrollLeft = snap.inner[i][1];
   });
   snap.fields.forEach(([id, v]) => {
+    var _a3;
+    if ((_a3 = snap.dirty) == null ? void 0 : _a3.has(id)) return;
     const n = document.getElementById(id);
     if (!n || !page.contains(n)) return;
-    if (n.type === "checkbox") n.checked = v;
-    else if (n.value !== v) n.value = v;
+    const field = (
+      /** @type {HTMLInputElement} */
+      n
+    );
+    if (field.type === "checkbox") field.checked = /** @type {boolean} */
+    v;
+    else if (field.value !== v) field.value = /** @type {string} */
+    v;
   });
+  if ((_a2 = snap.focus) == null ? void 0 : _a2.length) restoreFocus(snap.focus, page);
 }
 let pendingScroll = null;
+let lastRenderedRoute = null;
 let scrollSaveTimer = 0, userScrolled = false;
 const saveScroll = () => {
   if (pendingScroll) return;
@@ -12076,7 +13819,8 @@ function restoreScroll() {
 }
 async function renderRoute(force = false, silent = false, approved = false) {
   const activeRoute = state.route;
-  if (!approved && routeModule(activeRoute).canLeave && !await routeModule(activeRoute).canLeave()) return;
+  const activeModule = routeModule(activeRoute);
+  if (!approved && (activeModule == null ? void 0 : activeModule.canLeave) && !await activeModule.canLeave()) return;
   if (state.route !== activeRoute) return;
   shellInterfaceService == null ? void 0 : shellInterfaceService.rememberDraft();
   const scope = beginRoute();
@@ -12092,23 +13836,31 @@ async function renderRoute(force = false, silent = false, approved = false) {
   const seq = (state.renderSeq || 0) + 1;
   state.renderSeq = seq;
   const snap = silent ? viewSnapshot() : null;
-  const oldCharts = silent ? takeCharts() : null;
-  scope.add(() => {
-    if (oldCharts) {
-      oldCharts.forEach((chart2) => {
-        try {
-          chart2.destroy();
-        } catch {
-        }
-      });
-      oldCharts.length = 0;
+  const markDirty = snap ? (
+    /** @param {Event} event */
+    (event) => {
+      var _a2;
+      const id = (
+        /** @type {HTMLElement | null} */
+        (_a2 = event.target) == null ? void 0 : _a2.id
+      );
+      if (id) snap.dirty.add(id);
     }
-  });
+  ) : null;
+  if (markDirty) {
+    page.addEventListener("input", markDirty, true);
+    page.addEventListener("change", markDirty, true);
+  }
+  const stopMarking = () => {
+    if (markDirty) {
+      page.removeEventListener("input", markDirty, true);
+      page.removeEventListener("change", markDirty, true);
+    }
+  };
   state.silent = silent;
   if (silent) {
     page.style.minHeight = page.offsetHeight + "px";
   } else {
-    destroyCharts();
     page.style.minHeight = "";
   }
   updateNav();
@@ -12117,42 +13869,43 @@ async function renderRoute(force = false, silent = false, approved = false) {
     const route = routeModule(state.route);
     const cleanup = await route.mount(page, { signal: scope.signal, scope, navigate, notify: toast });
     if (typeof cleanup === "function") scope.add(cleanup);
-    if (seq !== state.renderSeq) return;
+    if (seq !== state.renderSeq) {
+      stopMarking();
+      return;
+    }
     shellInterfaceService == null ? void 0 : shellInterfaceService.apply();
     workspaceService.finish(page);
     if (!silent) {
       playViewEnter();
       animateCountUps(page);
     }
+    if (!silent) {
+      if (lastRenderedRoute !== null && lastRenderedRoute !== state.route) focusPageHeading(page);
+      lastRenderedRoute = state.route;
+    }
     syncAllSegThumbs();
     state.silent = false;
+    markPageHeading(page);
     viewRestore(snap);
+    if (silent) page.style.minHeight = "";
+    stopMarking();
     setApiStatus(true);
   } catch (e) {
-    if (seq !== state.renderSeq || (e == null ? void 0 : e.name) === "AbortError") return;
+    stopMarking();
+    const failure = (
+      /** @type {any} */
+      e
+    );
+    if (seq !== state.renderSeq || (failure == null ? void 0 : failure.name) === "AbortError") return;
     console.error(e);
-    setApiStatus(false, e.message);
-    if (silent) {
-      if (oldCharts) {
-        restoreCharts(oldCharts);
-        oldCharts.length = 0;
-      }
-    } else {
-      setHTML(page, `<div class="error-panel"><strong>无法加载当前页面</strong><p>${esc$1(e.message)}</p><button class="button" id="retry-page">${icon$1("refresh")}重新加载</button></div>`);
+    setApiStatus(false, failure.message);
+    if (!silent) {
+      setHTML(page, `<div class="error-panel"><strong>无法加载当前页面</strong><p>${esc$1(failure.message)}</p><button class="button" id="retry-page">${icon$1("refresh")}重新加载</button></div>`);
       $("#retry-page").onclick = () => renderRoute(true);
     }
   }
-  if (oldCharts) oldCharts.forEach((c) => {
-    try {
-      c.destroy();
-    } catch {
-    }
-  });
   if (seq !== state.renderSeq) return;
   state.silent = false;
-  if (silent) scope.timeout(() => {
-    if (seq === state.renderSeq) page.style.minHeight = "";
-  }, 1500);
   if (!silent) restoreScroll();
   if (["logs", "overview"].includes(state.route)) {
     scope.interval(() => {
@@ -12162,9 +13915,22 @@ async function renderRoute(force = false, silent = false, approved = false) {
 }
 function busyViewing() {
   var _a2;
-  const a = document.activeElement;
-  if (a && ((_a2 = a.closest) == null ? void 0 : _a2.call(a, "main")) && ["INPUT", "TEXTAREA", "SELECT"].includes(a.tagName)) return true;
+  const a = (
+    /** @type {HTMLElement | null} */
+    document.activeElement
+  );
+  const main = (_a2 = a == null ? void 0 : a.closest) == null ? void 0 : _a2.call(a, "main");
+  if (a && main && ["INPUT", "TEXTAREA", "SELECT"].includes(a.tagName)) return true;
+  if (a && main && a !== document.body && a !== main && !(a.tagName === "H1" && a.tabIndex === -1) && keyboardFocus(a)) return true;
+  if (document.querySelector("#topo-stage-wrap:hover")) return true;
   return !!document.querySelector("dialog[open], .drawer.open");
+}
+function keyboardFocus(el) {
+  try {
+    return el.matches(":focus-visible");
+  } catch {
+    return true;
+  }
 }
 function initialize$3() {
   try {
@@ -12183,7 +13949,6 @@ function initialize$3() {
   window.addEventListener("pagehide", () => {
     saveScroll();
     currentScope().dispose();
-    destroyCharts();
   });
   window.addEventListener("pageshow", (event) => {
     if (event.persisted) renderRoute(true);
@@ -12201,6 +13966,7 @@ function initialize$2() {
     if (!panel || panel.querySelector(".appearance-tabs")) return;
     panel.classList.add("appearance-panel");
     const title = panel.querySelector(".bcp-title");
+    if (!title) return;
     title.id = "appearance-title";
     panel.setAttribute("aria-labelledby", title.id);
     const tabs = document.createElement("div");
@@ -12282,20 +14048,25 @@ function initialize$2() {
       verRow.classList.add("appearance-select");
       const label = verRow.querySelector("label"), select2 = verRow.querySelector("select");
       const value = verRow.querySelector("#val-brand-ver"), input = verRow.querySelector("#input-brand-ver");
-      const fields = document.createElement("div");
-      fields.className = "appearance-select-fields";
-      fields.append(select2, input);
-      input.setAttribute("aria-label", "自定义版本标签文字");
-      value.classList.add("appearance-visually-hidden");
-      verRow.replaceChildren(label, fields, value);
+      if (label && select2 && input && value) {
+        const fields = document.createElement("div");
+        fields.className = "appearance-select-fields";
+        fields.append(select2, input);
+        input.setAttribute("aria-label", "自定义版本标签文字");
+        value.classList.add("appearance-visually-hidden");
+        verRow.replaceChildren(label, fields, value);
+      }
     }
     const uploadRow = (_f = panel.querySelector("#btn-font-upload")) == null ? void 0 : _f.closest(".bcp-row");
     if (uploadRow) {
       uploadRow.classList.add("appearance-upload");
       const heading = uploadRow.querySelector(".bcp-row-head"), actions = uploadRow.querySelector(".bcp-inline");
-      const status = heading.querySelector("#val-font-upload");
-      heading.querySelector("span").textContent = "自定义字体";
-      heading.append(status, actions);
+      if (heading) {
+        const status = heading.querySelector("#val-font-upload");
+        const span = heading.querySelector("span");
+        if (span) span.textContent = "自定义字体";
+        heading.append(...[status, actions].filter(Boolean));
+      }
     }
     const fonts = panel.querySelector(".bcp-fonts");
     if (fonts) {
@@ -12348,6 +14119,13 @@ function initialize$2() {
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", setup, { once: true });
   else setup();
+}
+const MATERIAL_FLOORS = Object.freeze({ alpha: 55, dimmer: 15 });
+const MATERIAL_DEFAULTS = Object.freeze({ blur: 14, alpha: 55, dimmer: 22, radius: 100 });
+function clampMaterial(name, raw, min, max) {
+  const floor = Math.max(min, MATERIAL_FLOORS[name] ?? min);
+  const value = Number.isFinite(Number(raw)) && raw !== null && raw !== "" ? Number(raw) : MATERIAL_DEFAULTS[name];
+  return Math.min(max, Math.max(floor, value));
 }
 function initialize$1() {
   "use strict";
@@ -12492,12 +14270,13 @@ function initialize$1() {
       else if (name === "radius") root.setProperty("--radius-scale", (value / 100).toFixed(2));
       else root.setProperty("--glass-" + name, name === "blur" ? value + "px" : (value / 100).toFixed(2));
     }
-    const defaults = { blur: 14, alpha: 48, dimmer: 22, radius: 100 }, units = { blur: "px", alpha: "%", dimmer: "%", radius: "%" };
+    const units = { blur: "px", alpha: "%", dimmer: "%", radius: "%" };
     for (const name of ["blur", "alpha", "dimmer", "radius"]) {
       const input = document.querySelector("#slider-" + name), label = document.querySelector("#val-" + name);
       if (!input) continue;
-      const value = Math.min(+input.max, Math.max(+input.min, Number.isFinite(+saved[name]) ? +saved[name] : defaults[name]));
+      const value = clampMaterial(name, saved[name], +input.min, +input.max);
       input.value = value;
+      if (name in saved && +saved[name] !== value) store({ [name]: value });
       applyMaterial(name, value);
       if (label) label.textContent = value + units[name];
       input.addEventListener("input", () => {
@@ -12605,8 +14384,8 @@ initialize$f();
 initialize$e();
 initialize$d();
 initialize$c();
-initialize$b();
 initialize$a();
+initialize$b();
 initialize$9();
 initialize$8();
 initialize$o();

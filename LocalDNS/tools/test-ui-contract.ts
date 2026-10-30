@@ -3,12 +3,12 @@ import { LocalDnsServer } from '../src/server';
 import { Store } from '../src/store';
 
 /**
- * 新版上游 SPA（FJGLI / UI 2026.10.22.3）契约校验。
+ * 新版上游 SPA（FJH7T / UI 2026.10.30.7）契约校验。
  * 重点覆盖 UI normalizeResponse 对 GET 响应的严格类型校验，
  * 以及 upstream/config 的 group 字段兼容与 /api/v1/features 的 legacy 探测。
  */
 async function main() {
-  console.log('=== [LocalDNS] UI Contract Verification (FJGLI / UI 2026.10.22.3) ===');
+  console.log('=== [LocalDNS] UI Contract Verification (FJH7T / UI 2026.10.30.7) ===');
   let passed = 0;
   let failed = 0;
   const assert = (cond: boolean, desc: string) => {
@@ -23,6 +23,8 @@ async function main() {
 
   const store = Store.get();
   const originalUpstreams = JSON.parse(JSON.stringify(store.getUpstreamConfig()));
+  const originalDiversion = JSON.parse(JSON.stringify(store.getDiversionSources()));
+  const originalClientIp = store.getRule('client_ip');
   const server = LocalDnsServer.get();
   const startRes = server.start(9299);
   assert(startRes.success === true, `HTTP Server started on port ${startRes.port}`);
@@ -30,8 +32,8 @@ async function main() {
 
   try {
     // 打包资源静态托管
-    const appJs = await fetch(`${base}/ui/assets/app-DOuhu87M.js`);
-    assert(appJs.status === 200, `/ui/assets/app-DOuhu87M.js returns 200 (got ${appJs.status})`);
+    const appJs = await fetch(`${base}/ui/assets/app-CrSEI1zm.js`);
+    assert(appJs.status === 200, `/ui/assets/app-CrSEI1zm.js returns 200 (got ${appJs.status})`);
     assert((appJs.headers.get('Content-Type') || '').includes('javascript'), 'app bundle Content-Type is javascript');
     const pulse = await fetch(`${base}/ui/assets/livepulse.js`);
     assert(pulse.status === 200, `/ui/assets/livepulse.js returns 200 (got ${pulse.status})`);
@@ -67,7 +69,7 @@ async function main() {
     const cfg = await (await fetch(`${base}/api/v1/upstream/config`)).json();
     assert(validateUpstreamConfig(cfg), 'upstream/config passes UI normalizeResponse validation');
 
-    // group 字段兼容（FJGLI 新字段）
+    // group 字段兼容（FJH7T 新字段）
     const nodeG = { tag: 'contract_group_node', protocol: 'https', addr: 'https://1.1.1.1/dns-query', enabled: true };
     const postGroup = await fetch(`${base}/api/v1/upstream/config`, {
       method: 'POST',
@@ -109,12 +111,43 @@ async function main() {
     // switch show 返回 A/B 文本
     const sw = await (await fetch(`${base}/plugins/switch7/show`)).text();
     assert(sw === 'A' || sw === 'B', `switch7/show returns A/B (got ${JSON.stringify(sw)})`);
+
+    // geoip_non_cn 新分组：GET 必须返回数组，PUT/DELETE 可编辑（FJH7Q 起）
+    const geoRes = await fetch(`${base}/plugins/geoip_non_cn/config`);
+    const geoList = await geoRes.json();
+    assert(geoRes.status === 200 && Array.isArray(geoList), 'plugins/geoip_non_cn/config returns array');
+    const geoPut = await fetch(`${base}/plugins/geoip_non_cn/config/contract_geo`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'contract_geo', url: 'https://example.com/geo.txt', format: 'txt', enabled: false }),
+    });
+    assert(geoPut.status === 200, `PUT plugins/geoip_non_cn/config/contract_geo returns 200 (got ${geoPut.status})`);
+    const geoAfter = await (await fetch(`${base}/plugins/geoip_non_cn/config`)).json();
+    assert(Array.isArray(geoAfter) && geoAfter.some((x: any) => x.name === 'contract_geo'), 'geoip_non_cn source persisted');
+    const geoDel = await fetch(`${base}/plugins/geoip_non_cn/config/contract_geo`, { method: 'DELETE' });
+    assert(geoDel.status === 200, `DELETE plugins/geoip_non_cn/config/contract_geo returns 200 (got ${geoDel.status})`);
+
+    // 设备页：client_ip 名单（show?all=1 / post values）
+    const clientIpShow = await fetch(`${base}/plugins/client_ip/show?all=1`);
+    assert(clientIpShow.status === 200 && typeof (await clientIpShow.text()) === 'string', 'plugins/client_ip/show?all=1 returns text');
+    const clientIpPost = await fetch(`${base}/plugins/client_ip/post`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: [] }),
+    });
+    assert(clientIpPost.status === 200, `plugins/client_ip/post returns 200 (got ${clientIpPost.status})`);
+
+    // 缓存参数为可选能力：本移植端未实现时应 404，让 UI 自动隐藏该入口
+    const cacheSettings = await fetch(`${base}/api/v1/cache/settings`);
+    assert([404, 405, 501].includes(cacheSettings.status), `cache/settings optional endpoint degrades gracefully (got ${cacheSettings.status})`);
   } catch (e: any) {
     console.error('  💥 ERROR:', e?.message || e);
     failed++;
   } finally {
     // 还原用户上游配置，避免测试污染
     try { store.setUpstreamConfig(originalUpstreams); } catch {}
+    try { store.setDiversionSources(originalDiversion); } catch {}
+    try { store.setRule('client_ip', originalClientIp); } catch {}
     try { server.stop(); } catch {}
   }
 

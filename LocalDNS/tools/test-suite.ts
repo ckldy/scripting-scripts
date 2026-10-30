@@ -30,36 +30,38 @@ async function runTests() {
   assert(await FileManager.exists(Path.join(webDir, 'version.json')), 'version.json exists');
   assert(await FileManager.exists(Path.join(webDir, 'config.js')), 'config.js exists');
   assert(await FileManager.exists(Path.join(webDir, 'build-meta.json')), 'build-meta.json exists');
-  assert(await FileManager.exists(Path.join(webDir, 'assets/app-DOuhu87M.js')), 'bundled app js exists');
-  assert(await FileManager.exists(Path.join(webDir, 'assets/index-B2JH1zZT.css')), 'bundled css exists');
+  assert(await FileManager.exists(Path.join(webDir, 'assets/app-CrSEI1zm.js')), 'bundled app js exists');
+  assert(await FileManager.exists(Path.join(webDir, 'assets/index-Bv4RNw_V.css')), 'bundled css exists');
   assert(await FileManager.exists(Path.join(webDir, 'assets/editor-A1rycQg2.js')), 'proxy editor bundle exists');
-  assert(await FileManager.exists(Path.join(webDir, 'assets/js/chart.umd.min.js')), 'chart.js exists');
+  assert(!(await FileManager.exists(Path.join(webDir, 'assets/js/chart.umd.min.js'))), 'unused chart.js removed (upstream 2026.10.26.1)');
   assert(await FileManager.exists(Path.join(webDir, 'custom/settings.json')), 'custom/settings.json exists');
 
   // 读取 version.json 校验
   const verStr = await FileManager.readAsString(Path.join(webDir, 'version.json'));
   const verData = JSON.parse(verStr);
-  assert(verData.uiVersion === '2026.10.22.3', `UI version matches 2026.10.22.3 (got: ${verData.uiVersion})`);
-  assert(verData.backendVersion === 'FJGLI', `Backend version matches FJGLI (got: ${verData.backendVersion})`);
-  assert(verData.releaseTag === 'fjgli-ui-v2026.10.22.3', `Release tag matches (got: ${verData.releaseTag})`);
+  assert(verData.uiVersion === '2026.10.30.7', `UI version matches 2026.10.30.7 (got: ${verData.uiVersion})`);
+  assert(verData.backendVersion === 'FJH7T', `Backend version matches FJH7T (got: ${verData.backendVersion})`);
+  assert(verData.releaseTag === 'fjh7t-ui-v2026.10.30.7', `Release tag matches (got: ${verData.releaseTag})`);
 
   // 检查 index.html 包含双皮肤及新资源引入
   const htmlStr = await FileManager.readAsString(Path.join(webDir, 'index.html'));
   assert(htmlStr.includes('data-skin="claude"'), 'index.html includes Claude skin attribute');
-  assert(htmlStr.includes('/ui/assets/app-DOuhu87M.js'), 'index.html loads bundled app js');
-  assert(htmlStr.includes('/ui/assets/index-B2JH1zZT.css'), 'index.html loads bundled css');
+  assert(htmlStr.includes('/ui/assets/app-CrSEI1zm.js'), 'index.html loads bundled app js');
+  assert(htmlStr.includes('/ui/assets/index-Bv4RNw_V.css'), 'index.html loads bundled css');
   assert(htmlStr.includes('/ui/config.js'), 'index.html loads ui config.js');
   assert(htmlStr.includes('/ui/assets/livepulse.js'), 'index.html keeps local livepulse heartbeat patch');
-  assert(htmlStr.includes('data-backend-version="FJGLI"'), 'index.html has FJGLI data attribute');
+  assert(htmlStr.includes('data-backend-version="FJH7T"'), 'index.html has FJH7T data attribute');
 
   // 校验打包 bundle 内含关键前端能力
-  const appBundle = await FileManager.readAsString(Path.join(webDir, 'assets/app-DOuhu87M.js'));
+  const appBundle = await FileManager.readAsString(Path.join(webDir, 'assets/app-CrSEI1zm.js'));
   assert(appBundle.length > 500000, `bundle size sane (got ${appBundle.length})`);
   assert(appBundle.includes('/api/v2/audit/logs'), 'bundle calls v2 audit logs');
   assert(appBundle.includes('/api/v1/audit/settings'), 'bundle supports audit settings (log dir)');
   assert(appBundle.includes('/plugins/requery/stats/source_file_counts'), 'bundle calls requery counts');
   assert(appBundle.includes('/api/v1/upstream/config'), 'bundle calls upstream config');
-  const bundleCss = await FileManager.readAsString(Path.join(webDir, 'assets/index-B2JH1zZT.css'));
+  assert(appBundle.includes('geoip_non_cn'), 'bundle supports geoip_non_cn rule group');
+  assert(appBundle.includes('/api/v1/cache/settings'), 'bundle supports cache settings (optional)');
+  const bundleCss = await FileManager.readAsString(Path.join(webDir, 'assets/index-Bv4RNw_V.css'));
   assert(bundleCss.length > 100000, `bundled css size sane (got ${bundleCss.length})`);
 
   // 2. 服务端与 API 契约测试
@@ -81,11 +83,11 @@ async function runTests() {
     const resVer = await fetch(`${baseUrl}/ui/version.json`);
     assert(resVer.status === 200, `/ui/version.json returns 200 OK`);
     const verJson = await resVer.json();
-    assert(verJson.backendVersion === 'FJGLI', `Static version.json returns FJGLI`);
+    assert(verJson.backendVersion === 'FJH7T', `Static version.json returns FJH7T`);
 
     // 2.3 验证 /ui/assets/index-*.css 打包 CSS 静态托管
-    const resClaudeCss = await fetch(`${baseUrl}/ui/assets/index-B2JH1zZT.css`);
-    assert(resClaudeCss.status === 200, `/ui/assets/index-B2JH1zZT.css returns 200 OK`);
+    const resClaudeCss = await fetch(`${baseUrl}/ui/assets/index-Bv4RNw_V.css`);
+    assert(resClaudeCss.status === 200, `/ui/assets/index-Bv4RNw_V.css returns 200 OK`);
     assert((resClaudeCss.headers.get('Content-Type') || '').includes('text/css'), 'CSS Content-Type is correct');
 
     // 2.4 验证 /api/v1/status 契约
@@ -93,7 +95,7 @@ async function runTests() {
     assert(resStatus.status === 200, `/api/v1/status returns 200 OK`);
     const statusJson = await resStatus.json();
     assert(statusJson.status === 'online', 'status is online');
-    assert(statusJson.version === 'FJGLI', `version is FJGLI (got: ${statusJson.version})`);
+    assert(statusJson.version === 'FJH7T', `version is FJH7T (got: ${statusJson.version})`);
     assert(typeof statusJson.rules === 'object' && statusJson.rules !== null, 'rules object is present');
     assert(typeof statusJson.stats === 'object' && statusJson.stats !== null, 'stats object is present');
     assert(Array.isArray(statusJson.upstream_stats), 'upstream_stats is an array');
@@ -102,11 +104,11 @@ async function runTests() {
     const resFeatures = await fetch(`${baseUrl}/api/v1/features`);
     assert(resFeatures.status === 404, `/api/v1/features returns 404 so UI keeps legacy API mode (got: ${resFeatures.status})`);
 
-    // 2.5 验证 /metrics 包含 FJGLI 版本指标
+    // 2.5 验证 /metrics 包含 FJH7T 版本指标
     const resMetrics = await fetch(`${baseUrl}/metrics`);
     assert(resMetrics.status === 200, `/metrics returns 200 OK`);
     const metricsText = await resMetrics.text();
-    assert(metricsText.includes('localdns_info{version="FJGLI"} 1'), 'metrics includes localdns_info with FJGLI');
+    assert(metricsText.includes('localdns_info{version="FJH7T"} 1'), 'metrics includes localdns_info with FJH7T');
     assert(metricsText.includes('process_cpu_seconds_total'), 'metrics includes CPU counter');
     assert(metricsText.includes('process_resident_memory_bytes'), 'metrics includes RSS memory metric');
 
@@ -202,7 +204,7 @@ async function runTests() {
     assert(!mcText.includes('http://127.0.0.1'), 'ServerURL strictly avoids forbidden plain HTTP or IP addresses');
     assert(mcText.includes('<string>127.0.0.1</string>'), 'ServerAddresses contains 127.0.0.1 bootstrap address');
 
-    // 2.14 验证 /api/proxy-config/... 协同管理与备份接口 (FJGLI / UI 2026.10.22.3)
+    // 2.14 验证 /api/proxy-config/... 协同管理与备份接口 (FJH7T / UI 2026.10.30.7)
     // 2.14.1 界面设置 (interface/brand)
     const resGetBrand = await fetch(`${baseUrl}/api/proxy-config/interface/brand`);
     assert(resGetBrand.status === 200, `GET /api/proxy-config/interface/brand returns 200 OK`);

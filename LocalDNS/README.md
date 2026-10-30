@@ -1,12 +1,20 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.9.0 (Build 20261022)`  
+> **当前版本**：`v1.10.0 (Build 20261031)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.22.3` / 内核 `FJGLI`）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.30.7` / 内核 `FJH7T`）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地高性能 DNS 服务与安全管理系统。
 
 v1.6.0 去伪存真、彻底瘦身，砍掉无法在 DNS 网络层生效的虚假 L7 代理与伪切片清洗，回归纯粹、极致、稳定的 DNS 核心与 18.5 万条广告拦截基础设施。
+
+### v1.10.0 同步上游 FJH7T / UI 2026.10.30.7
+- **前端全量跟随上游打包 SPA**：`app-CrSEI1zm.js` + `index-Bv4RNw_V.css`（722KB / 618KB），同步更新 Noto SC 字体子集（补「热窄竖轴仪抓」等 6 字）；上游自 2026.10.26.1 起已移除未使用的 Chart.js（约 205KB），本地同步删除。
+- **新增页面与导航**：两字扁平导航 7 个一级入口（概览 / 日志 / 解析 / 分流 / 设备 / 代理 / 系统），新增独立「设备」页（FakeIP / RealIP 单机策略与受控 IP 管理）。
+- **分流工作台**：名单管理分「核心分流 / 解析控制 / PCDN 抑制」三组、分组切换位于卡片头；在线分流按类型折叠为 6 组，新增 `geoip_non_cn`（GeoIP 非 CN）分组支持。
+- **后端契约保持 legacy 兼容**：新版 UI 仍先请求 `GET /api/v1/features` 判断核心族，本端不实现（404）→ UI 自动走旧插件 API；`/api/v1/upstream/config` 继续兼容 `group` 与 `plugin_tag`。
+- **可选增强缺失时自动降级**：新版「缓存参数」依赖 `/api/v1/cache/settings`（404 时界面自动隐藏该入口）；查询日志「记录存盘」依赖 `persist` 字段（缺失时隐藏）。
+- **本地定制保留**：`web/assets/livepulse.js`（1s KPI / 2s CPU·内存就地脉冲）继续挂载；`config.js` 继续使用同源 `proxyConfigBase`。
 
 ### v1.9.0 同步上游 FJGLI / UI 2026.10.22.3
 - **前端全量跟随上游打包 SPA**：`app-DOuhu87M.js` + `index-B2JH1zZT.css`（其余字体/图标/编辑器/`chart.umd.min.js` 与上一版逐字节一致，仅精确替换 2 个打包文件 + 3 个元数据文件）。
@@ -57,7 +65,7 @@ v1.6.0 去伪存真、彻底瘦身，砍掉无法在 DNS 网络层生效的虚�
 - **电脑 / 局域网设备接入**：局域网设备可将安全 DNS 指向当前手机 IP，打造家庭级 DNS 防火墙。
 - **Scripting 原生全局 VPN 隧道**：深度调用 Scripting 系统级 `VPN` API，在原生仪表盘提供一键启闭与状态实时联动。
 
-### 3. 上游 FJGLI / UI 2026.10.22.3 管理操作复核与配置协同
+### 3. 上游 FJH7T / UI 2026.10.30.7 设备页与分流工作台
 - **全新清单工作台**：合入上游最新清单工作台修复，解决编辑后取消逻辑、未保存判断、Ctrl+S 快捷保存与草稿隔离机制；备注、分组、新增项注释均参与草稿状态跟踪，批量粘贴去重并保持 `#` 注释停用状态。
 - **服务端持久化身份设置与代理面板 (`/api/proxy-config/interface/*`)**：支持服务端持久化保存自定义显示名称、Logo 与代理面板入口地址，跨设备刷新无缝同步。
 - **名单工作台备份与历史恢复服务 (`/api/proxy-config/rule-backups`)**：保存前重新读取名单并在服务端建立历史快照（每份名单最多保留 20 份），支持一键调出备份弹窗安全载入草稿并核对生效。
