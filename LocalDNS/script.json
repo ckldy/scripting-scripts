@@ -2,9 +2,9 @@
   "name": "LocalDNS",
   "icon": "shield.lefthalf.filled",
   "color": "#6366f1",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "author": "vcncv",
-  "description": "本地 DNS 与安全服务系统，v1.10.0 同步上游 FJH7T / UI 2026.10.30.7 打包版控制台（两字导航 7 路由、独立设备页、名单分组卡头、GeoIP 非 CN 分组、缓存参数与日志存盘适配），参考 SmartDNS 深度优化：智能测速选最快 IP (TCP 握手 RTT 排序)、DoT/TCP-DNS 多协议上游、LRU/持久化/预取/负缓存缓存增强、结果 IP 治理 (blacklist/ip-alias 等)、per-client 规则与分组、domain-set/ip-set 命名集合、DNS64、本地记录注入与 force-qtype-SOA。保留 18.5 万条 AdGuard 广告拦截、四级缓存、Happy Eyeballs 竞速与 Apple 原生加密 DNS 描述文件。注：Scripting 无 UDP，UDP 上游以 DoT/TCP 等价替代。致敬 yyhoworks/LocalDNS 与 R 大，由 vcncv 移植构建。",
+  "description": "本地 DNS 与安全服务系统，v1.11.0 支持 LocalDNS × Surge 联动控制分流与动态解析路径：SQLite 模块与分流资产数据库、Surge 模块解析脱水（域名入库 DNS 拦截、七层动态编译单一 hub.sgmodule）、统一动态 RULE-SET 导出、Surge HTTP API 双向调度、全链路 DNS 解析路径动态拓扑（阶段 06 出站执行、自愈路径高亮）。对齐上游 FJH7T / UI 2026.10.30.7，保留 18.5 万条 AdGuard 拦截与 SmartDNS 测速选优。由 vcncv 移植构建。",
   "remoteResource": {
     "url": "https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/LocalDNS.zip"
   }

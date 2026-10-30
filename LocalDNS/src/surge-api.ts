@@ -1,0 +1,331 @@
+/**
+ * src/surge-api.ts
+ *
+ * LocalDNS × Surge 联动 API 路由处理器
+ * 1. 统一调度模块 (/surge/hub.sgmodule)
+ * 2. 动态 RULE-SET 分流订阅 (/rules/:group.list)
+ * 3. 模块管理接口 (/api/v1/surge/modules/*)
+ * 4. 分流组与规则接口 (/api/v1/surge/diversion/*)
+ * 5. Surge HTTP API 联动状态与控制 (/api/v1/surge/config, status, outbound, policies, sync)
+ * 6. 动态 DNS 解析路径与拓扑数据 (/api/v1/topology/flow)
+ */
+
+import { SurgeDatabase, type AppModule, type DiversionGroup, type DiversionRule, type SurgeConfig } from './surge-db';
+import { SurgeService } from './surge-service';
+import { AuditManager } from './audit';
+import { Store } from './store';
+
+function parseJsonBody(req: HttpRequest): any {
+  try {
+    const raw = req.body.toRawString('utf-8');
+    if (!raw) return {};
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+function jsonResponse(data: any, status = 200): HttpResponse {
+  const jsonStr = JSON.stringify(data);
+  const bodyData = Data.fromRawString(jsonStr, 'utf-8');
+  return HttpResponse.raw(status, 'OK', {
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    },
+    body: bodyData,
+  });
+}
+
+function textResponse(text: string, status = 200, contentType = 'text/plain; charset=utf-8'): HttpResponse {
+  const bodyData = Data.fromRawString(text, 'utf-8');
+  return HttpResponse.raw(status, 'OK', {
+    headers: {
+      'Content-Type': contentType,
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    },
+    body: bodyData,
+  });
+}
+
+export async function handleSurgeApiRequest(req: HttpRequest, path: string, method: string): Promise<HttpResponse | null> {
+  const db = SurgeDatabase.get();
+  const service = SurgeService.get();
+
+  // 1. 统一调度模块端点: /surge/hub.sgmodule 或 /api/v1/surge/hub.sgmodule
+  if (path === '/surge/hub.sgmodule' || path === '/api/v1/surge/hub.sgmodule') {
+    if (method === 'GET') {
+      const moduleContent = await service.compileUnifiedHubModule();
+      return textResponse(moduleContent, 200, 'text/plain; charset=utf-8');
+    }
+  }
+
+  // 2. 动态分流 RULE-SET 导出: /rules/:group.list 或 /api/v1/rules/:group.list
+  if (path.startsWith('/rules/') || path.startsWith('/api/v1/rules/')) {
+    let group = path.replace('/api/v1/rules/', '').replace('/rules/', '').trim();
+    if (group.endsWith('.list')) group = group.slice(0, -5);
+    group = group.split('?')[0];
+
+    if (method === 'GET') {
+      const rules = await db.getActiveRulesByGroup(group);
+      const lines: string[] = [
+        `# LocalDNS 动态分流规则集 [${group}]`,
+        `# 规则条数: ${rules.length} · 自动生成时间: ${new Date().toISOString()}`,
+        '',
+      ];
+      for (const r of rules) {
+        const comment = r.comment ? ` // ${r.comment}` : '';
+        lines.push(`${r.match_type},${r.pattern}${comment}`);
+      }
+      return textResponse(lines.join('\n'), 200, 'text/plain; charset=utf-8');
+    }
+  }
+
+  // 3. Surge 模块管理 (/api/v1/surge/modules)
+  if (path === '/api/v1/surge/modules' || path === '/api/v1/surge/modules/') {
+    if (method === 'GET') {
+      const modules = await db.getModules();
+      return jsonResponse({ success: true, modules });
+    }
+    if (method === 'POST') {
+      const body = parseJsonBody(req);
+      if (!body.content) {
+        return jsonResponse({ error: 'Missing module content' }, 400);
+      }
+      const id = (body.id || `mod_${Date.now()}`).toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+      const name = body.name || id;
+      const category = body.category || 'app';
+      const sourceUrl = body.source_url || null;
+
+      const parsed = await service.importModule(id, name, category, sourceUrl, body.content);
+      return jsonResponse({
+        success: true,
+        id,
+        name,
+        dnsRulesCount: parsed.dnsRules.length,
+        mitmCount: parsed.mitmHosts.length,
+        httpRulesCount: parsed.httpRules.length,
+      });
+    }
+  }
+
+  // 3.1 单个模块操作: /api/v1/surge/modules/:id (GET, DELETE)
+  // 或 /api/v1/surge/modules/:id/toggle (POST)
+  if (path.startsWith('/api/v1/surge/modules/')) {
+    const sub = path.replace('/api/v1/surge/modules/', '').trim();
+    const parts = sub.split('/');
+    const modId = decodeURIComponent(parts[0]);
+
+    if (parts.length === 2 && parts[1] === 'toggle' && method === 'POST') {
+      const body = parseJsonBody(req);
+      await db.setModuleEnabled(modId, Boolean(body.enabled));
+      await service.reloadDnsBlockCache();
+      service.scheduleSurgeSync();
+      return jsonResponse({ success: true, id: modId, enabled: Boolean(body.enabled) });
+    }
+
+    if (parts.length === 1) {
+      if (method === 'GET') {
+        const mod = await db.getModule(modId);
+        if (!mod) return jsonResponse({ error: 'Module not found' }, 404);
+        return jsonResponse({ success: true, module: mod });
+      }
+      if (method === 'DELETE') {
+        await db.deleteModule(modId);
+        await service.reloadDnsBlockCache();
+        service.scheduleSurgeSync();
+        return jsonResponse({ success: true, id: modId, deleted: true });
+      }
+    }
+  }
+
+  // 4. 分流组管理: /api/v1/surge/diversion/groups
+  if (path === '/api/v1/surge/diversion/groups' || path === '/api/v1/surge/diversion/groups/') {
+    if (method === 'GET') {
+      const groups = await db.getDiversionGroups();
+      return jsonResponse({ success: true, groups });
+    }
+    if (method === 'POST') {
+      const body = parseJsonBody(req);
+      if (!body.id || !body.name || !body.surge_policy) {
+        return jsonResponse({ error: 'Missing required group fields (id, name, surge_policy)' }, 400);
+      }
+      const group: DiversionGroup = {
+        id: String(body.id).toLowerCase().trim(),
+        name: String(body.name).trim(),
+        surge_policy: String(body.surge_policy).trim(),
+        enabled: body.enabled !== false,
+        priority: Number(body.priority) || 0,
+        description: body.description || null,
+      };
+      await db.saveDiversionGroup(group);
+      service.scheduleSurgeSync();
+      return jsonResponse({ success: true, group });
+    }
+  }
+
+  // 4.1 分流组开关与删除: /api/v1/surge/diversion/groups/:id (toggle, delete)
+  if (path.startsWith('/api/v1/surge/diversion/groups/')) {
+    const sub = path.replace('/api/v1/surge/diversion/groups/', '').trim();
+    const parts = sub.split('/');
+    const groupId = decodeURIComponent(parts[0]);
+
+    if (parts.length === 2 && parts[1] === 'toggle' && method === 'POST') {
+      const body = parseJsonBody(req);
+      await db.setDiversionGroupEnabled(groupId, Boolean(body.enabled));
+      service.scheduleSurgeSync();
+      return jsonResponse({ success: true, id: groupId, enabled: Boolean(body.enabled) });
+    }
+
+    if (parts.length === 1 && method === 'DELETE') {
+      await db.deleteDiversionGroup(groupId);
+      service.scheduleSurgeSync();
+      return jsonResponse({ success: true, id: groupId, deleted: true });
+    }
+  }
+
+  // 4.2 具体分流规则列表与新增: /api/v1/surge/diversion/rules
+  if (path === '/api/v1/surge/diversion/rules' || path === '/api/v1/surge/diversion/rules/') {
+    const getParam = (k: string) => req.queryParams?.find((p) => p.key === k)?.value;
+    const groupId = getParam('group');
+
+    if (method === 'GET') {
+      const rules = await db.getDiversionRules(groupId);
+      return jsonResponse({ success: true, count: rules.length, rules });
+    }
+    if (method === 'POST') {
+      const body = parseJsonBody(req);
+      if (!body.group_id || !body.pattern) {
+        return jsonResponse({ error: 'Missing group_id or pattern' }, 400);
+      }
+      const rule: DiversionRule = {
+        id: body.id ? Number(body.id) : undefined,
+        group_id: body.group_id,
+        match_type: body.match_type || 'DOMAIN-SUFFIX',
+        pattern: String(body.pattern).trim().toLowerCase(),
+        enabled: body.enabled !== false,
+        comment: body.comment || null,
+        is_auto_learned: Boolean(body.is_auto_learned),
+      };
+      const ruleId = await db.saveDiversionRule(rule);
+      service.scheduleSurgeSync();
+      return jsonResponse({ success: true, id: ruleId, rule });
+    }
+  }
+
+  // 4.3 具体分流规则开关与删除: /api/v1/surge/diversion/rules/:id (toggle, delete)
+  if (path.startsWith('/api/v1/surge/diversion/rules/')) {
+    const sub = path.replace('/api/v1/surge/diversion/rules/', '').trim();
+    const parts = sub.split('/');
+    const ruleId = Number(parts[0]);
+
+    if (parts.length === 2 && parts[1] === 'toggle' && method === 'POST') {
+      const body = parseJsonBody(req);
+      await db.setDiversionRuleEnabled(ruleId, Boolean(body.enabled));
+      service.scheduleSurgeSync();
+      return jsonResponse({ success: true, id: ruleId, enabled: Boolean(body.enabled) });
+    }
+
+    if (parts.length === 1 && method === 'DELETE') {
+      await db.deleteDiversionRule(ruleId);
+      service.scheduleSurgeSync();
+      return jsonResponse({ success: true, id: ruleId, deleted: true });
+    }
+  }
+
+  // 5. Surge 联动配置与状态 (/api/v1/surge/config, status, outbound, policies, sync)
+  if (path === '/api/v1/surge/config') {
+    if (method === 'GET') {
+      const config = await db.getSurgeConfig();
+      return jsonResponse(config);
+    }
+    if (method === 'POST') {
+      const body = parseJsonBody(req);
+      const saved = await db.saveSurgeConfig(body);
+      if (saved.enabled) {
+        service.scheduleSurgeSync();
+      }
+      return jsonResponse({ success: true, config: saved });
+    }
+  }
+
+  if (path === '/api/v1/surge/status' && method === 'GET') {
+    const status = await service.getSurgeStatus();
+    return jsonResponse(status);
+  }
+
+  if (path === '/api/v1/surge/outbound' && method === 'POST') {
+    const body = parseJsonBody(req);
+    const mode = body.mode;
+    if (!['direct', 'rule', 'proxy'].includes(mode)) {
+      return jsonResponse({ error: 'Invalid mode' }, 400);
+    }
+    const ok = await service.setOutboundMode(mode);
+    return jsonResponse({ success: ok, mode });
+  }
+
+  if (path === '/api/v1/surge/policies' && method === 'GET') {
+    const groups = await service.getPolicyGroups();
+    return jsonResponse({ success: true, groups });
+  }
+
+  if (path === '/api/v1/surge/policy/select' && method === 'POST') {
+    const body = parseJsonBody(req);
+    if (!body.group_name || !body.policy) {
+      return jsonResponse({ error: 'Missing group_name or policy' }, 400);
+    }
+    const ok = await service.selectPolicy(body.group_name, body.policy);
+    return jsonResponse({ success: ok });
+  }
+
+  if (path === '/api/v1/surge/sync' && method === 'POST') {
+    service.scheduleSurgeSync();
+    return jsonResponse({ success: true, message: 'Surge sync scheduled' });
+  }
+
+  // 6. 动态 DNS 解析路径与全链路拓扑数据: /api/v1/topology/flow
+  if (path === '/api/v1/topology/flow' || path === '/api/v1/topology') {
+    if (method === 'GET') {
+      const surgeCfg = await db.getSurgeConfig();
+      let surgeStatus: any = { online: false, mode: 'rule', activePolicy: 'DIRECT' };
+      if (surgeCfg.enabled) {
+        const s = await service.getSurgeStatus();
+        surgeStatus = { online: s.online, mode: s.outbound || 'rule', activePolicy: 'PROXY' };
+      }
+
+      // 从数据库获取活跃模块与分流规则组，构建动态阶段
+      const modules = await db.getModules();
+      const enabledModules = modules.filter((m) => m.enabled);
+      const groups = await db.getDiversionGroups();
+      const enabledGroups = groups.filter((g) => g.enabled);
+
+      const recentLinks = await db.getRecentTopologyLinks(20);
+      const healedCount = recentLinks.filter((l) => l.is_self_healed).length;
+
+      // 拓扑数据
+      return jsonResponse({
+        success: true,
+        surge: surgeStatus,
+        modules: {
+          total: modules.length,
+          enabled: enabledModules.length,
+          items: enabledModules.map((m) => ({ id: m.id, name: m.name, category: m.category })),
+        },
+        diversion: {
+          groups: enabledGroups.map((g) => ({ id: g.id, name: g.name, policy: g.surge_policy })),
+        },
+        self_healing: {
+          active: surgeCfg.auto_learn_unreachable,
+          healed_recent_count: healedCount,
+        },
+        recent_flows: recentLinks.slice(0, 10),
+      });
+    }
+  }
+
+  return null;
+}

@@ -15,6 +15,8 @@ import { IpRulesEngine } from './ip-rules';
 import { ClientRulesEngine } from './client-rules';
 import { LocalRecordsEngine } from './records';
 import { synthesizeAAAA } from './dns64';
+import { SurgeDatabase } from './surge-db';
+import { SurgeService } from './surge-service';
 import type { DnsPacket, DnsRecord, UpstreamNode, UpstreamGroup, SpeedConfig } from './types';
 
 function generateTraceId(): string {
@@ -155,6 +157,36 @@ export class DnsResolver {
       upstream_tag: params.upstreamTag,
       trace_id: params.traceId,
     });
+
+    // 记录全链路动态拓扑 (异步非阻塞)
+    try {
+      const isBlocked = params.answers.includes('0.0.0.0') || params.answers.includes('::');
+      const isCached = params.upstreamTag === 'cache_hit' || params.upstreamTag === 'cache_lazy';
+      const isCn = params.domainSet === 'default_cn' || params.domainSet === 'whitelist' || params.domainSet === 'custom_cn';
+      const outbound = isBlocked ? 'BLK 拦截' : (isCn ? 'DIRECT 直连' : 'PROXY 代理');
+      const policy = isBlocked ? 'REJECT' : (isCn ? 'DIRECT' : 'PROXY');
+
+      SurgeDatabase.get().recordTopologyLink({
+        domain: params.domain,
+        client_ip: params.clientIp,
+        cached: isCached,
+        diversion_group: params.domainSet,
+        upstream_node: params.upstreamTag || (isBlocked ? 'local_block' : 'direct'),
+        surge_outbound: outbound,
+        surge_policy: policy,
+        duration_ms: params.duration,
+        is_self_healed: params.domainSet === 'proxy_auto_learned',
+      }).catch(() => {});
+
+      // 广告拦截时，若开启掐断活跃长连接，通知 Surge
+      if (isBlocked) {
+        SurgeDatabase.get().getSurgeConfig().then((cfg) => {
+          if (cfg.enabled && cfg.kill_blocked_active) {
+            SurgeService.get().killActiveRequestsByHost(params.domain).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+    } catch {}
   }
 
   private forceQtypeSoaList(): number[] {

@@ -1,12 +1,18 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.10.0 (Build 20261031)`  
+> **当前版本**：`v1.11.0 (Build 20261031)`  
 > **移植作者**：`vcncv`  
 > **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.30.7` / 内核 `FJH7T`）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地高性能 DNS 服务与安全管理系统。
 
-v1.6.0 去伪存真、彻底瘦身，砍掉无法在 DNS 网络层生效的虚假 L7 代理与伪切片清洗，回归纯粹、极致、稳定的 DNS 核心与 18.5 万条广告拦截基础设施。
+### v1.11.0 LocalDNS × Surge 联动控制分流与动态解析路径
+- **SQLite 结构化数据中枢**：引入 Scripting 原生 `SQLite`（`surge_link.db`），解耦管理态与运行态。支持 App 净化模块、分流规则组、七层重写/脚本以及全链路动态拓扑记录，提供独立开关可控。
+- **Surge 模块解析脱水引擎**：一键导入外部 `.sgmodule`，自动将成千上万行 `REJECT` 广告域名截留并下沉到 LocalDNS 本地 DNS 拦截库（纳秒级阻断回 0.0.0.0，彻底消除 Surge Network Extension 内存超限闪退），提纯后的纯 L7 重写与 MITM 域名动态编译为统一单一调度模块 `/surge/hub.sgmodule`。
+- **统一动态分流 RULE-SET 导出**：各分流组（国内直连、节点代理、流媒体、游戏加速、Apple服务）独立开关，实时向 Surge 导出动态订阅链接 `/rules/:group.list`，变动秒级生效且无感热更。
+- **Surge HTTP API 联动调度**：支持与本地或局域网 Surge（:6171）实时双向通信，出站模式切换、策略组选择、资源秒更、DNS 缓存冲刷，并支持在拦截到广告或高危追踪时主动调用 `/v1/requests/kill` 掐断后台活跃长连接。
+- **「DNS 解析路径」动态拓扑与阶段 06 出站执行**：拓扑图扩展至阶段 06（Surge 出口），实时映射直连与代理节点状态；支持自动学习自愈路径标注与全链路贝塞尔流光动态延伸。
+- **Web 控制台工作台升级**：重构「代理」页面为现代化可视化工作台，提供模块管理、分流组治理、联动设置与原生编辑器四合一 Tab。
 
 ### v1.10.0 同步上游 FJH7T / UI 2026.10.30.7
 - **前端全量跟随上游打包 SPA**：`app-CrSEI1zm.js` + `index-Bv4RNw_V.css`（722KB / 618KB），同步更新 Noto SC 字体子集（补「热窄竖轴仪抓」等 6 字）；上游自 2026.10.26.1 起已移除未使用的 Chart.js（约 205KB），本地同步删除。

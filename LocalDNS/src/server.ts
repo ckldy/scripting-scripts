@@ -9,6 +9,8 @@ import { SpeedChecker } from './speedcheck';
 import { IpRulesEngine } from './ip-rules';
 import { ClientRulesEngine } from './client-rules';
 import { LocalRecordsEngine } from './records';
+import { SurgeService } from './surge-service';
+import { handleSurgeApiRequest } from './surge-api';
 
 function parseJsonBody(req: HttpRequest): any {
   try {
@@ -142,6 +144,13 @@ export class LocalDnsServer {
       CacheManager.get().applyConfig(Store.get().getCacheConfig());
       CacheManager.get().loadFromStorage();
     } catch {}
+
+    // Initialize Surge Service & SQLite database
+    try {
+      SurgeService.get().init().catch((e) => console.warn('[LocalDNS] SurgeService init error:', e));
+    } catch (e) {
+      console.warn('[LocalDNS] Failed to trigger SurgeService init:', e);
+    }
 
     // 2. Start HTTPS DoH Server (default 9443, with TLS P12 for Surge and RFC 8484 HTTPS clients)
     this.isHttpsActive = false;
@@ -333,6 +342,19 @@ export class LocalDnsServer {
       // DoH DNS-over-HTTPS endpoint: /dns-query
       if (path === '/dns-query') {
         return await this.handleDoh(req);
+      }
+
+      // Surge 统一调度模块与动态分流订阅
+      if (
+        path === '/surge/hub.sgmodule' ||
+        path.startsWith('/surge/') ||
+        path.startsWith('/rules/') ||
+        path.startsWith('/api/v1/surge') ||
+        path.startsWith('/api/v1/topology') ||
+        path.startsWith('/api/v1/rules')
+      ) {
+        const surgeResp = await handleSurgeApiRequest(req, path, method);
+        if (surgeResp) return surgeResp;
       }
 
       // Prometheus metrics: /metrics

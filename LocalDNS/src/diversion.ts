@@ -1,5 +1,7 @@
 import { Store } from './store';
 import { AdGuardEngine } from './adguard';
+import { SurgeService } from './surge-service';
+import { SurgeDatabase } from './surge-db';
 import type { UpstreamGroup, DiversionSource } from './types';
 
 export interface RouteResult {
@@ -155,6 +157,12 @@ export class DiversionEngine {
     // 1. Rewrite check (Custom redirection highest priority)
     if (this.rewrites.has(d)) {
       return { group: 'rewrite', domainSet: 'rewrite', rewriteIp: this.rewrites.get(d) };
+    }
+
+    // 1.5 检查活跃 App 模块的脱水 DNS 拦截库 (高优先级)
+    const moduleBlocked = SurgeService.get().isDomainBlocked(d);
+    if (moduleBlocked.blocked) {
+      return { group: 'blocked', domainSet: 'surge_module_block' };
     }
 
     // 2. Exact & Wildcard Blocklist check (Local custom blacklist highest priority block)

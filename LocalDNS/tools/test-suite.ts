@@ -283,6 +283,94 @@ async function runTests() {
     assert(resCheck.status === 200, `POST /api/proxy-config/check returns 200 OK`);
     const checkData = await resCheck.json();
     assert(checkData.ok === true && typeof checkData.detail === 'string', 'Check reports local virtual config validation');
+
+    // 2.15 LocalDNS × Surge 联动与动态解析路径验证
+    console.log('\n--- Test 2.15: Surge Link & Dynamic Routing Verification ---');
+
+    // 2.15.1 导入测试模块并脱水
+    const sampleModule = [
+      '#!name=Bilibili Clean',
+      '#!desc=哔哩哔哩去广告净化模块',
+      '[Rule]',
+      'DOMAIN-SUFFIX,ad.bilibili.com,REJECT',
+      'DOMAIN-SUFFIX,cm.bilibili.com,REJECT',
+      '[MITM]',
+      'hostname = %APPEND% api.bilibili.com, app.bilibili.com',
+      '[URL Rewrite]',
+      '^https?:\\/\\/api\\.bilibili\\.com\\/x\\/v2\\/splash _reject',
+      '[Script]',
+      'bili_feed = type=http-response,pattern=^https?:\\/\\/app\\.bilibili\\.com\\/feed,script-path=bili.js,requires-body=1',
+    ].join('\n');
+
+    const resImportMod = await fetch(`${baseUrl}/api/v1/surge/modules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: 'test_bili',
+        name: '哔哩哔哩净化',
+        category: 'app',
+        content: sampleModule,
+      }),
+    });
+    assert(resImportMod.status === 200, 'POST /api/v1/surge/modules returns 200 OK');
+    const importData = await resImportMod.json();
+    assert(importData.success === true && importData.dnsRulesCount === 2, 'Module脱水：提取 2 条域名到 DNS 拦截库');
+    assert(importData.mitmCount === 2 && importData.httpRulesCount === 2, 'Module提纯：保留 2 个 MITM 域名与 2 条七层规则');
+
+    // 2.15.2 统一调度模块编译
+    const resHub = await fetch(`${baseUrl}/surge/hub.sgmodule`);
+    assert(resHub.status === 200, 'GET /surge/hub.sgmodule returns 200 OK');
+    const hubText = await resHub.text();
+    assert(hubText.includes('#!name=LocalDNS Unified Hub'), 'Hub 模块包含统一命名');
+    assert(hubText.includes('api.bilibili.com'), 'Hub 模块包含 MITM 解密域名');
+    assert(hubText.includes('splash _reject'), 'Hub 模块包含 URL Rewrite 规则');
+    assert(!hubText.includes('ad.bilibili.com'), 'Hub 模块已彻底剔除广告域名（已下沉到 LocalDNS 拦截）');
+
+    // 2.15.3 动态分流组与 RULE-SET 导出
+    const resGroups = await fetch(`${baseUrl}/api/v1/surge/diversion/groups`);
+    assert(resGroups.status === 200, 'GET /api/v1/surge/diversion/groups returns 200 OK');
+    const groupsData = await resGroups.json();
+    assert(Array.isArray(groupsData.groups) && groupsData.groups.length >= 5, 'Diversion groups seeded successfully');
+
+    const resDirectList = await fetch(`${baseUrl}/rules/direct.list`);
+    assert(resDirectList.status === 200, 'GET /rules/direct.list returns 200 OK');
+    const directListText = await resDirectList.text();
+    assert(directListText.includes('baidu.com') || directListText.includes('DOMAIN-SUFFIX,cn'), 'Direct RULE-SET exports active direct rules');
+
+    // 2.15.4 Surge 联动配置获取与保存
+    const resSurgeCfg = await fetch(`${baseUrl}/api/v1/surge/config`);
+    assert(resSurgeCfg.status === 200, 'GET /api/v1/surge/config returns 200 OK');
+    const surgeCfg = await resSurgeCfg.json();
+    assert(typeof surgeCfg.api_url === 'string' && typeof surgeCfg.enabled === 'boolean', 'Surge config contract valid');
+
+    // 2.15.5 动态 DNS 解析路径与全链路拓扑端点
+    const resTopo = await fetch(`${baseUrl}/api/v1/topology/flow`);
+    assert(resTopo.status === 200, 'GET /api/v1/topology/flow returns 200 OK');
+    const topoData = await resTopo.json();
+    assert(topoData.success === true && typeof topoData.surge === 'object', 'Topology flow includes Surge outbound stage');
+    assert(topoData.modules.enabled >= 1, 'Topology flow includes active App modules');
+    assert(Array.isArray(topoData.diversion.groups) && topoData.diversion.groups.length >= 5, 'Topology flow includes diversion groups');
+
+    // 2.15.6 验证模块脱水后的 DNS 拦截实时生效
+    const resolveTestDomain = async (targetDomain: string): Promise<string[]> => {
+      const dp: any = {
+        id: 1234, flags: 0x0100, qr: false, opcode: 0, aa: false, tc: false, rd: true, ra: false, rcode: 0, rcodeName: 'NOERROR',
+        questions: [{ name: targetDomain, type: 1, typeName: 'A', class: 1 }],
+        answers: [], authorities: [], additionals: []
+      };
+      const qBytes = serializeDnsPacket(dp);
+      const resDoh = await fetch(`${baseUrl}/dns-query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/dns-message' },
+        body: qBytes,
+      });
+      const ab = await resDoh.arrayBuffer();
+      const respP = parseDnsPacket(new Uint8Array(ab));
+      return respP.answers.map((a: any) => String(a.data));
+    };
+
+    const blockedAnswers = await resolveTestDomain('ad.bilibili.com');
+    assert(blockedAnswers.includes('0.0.0.0'), 'ad.bilibili.com 即刻被模块脱水 DNS 引擎拦截为 0.0.0.0');
   } catch (err: any) {
     console.error('API Test Error:', err);
     failed++;

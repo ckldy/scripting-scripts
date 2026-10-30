@@ -165,6 +165,126 @@
     if (isFinite(avgMs)) setText(q('#float-stat-bot'), '↓ ' + fmtMs(avgMs));
   }
 
+  // ==================== 阶段 06 出站执行与动态拓扑联动 ====================
+
+  var topoInjected = false;
+  function updateDynamicTopology() {
+    var wrap = q('#topo-stage-wrap');
+    var grid = q('.topo-grid');
+    var svg = q('#topo-svg');
+    if (!wrap || !grid || !svg) return;
+
+    // 1. 动态注入阶段 06：出站执行 (Surge 节点与阻断)
+    var col6 = q('.topo-col[data-col="6"]');
+    if (!col6) {
+      grid.style.gridTemplateColumns = 'repeat(6, minmax(0, 1fr))';
+      col6 = document.createElement('div');
+      col6.className = 'topo-col';
+      col6.dataset.col = '6';
+      col6.innerHTML = [
+        '<div class="topo-col-title"><span>06</span>出站执行 (Surge)</div>',
+        '<div class="topo-col-body">',
+        '  <div class="t-node" data-node-id="out_direct" data-outbound="direct" title="国内直连出站，不经代理">',
+        '    <div class="tn-left">',
+        '      <div class="tn-icon-box" style="color:#10B981;background:rgba(16,185,129,0.12)">⚡️</div>',
+        '      <div class="tn-meta">',
+        '        <div class="tn-name">DIRECT 直连</div>',
+        '        <div class="tn-sub" id="topo-direct-sub">大陆服务 · 本地直出</div>',
+        '      </div>',
+        '    </div>',
+        '    <span class="tn-val" style="color:#10B981">直连</span>',
+        '  </div>',
+        '  <div class="t-node" data-node-id="out_proxy" data-outbound="proxy" title="Surge 代理通道，支持智能选路">',
+        '    <div class="tn-left">',
+        '      <div class="tn-icon-box" style="color:#3B82F6;background:rgba(59,130,246,0.12)">✈️</div>',
+        '      <div class="tn-meta">',
+        '        <div class="tn-name" id="topo-surge-node-name">PROXY 代理</div>',
+        '        <div class="tn-sub" id="topo-surge-node-sub">Surge 节点出站</div>',
+        '      </div>',
+        '    </div>',
+        '    <span class="tn-val" id="topo-surge-node-val" style="color:#3B82F6">加速</span>',
+        '  </div>',
+        '  <div class="t-node" data-node-id="out_block" data-outbound="block" title="0.0.0.0 阻断，主动掐断活跃长连接">',
+        '    <div class="tn-left">',
+        '      <div class="tn-icon-box" style="color:#EF4444;background:rgba(239,68,68,0.12)">🛑</div>',
+        '      <div class="tn-meta">',
+        '        <div class="tn-name">BLK 拦截</div>',
+        '        <div class="tn-sub" id="topo-block-sub">连接掐断 · 零消耗</div>',
+        '      </div>',
+        '    </div>',
+        '    <span class="tn-val" style="color:#EF4444">阻断</span>',
+        '  </div>',
+        '</div>'
+      ].join('');
+      grid.appendChild(col6);
+      topoInjected = true;
+    }
+
+    // 2. 拉取后端动态拓扑数据，更新阶段 06 状态与自愈标记
+    fetch('/api/v1/topology/flow', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.success) return;
+
+        // 更新 Surge 节点信息
+        if (data.surge) {
+          var s = data.surge;
+          if (s.online) {
+            setText(q('#topo-surge-node-name'), 'PROXY · 在线');
+            setText(q('#topo-surge-node-sub'), '模式: ' + (s.mode || 'rule').toUpperCase());
+            setText(q('#topo-surge-node-val'), '就绪');
+          } else {
+            setText(q('#topo-surge-node-name'), 'Surge (未连接)');
+            setText(q('#topo-surge-node-sub'), '可开启 HTTP API 联动');
+            setText(q('#topo-surge-node-val'), '离线');
+          }
+        }
+
+        // 更新自愈信息
+        if (data.self_healing && data.self_healing.healed_recent_count > 0) {
+          var healedNode = q('[data-node-id="r4"] .tn-sub');
+          if (healedNode) setText(healedNode, '已自愈 ' + data.self_healing.healed_recent_count + ' 域名');
+        }
+
+        // 3. 动态绘制延伸至阶段 06 的贝塞尔连线
+        drawStage6Curves(wrap, svg);
+      })
+      .catch(function () {});
+  }
+
+  function drawStage6Curves(wrap, svg) {
+    if (!wrap || !svg) return;
+    var wrapRect = wrap.getBoundingClientRect();
+    if (!wrapRect.width || !wrapRect.height) return;
+
+    var s6Edges = [
+      { from: 'alidns_ip', to: 'out_direct', color: '#10B981' },
+      { from: 'alidns_doh', to: 'out_direct', color: '#10B981' },
+      { from: 'dnspod_doh', to: 'out_direct', color: '#10B981' },
+      { from: 'cloudflare_ip', to: 'out_proxy', color: '#3B82F6' },
+      { from: 'cloudflare_ecs', to: 'out_proxy', color: '#3B82F6' },
+      { from: 'google_proxy', to: 'out_proxy', color: '#3B82F6' },
+      { from: 'google_doh', to: 'out_proxy', color: '#3B82F6' },
+    ];
+
+    var pathsHtml = '';
+    s6Edges.forEach(function (e, idx) {
+      var fEl = wrap.querySelector('[data-node-id="' + e.from + '"]') || wrap.querySelector('.t-node');
+      var tEl = wrap.querySelector('[data-node-id="' + e.to + '"]');
+      if (!fEl || !tEl) return;
+      var r1 = fEl.getBoundingClientRect(), r2 = tEl.getBoundingClientRect();
+      var x1 = r1.right - wrapRect.left, y1 = r1.top + r1.height / 2 - wrapRect.top;
+      var x2 = r2.left - wrapRect.left, y2 = r2.top + r2.height / 2 - wrapRect.top;
+      var dx = (x2 - x1) * 0.54;
+      var d = 'M ' + x1.toFixed(1) + ' ' + y1.toFixed(1) + ' C ' + (x1 + dx).toFixed(1) + ' ' + y1.toFixed(1) + ', ' + (x2 - dx).toFixed(1) + ' ' + y2.toFixed(1) + ', ' + x2.toFixed(1) + ' ' + y2.toFixed(1);
+      pathsHtml += '<path class="topo-edge s6-edge" data-s6-idx="' + idx + '" d="' + d + '" stroke="' + e.color + '" stroke-opacity="0.4" fill="none" stroke-width="1.6" />';
+    });
+
+    var existingS6 = svg.querySelectorAll('.s6-edge');
+    for (var i = 0; i < existingS6.length; i++) existingS6[i].remove();
+    svg.insertAdjacentHTML('beforeend', pathsHtml);
+  }
+
   function run() {
     if (document.visibilityState !== 'visible') return;
     var onOverview = q('[data-service-metric="uptime"]') || q('.spark-kpi-card');
@@ -200,6 +320,11 @@
           if (rss != null && isFinite(rss)) {
             setText(q('[data-service-metric="memory"] [data-display-number]'), fmtBytes(rss));
           }
+        }
+
+        // 动态拓扑与阶段 06：每 3 秒更新
+        if (tick % 3 === 0) {
+          try { updateDynamicTopology(); } catch (e) {}
         }
       })
       .catch(function () {});
