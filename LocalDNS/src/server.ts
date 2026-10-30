@@ -800,6 +800,60 @@ $httpClient.get({
     if (cleanPath.startsWith('/api/proxy-config')) {
       const subConfigPath = cleanPath.replace('/api/proxy-config', '');
 
+      // 代理配置编辑器兼容层：上游 UI 2026.10.30.7 要求核心同时提供
+      // available / exists / mode / path / roots，且读取结果必须带 path/revision。
+      // LocalDNS 不启动 mihomo / sing-box，这里提供两份可编辑的本地虚拟配置，
+      // 保存只写入 Storage，不会启动或重载任何代理核心。
+      const proxyCores = [
+        { id: 'mihomo', name: 'Mihomo', format: 'YAML', mode: 'file', path: '/configs/mihomo/config.yaml', directory: '/configs/mihomo', roots: ['/configs'] },
+        { id: 'sing-box', name: 'sing-box', format: 'JSON', mode: 'file', path: '/configs/sing-box/config.json', directory: '/configs/sing-box', roots: ['/configs'] },
+      ];
+      const proxySeeds: Record<string, string> = {
+        'mihomo': [
+          '# LocalDNS 本地代理配置模板',
+          '# 仅保存在 LocalDNS 内，不会启动或重载代理核心。',
+          'mixed-port: 7890',
+          'allow-lan: false',
+          'mode: rule',
+          'log-level: warning',
+          'proxies: []',
+          'proxy-groups:',
+          '  - name: PROXY',
+          '    type: select',
+          '    proxies:',
+          '      - DIRECT',
+          'rules:',
+          '  - MATCH,DIRECT',
+        ].join('\n'),
+        'sing-box': JSON.stringify({
+          log: { level: 'warn' },
+          inbounds: [],
+          outbounds: [{ type: 'direct', tag: 'direct' }],
+          route: { final: 'direct' },
+        }, null, 2),
+      };
+      const proxyKey = (id: string) => `proxy_config_${id}`;
+      const proxyRevKey = (id: string) => `proxy_config_${id}_revision`;
+      const readProxyContent = (id: string): string => {
+        const stored = Storage.get<string>(proxyKey(id));
+        return typeof stored === 'string' ? stored : (proxySeeds[id] || '');
+      };
+      const proxyRevision = (id: string): string => String(Storage.get<string>(proxyRevKey(id)) || '1');
+      const writeProxyContent = (id: string, content: string): string => {
+        Storage.set(proxyKey(id), content);
+        const revision = String(Date.now());
+        Storage.set(proxyRevKey(id), revision);
+        return revision;
+      };
+      const getConfigParam = (key: string) => {
+        const raw = req.queryParams?.find((p) => p.key === key)?.value || '';
+        try {
+          return decodeURIComponent(raw);
+        } catch {
+          return raw;
+        }
+      };
+
       // 29.1 /api/proxy-config/interface/:section (名称、Logo、代理面板地址持久化)
       if (subConfigPath.startsWith('/interface/')) {
         const section = subConfigPath.replace('/interface/', '').trim();
@@ -860,53 +914,142 @@ $httpClient.get({
       // 29.4 /api/proxy-config/cores (可用核心列表)
       if (subConfigPath === '/cores' || subConfigPath === '/cores/') {
         return jsonResponse({
-          cores: [
-            { id: 'localdns', name: 'LocalDNS 内置核心', format: 'TEXT', startup: true, directory: '/configs' }
-          ]
+          cores: proxyCores.map((core) => ({
+            ...core,
+            available: true,
+            exists: true,
+            active: false,
+          })),
         });
       }
 
       // 29.5 /api/proxy-config/files (配置文件浏览)
       if (subConfigPath === '/files' || subConfigPath === '/files/') {
+        const requested = getConfigParam('path') || '/configs';
+        if (requested === '/configs' || requested === '/configs/') {
+          return jsonResponse({
+            directory: '/configs',
+            files: proxyCores.map((core) => ({
+              name: core.id,
+              path: core.directory,
+              directory: true,
+              active: false,
+              size: 0,
+              modified: 0,
+            })),
+          });
+        }
+        const core = proxyCores.find((item) => requested === item.directory || requested.startsWith(item.directory + '/'));
+        if (!core) {
+          return jsonResponse({ error: 'Directory not allowed' }, 403);
+        }
+        const content = readProxyContent(core.id);
         return jsonResponse({
-          directory: '/configs',
-          files: [
-            { name: 'whitelist.txt', size: 1024, modified: Date.now() },
-            { name: 'blocklist.txt', size: 1024, modified: Date.now() }
-          ]
+          directory: core.directory,
+          files: [{
+            name: core.path.split('/').pop(),
+            path: core.path,
+            directory: false,
+            active: false,
+            size: content.length,
+            modified: Date.now(),
+          }],
         });
       }
 
       // 29.6 /api/proxy-config/read
       if (subConfigPath === '/read' && method === 'POST') {
         const body = parseJsonBody(req);
-        const p = body.path || 'whitelist';
+        const core = proxyCores.find((item) => item.id === body.core);
+        if (!core) {
+          return jsonResponse({ error: 'Unknown core' }, 404);
+        }
+        const path = body.path || core.path;
+        if (path !== core.path) {
+          return jsonResponse({ error: 'Config path not allowed' }, 403);
+        }
         return jsonResponse({
-          content: store.getRule(p) || '# LocalDNS 配置',
-          revision: '1'
+          core: core.id,
+          path,
+          content: readProxyContent(core.id),
+          revision: proxyRevision(core.id),
+          active: false,
+          mode: 'file',
+          groupCount: 0,
+          groupRevision: '',
         });
       }
 
       // 29.7 /api/proxy-config/check
       if (subConfigPath === '/check' && method === 'POST') {
-        return jsonResponse({ ok: true, errors: [] });
+        const body = parseJsonBody(req);
+        if (body.core === 'sing-box' && typeof body.content === 'string') {
+          try {
+            JSON.parse(body.content);
+          } catch (e: any) {
+            return jsonResponse({ ok: false, detail: 'JSON 语法错误：' + e.message }, 200);
+          }
+        }
+        return jsonResponse({ ok: true, detail: '本地虚拟配置校验通过；保存不会启动或重载代理核心。' });
       }
 
       // 29.8 /api/proxy-config/save
       if (subConfigPath === '/save' && method === 'POST') {
         const body = parseJsonBody(req);
-        if (body.path && body.content !== undefined) {
-          store.setRule(body.path, body.content);
+        const core = proxyCores.find((item) => item.id === body.core);
+        if (!core) {
+          return jsonResponse({ error: 'Unknown core' }, 404);
         }
-        return jsonResponse({ ok: true, revision: String(Date.now()) });
+        if (body.path && body.path !== core.path) {
+          return jsonResponse({ error: 'Config path not allowed' }, 403);
+        }
+        const revision = writeProxyContent(core.id, typeof body.content === 'string' ? body.content : '');
+        return jsonResponse({
+          ok: true,
+          revision,
+          unchanged: false,
+          confirmation: 'saved-only',
+          reloaded: false,
+          backup: null,
+        });
       }
 
-      // 29.9 /api/proxy-config 根信息
+      // 29.9 /api/proxy-config/fetch (HTTP 配置导入)
+      if (subConfigPath === '/fetch' && method === 'POST') {
+        const body = parseJsonBody(req);
+        if (!body.url) {
+          return jsonResponse({ error: 'Missing url' }, 400);
+        }
+        let target: URL;
+        try {
+          target = new URL(String(body.url));
+        } catch {
+          return jsonResponse({ error: 'Invalid url' }, 400);
+        }
+        if (!['http:', 'https:'].includes(target.protocol) || target.username || target.password) {
+          return jsonResponse({ error: 'Only http(s) URLs without credentials are allowed' }, 400);
+        }
+        try {
+          const res = await fetch(target.href, { headers: { 'User-Agent': 'LocalDNS/FJH7T' } });
+          if (!res.ok) {
+            return jsonResponse({ error: `HTTP ${res.status}` }, 502);
+          }
+          const content = await res.text();
+          if (content.length > 2 * 1024 * 1024) {
+            return jsonResponse({ error: 'Config too large' }, 413);
+          }
+          return jsonResponse({ content, sourceHost: target.host });
+        } catch (e: any) {
+          return jsonResponse({ error: e?.message || 'Fetch failed' }, 502);
+        }
+      }
+
+      // 29.10 /api/proxy-config 根信息
       return jsonResponse({
         status: 'online',
-        version: '1.5.0',
+        version: '1.6.0',
         service: 'LocalDNS Config协同服务',
-        features: ['interface', 'rule-backups', 'traffic', 'cores', 'files']
+        features: ['interface', 'rule-backups', 'traffic', 'cores', 'files', 'read', 'save', 'check', 'fetch']
       });
     }
 

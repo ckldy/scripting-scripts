@@ -15,6 +15,7 @@ v1.6.0 去伪存真、彻底瘦身，砍掉无法在 DNS 网络层生效的虚�
 - **后端契约保持 legacy 兼容**：新版 UI 仍先请求 `GET /api/v1/features` 判断核心族，本端不实现（404）→ UI 自动走旧插件 API；`/api/v1/upstream/config` 继续兼容 `group` 与 `plugin_tag`。
 - **可选增强缺失时自动降级**：新版「缓存参数」依赖 `/api/v1/cache/settings`（404 时界面自动隐藏该入口）；查询日志「记录存盘」依赖 `persist` 字段（缺失时隐藏）。
 - **本地定制保留**：`web/assets/livepulse.js`（1s KPI / 2s CPU·内存就地脉冲）继续挂载；`config.js` 继续使用同源 `proxyConfigBase`。
+- **代理配置编辑器兼容新版 UI**：`/api/proxy-config/cores` 返回 `mihomo` / `sing-box` 的 `available / exists / mode / path / roots`，并补齐 `read / check / save / fetch` 本地虚拟配置接口；不再提示“未找到核心配置”，保存仅写入本地 Storage，不启动或重载代理核心。
 
 ### v1.9.0 同步上游 FJGLI / UI 2026.10.22.3
 - **前端全量跟随上游打包 SPA**：`app-DOuhu87M.js` + `index-B2JH1zZT.css`（其余字体/图标/编辑器/`chart.umd.min.js` 与上一版逐字节一致，仅精确替换 2 个打包文件 + 3 个元数据文件）。

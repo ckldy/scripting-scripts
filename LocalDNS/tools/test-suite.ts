@@ -251,12 +251,38 @@ async function runTests() {
     const resCores = await fetch(`${baseUrl}/api/proxy-config/cores`);
     assert(resCores.status === 200, `GET /api/proxy-config/cores returns 200 OK`);
     const coresData = await resCores.json();
-    assert(Array.isArray(coresData.cores) && coresData.cores.length > 0, 'Cores returns active local core');
+    assert(Array.isArray(coresData.cores) && coresData.cores.length >= 2, 'Cores returns mihomo and sing-box');
+    assert(coresData.cores.every((core: any) => core.available && core.exists && core.mode === 'file'), 'Cores expose available/exists/mode for the new UI');
+    assert(coresData.cores.every((core: any) => typeof core.path === 'string' && Array.isArray(core.roots)), 'Cores expose startup path and allowed roots');
 
     const resFiles = await fetch(`${baseUrl}/api/proxy-config/files`);
     assert(resFiles.status === 200, `GET /api/proxy-config/files returns 200 OK`);
     const filesData = await resFiles.json();
-    assert(Array.isArray(filesData.files) && filesData.directory, 'Files returns directory listing');
+    assert(Array.isArray(filesData.files) && filesData.directory === '/configs', 'Files returns root directory listing');
+
+    const resCoreFiles = await fetch(`${baseUrl}/api/proxy-config/files?core=mihomo&path=%2Fconfigs%2Fmihomo`);
+    assert(resCoreFiles.status === 200, `GET /api/proxy-config/files?core=mihomo returns 200 OK`);
+    const coreFiles = await resCoreFiles.json();
+    assert(Array.isArray(coreFiles.files) && coreFiles.files.some((f: any) => f.path === '/configs/mihomo/config.yaml'), 'Core directory lists the startup config');
+
+    const resRead = await fetch(`${baseUrl}/api/proxy-config/read`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ core: 'mihomo', path: '/configs/mihomo/config.yaml' }),
+    });
+    assert(resRead.status === 200, `POST /api/proxy-config/read returns 200 OK`);
+    const readData = await resRead.json();
+    assert(readData.path === '/configs/mihomo/config.yaml' && readData.mode === 'file' && typeof readData.revision === 'string', 'Read returns path/mode/revision for the editor');
+    assert(typeof readData.content === 'string' && readData.content.includes('mixed-port'), 'Read returns seeded mihomo config content');
+
+    const resCheck = await fetch(`${baseUrl}/api/proxy-config/check`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ core: 'mihomo', path: '/configs/mihomo/config.yaml', content: readData.content, revision: readData.revision }),
+    });
+    assert(resCheck.status === 200, `POST /api/proxy-config/check returns 200 OK`);
+    const checkData = await resCheck.json();
+    assert(checkData.ok === true && typeof checkData.detail === 'string', 'Check reports local virtual config validation');
   } catch (err: any) {
     console.error('API Test Error:', err);
     failed++;
