@@ -521,4 +521,264 @@ export class SurgeService {
       }
     }, 500);
   }
+
+  // ==================== 远程资源抓取与连通测试扩展 ====================
+
+  /**
+   * 抓取远程 HTTP(S) 文本，带镜像降级与尺寸/超时保护
+   */
+  public async fetchRemoteText(urlStr: string): Promise<{ text: string; finalUrl: string }> {
+    let targetUrl: URL;
+    try {
+      targetUrl = new URL(urlStr.trim());
+    } catch {
+      throw new Error('无效的 URL 地址格式');
+    }
+    if (!['http:', 'https:'].includes(targetUrl.protocol)) {
+      throw new Error('仅支持 HTTP 或 HTTPS 协议');
+    }
+
+    const candidateUrls: string[] = [targetUrl.href];
+    if (targetUrl.hostname === 'raw.githubusercontent.com') {
+      candidateUrls.push(targetUrl.href.replace('raw.githubusercontent.com', 'raw.gitmirror.com'));
+      candidateUrls.push(`https://ghproxy.net/${targetUrl.href}`);
+    }
+
+    let lastError: any = null;
+    for (const u of candidateUrls) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      try {
+        const resp = await fetch(u, {
+          headers: { 'User-Agent': 'LocalDNS/FJH7T (Surge-Hub)' },
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+        if (resp.ok) {
+          const txt = await resp.text();
+          if (txt.length > 5 * 1024 * 1024) {
+            throw new Error('远程文件过大（超过 5MB 限制）');
+          }
+          return { text: txt, finalUrl: u };
+        }
+        lastError = new Error(`HTTP ${resp.status} ${resp.statusText}`);
+      } catch (e: any) {
+        clearTimeout(timer);
+        lastError = e;
+      }
+    }
+    throw lastError || new Error('所有下载候选地址均尝试失败');
+  }
+
+  /**
+   * 主动深度探测 Surge HTTP API 连通性与响应质量
+   */
+  public async testSurgeConnectivity(customUrl?: string, customKey?: string): Promise<{
+    success: boolean;
+    rttMs: number;
+    url: string;
+    outbound?: string;
+    modulesCount?: number;
+    activePoliciesCount?: number;
+    error?: string;
+    hint?: string;
+  }> {
+    const cfg = await this.db.getSurgeConfig();
+    const apiUrl = (customUrl || cfg.api_url || 'http://127.0.0.1:6171').replace(/\/+$/, '');
+    const apiKey = customKey !== undefined ? customKey : cfg.api_key;
+
+    const start = Date.now();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 3000);
+
+    try {
+      const headers: Record<string, string> = {
+        'User-Agent': 'LocalDNS/FJH7T',
+        'Accept': 'application/json',
+      };
+      if (apiKey) headers['X-Key'] = apiKey;
+
+      const res = await fetch(`${apiUrl}/v1/outbound`, { headers, signal: ctrl.signal });
+      clearTimeout(timer);
+      const rttMs = Date.now() - start;
+
+      if (!res.ok) {
+        let hint = '请核对 Surge 的 [General] http-api 密钥是否与此处填写的 API 访问密钥完全一致。';
+        if (res.status === 403 || res.status === 401) hint = 'Surge 鉴权失败：X-Key 密钥不匹配。';
+        return {
+          success: false,
+          rttMs,
+          url: apiUrl,
+          error: `HTTP ${res.status} ${res.statusText}`,
+          hint,
+        };
+      }
+
+      const outData: any = await res.json().catch(() => ({}));
+      const modRes = await fetch(`${apiUrl}/v1/modules`, { headers, signal: AbortSignal.timeout(2000) }).catch(() => null);
+      const modData: any = modRes && modRes.ok ? await modRes.json().catch(() => ({})) : {};
+      const polRes = await fetch(`${apiUrl}/v1/policy_groups`, { headers, signal: AbortSignal.timeout(2000) }).catch(() => null);
+      const polData: any = polRes && polRes.ok ? await polRes.json().catch(() => ({})) : {};
+
+      const modulesCount = Array.isArray(modData?.enabled) ? modData.enabled.length : 0;
+      const activePoliciesCount = typeof polData === 'object' && polData ? Object.keys(polData).length : 0;
+
+      return {
+        success: true,
+        rttMs,
+        url: apiUrl,
+        outbound: outData?.mode || 'rule',
+        modulesCount,
+        activePoliciesCount,
+      };
+    } catch (e: any) {
+      clearTimeout(timer);
+      const rttMs = Date.now() - start;
+      let hint = '连接失败。请确认：1. Surge 是否正在运行；2. Surge 配置 [General] 是否包含 http-api = key@0.0.0.0:6171；3. 若跨设备连接，IP 地址是否可达。';
+      if (e?.name === 'AbortError') hint = '连接超时（超过 3 秒未响应）。可能是 Surge 未监听指定端口或防火墙阻断。';
+      return {
+        success: false,
+        rttMs,
+        url: apiUrl,
+        error: e?.message || '网络连接失败',
+        hint,
+      };
+    }
+  }
+
+  /**
+   * 收集 Surge 详细运行体征
+   */
+  public async getSurgeDetailedRuntime(): Promise<{
+    online: boolean;
+    outbound?: string;
+    rttMs?: number;
+    modules?: { enabled: string[]; available: string[] };
+    policyGroups?: SurgePolicyGroupItem[];
+    lastSyncAt?: number | null;
+    lastSyncStatus?: string | null;
+    error?: string;
+    hint?: string;
+  }> {
+    const conn = await this.testSurgeConnectivity();
+    if (!conn.success) {
+      const cfg = await this.db.getSurgeConfig();
+      return {
+        online: false,
+        error: conn.error,
+        hint: conn.hint,
+        lastSyncAt: cfg.last_sync_at,
+        lastSyncStatus: cfg.last_sync_status,
+      };
+    }
+
+    const cfg = await this.db.getSurgeConfig();
+    const pGroups = await this.getPolicyGroups();
+    const modRes = await this.callSurgeApi('/v1/modules');
+
+    return {
+      online: true,
+      outbound: conn.outbound,
+      rttMs: conn.rttMs,
+      modules: modRes.data,
+      policyGroups: pGroups,
+      lastSyncAt: cfg.last_sync_at,
+      lastSyncStatus: cfg.last_sync_status,
+    };
+  }
+
+  /**
+   * 从远程 URL 导入 App 模块
+   */
+  public async importRemoteModule(
+    url: string,
+    name?: string,
+    category: AppModule['category'] = 'app'
+  ): Promise<{ module: AppModule; parsed: ParsedModuleContent }> {
+    const { text, finalUrl } = await this.fetchRemoteText(url);
+    const fileSlug = (url.split('/').pop() || 'mod').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+    const id = ('mod_' + fileSlug + '_' + Date.now().toString(36)).slice(0, 48);
+    const parsed = await this.importModule(id, name || '', category, finalUrl, text);
+    const mod = await this.db.getModule(id);
+    return { module: mod!, parsed };
+  }
+
+  /**
+   * 在线更新模块内容
+   */
+  public async updateModuleContent(id: string, name: string, content: string): Promise<ParsedModuleContent> {
+    await this.init();
+    const existing = await this.db.getModule(id);
+    const finalCategory = existing ? existing.category : 'app';
+    const sourceUrl = existing ? existing.source_url : null;
+    return await this.importModule(id, name, finalCategory, sourceUrl, content);
+  }
+
+  /**
+   * 远程导入规则集到指定分流组
+   */
+  public async importRemoteRules(
+    groupId: string,
+    url: string,
+    mode: 'append' | 'replace' = 'append'
+  ): Promise<{ importedCount: number; finalUrl: string }> {
+    await this.init();
+    const { text, finalUrl } = await this.fetchRemoteText(url);
+    const rules = this.parseRulesList(text);
+    let count = 0;
+    if (mode === 'replace') {
+      count = await this.db.replaceGroupRules(groupId, rules);
+    } else {
+      count = await this.db.appendGroupRules(groupId, rules);
+    }
+    this.scheduleSurgeSync();
+    return { importedCount: count, finalUrl };
+  }
+
+  /**
+   * 在线多行编辑并替换指定分流组的规则
+   */
+  public async updateGroupRulesText(groupId: string, text: string): Promise<number> {
+    await this.init();
+    const rules = this.parseRulesList(text);
+    const count = await this.db.replaceGroupRules(groupId, rules);
+    this.scheduleSurgeSync();
+    return count;
+  }
+
+  /**
+   * 格式化规则集文本解析
+   */
+  public parseRulesList(text: string): Array<{ match_type: any; pattern: string; comment?: string }> {
+    const lines = text.split(/\r?\n/);
+    const result: Array<{ match_type: any; pattern: string; comment?: string }> = [];
+
+    for (let rawLine of lines) {
+      let line = rawLine.trim();
+      if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+
+      let comment = '';
+      if (line.includes('//')) {
+        const parts = line.split('//');
+        line = parts[0].trim();
+        comment = parts.slice(1).join('//').trim();
+      }
+
+      const tokens = line.split(',').map((t) => t.trim());
+      if (tokens.length >= 2) {
+        const type = tokens[0].toUpperCase();
+        const pattern = tokens[1];
+        if (['DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'IP-CIDR', 'GEOIP'].includes(type)) {
+          result.push({ match_type: type, pattern, comment });
+          continue;
+        }
+      }
+
+      // 纯域名行兼容 (如只有 baidu.com)
+      if (!line.includes(',') && !line.includes(' ') && line.includes('.')) {
+        result.push({ match_type: 'DOMAIN-SUFFIX', pattern: line, comment });
+      }
+    }
+    return result;
+  }
 }

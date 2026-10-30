@@ -371,6 +371,53 @@ async function runTests() {
 
     const blockedAnswers = await resolveTestDomain('ad.bilibili.com');
     assert(blockedAnswers.includes('0.0.0.0'), 'ad.bilibili.com 即刻被模块脱水 DNS 引擎拦截为 0.0.0.0');
+
+    // 2.15.7 模块在线代码编辑与重新脱水
+    const updatedModule = sampleModule.replace('cm.bilibili.com', 'live.bilibili.com');
+    const resPutMod = await fetch(`${baseUrl}/api/v1/surge/modules/test_bili`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '哔哩哔哩净化 (已修改)', content: updatedModule }),
+    });
+    assert(resPutMod.status === 200, 'PUT /api/v1/surge/modules/:id returns 200 OK');
+    const putData = await resPutMod.json();
+    assert(putData.success === true && putData.dnsRulesCount === 2, 'Module在线编辑保存并重新脱水');
+
+    // 2.15.8 分流规则多行文本导出与全量批量替换
+    const resGetRulesText = await fetch(`${baseUrl}/api/v1/surge/diversion/rules/text?group=direct`);
+    assert(resGetRulesText.status === 200, 'GET /api/v1/surge/diversion/rules/text returns 200 OK');
+    const rulesTextData = await resGetRulesText.json();
+    assert(typeof rulesTextData.text === 'string' && rulesTextData.count > 0, 'Rules text exported for online editor');
+
+    const newRulesText = [
+      'DOMAIN-SUFFIX,cn // 大陆顶级域',
+      'DOMAIN-SUFFIX,taobao.com // 淘宝直连',
+      'DOMAIN-SUFFIX,jd.com // 京东直连',
+    ].join('\n');
+    const resPostRulesText = await fetch(`${baseUrl}/api/v1/surge/diversion/rules/text`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group_id: 'direct', text: newRulesText }),
+    });
+    assert(resPostRulesText.status === 200, 'POST /api/v1/surge/diversion/rules/text returns 200 OK');
+    const postRulesData = await resPostRulesText.json();
+    assert(postRulesData.success === true && postRulesData.count === 3, 'Group rules batch replaced and saved');
+
+    // 2.15.9 Surge 连通性测试接口
+    const resTestConn = await fetch(`${baseUrl}/api/v1/surge/test-connection`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_url: 'http://127.0.0.1:61999', api_key: 'testkey' }),
+    });
+    assert(resTestConn.status === 200, 'POST /api/v1/surge/test-connection returns 200 OK');
+    const testConnData = await resTestConn.json();
+    assert(testConnData.success === false && typeof testConnData.hint === 'string', 'Connection test returns diagnosis and actionable hint');
+
+    // 2.15.10 Surge 详细运行体征接口
+    const resRuntime = await fetch(`${baseUrl}/api/v1/surge/runtime`);
+    assert(resRuntime.status === 200, 'GET /api/v1/surge/runtime returns 200 OK');
+    const runtimeData = await resRuntime.json();
+    assert(typeof runtimeData.online === 'boolean', 'Surge detailed runtime contract valid');
   } catch (err: any) {
     console.error('API Test Error:', err);
     failed++;

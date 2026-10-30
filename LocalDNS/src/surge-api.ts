@@ -134,12 +134,46 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
         if (!mod) return jsonResponse({ error: 'Module not found' }, 404);
         return jsonResponse({ success: true, module: mod });
       }
+      if (method === 'PUT') {
+        const body = parseJsonBody(req);
+        if (!body.content) {
+          return jsonResponse({ error: 'Missing content' }, 400);
+        }
+        const parsed = await service.updateModuleContent(modId, body.name || modId, body.content);
+        return jsonResponse({
+          success: true,
+          id: modId,
+          dnsRulesCount: parsed.dnsRules.length,
+          mitmCount: parsed.mitmHosts.length,
+          httpRulesCount: parsed.httpRules.length,
+        });
+      }
       if (method === 'DELETE') {
         await db.deleteModule(modId);
         await service.reloadDnsBlockCache();
         service.scheduleSurgeSync();
         return jsonResponse({ success: true, id: modId, deleted: true });
       }
+    }
+  }
+
+  // 3.2 远程模块导入: /api/v1/surge/modules/import-remote
+  if (path === '/api/v1/surge/modules/import-remote' && method === 'POST') {
+    const body = parseJsonBody(req);
+    if (!body.url) {
+      return jsonResponse({ error: 'Missing remote module url' }, 400);
+    }
+    try {
+      const res = await service.importRemoteModule(body.url, body.name, body.category || 'app');
+      return jsonResponse({
+        success: true,
+        module: res.module,
+        dnsRulesCount: res.parsed.dnsRules.length,
+        mitmCount: res.parsed.mitmHosts.length,
+        httpRulesCount: res.parsed.httpRules.length,
+      });
+    } catch (e: any) {
+      return jsonResponse({ error: e?.message || 'Remote module import failed' }, 502);
     }
   }
 
@@ -237,6 +271,45 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
     }
   }
 
+  // 4.4 远程规则集导入: /api/v1/surge/diversion/rules/import-remote
+  if (path === '/api/v1/surge/diversion/rules/import-remote' && method === 'POST') {
+    const body = parseJsonBody(req);
+    if (!body.group_id || !body.url) {
+      return jsonResponse({ error: 'Missing group_id or url' }, 400);
+    }
+    try {
+      const res = await service.importRemoteRules(body.group_id, body.url, body.mode || 'append');
+      return jsonResponse({
+        success: true,
+        group_id: body.group_id,
+        importedCount: res.importedCount,
+        finalUrl: res.finalUrl,
+      });
+    } catch (e: any) {
+      return jsonResponse({ error: e?.message || 'Remote rules import failed' }, 502);
+    }
+  }
+
+  // 4.5 分流组规则多行文本导出与在线全量编辑: /api/v1/surge/diversion/rules/text
+  if (path === '/api/v1/surge/diversion/rules/text') {
+    const getParam = (k: string) => req.queryParams?.find((p) => p.key === k)?.value;
+    const groupId = getParam('group') || '';
+    if (method === 'GET') {
+      if (!groupId) return jsonResponse({ error: 'Missing group param' }, 400);
+      const rules = await db.getDiversionRules(groupId);
+      const lines = rules.map((r) => `${r.match_type},${r.pattern}${r.comment ? ` // ${r.comment}` : ''}`);
+      return jsonResponse({ success: true, group_id: groupId, count: rules.length, text: lines.join('\n') });
+    }
+    if (method === 'POST') {
+      const body = parseJsonBody(req);
+      const targetGroup = body.group_id || groupId;
+      if (!targetGroup) return jsonResponse({ error: 'Missing group_id' }, 400);
+      const text = typeof body.text === 'string' ? body.text : '';
+      const count = await service.updateGroupRulesText(targetGroup, text);
+      return jsonResponse({ success: true, group_id: targetGroup, count });
+    }
+  }
+
   // 5. Surge 联动配置与状态 (/api/v1/surge/config, status, outbound, policies, sync)
   if (path === '/api/v1/surge/config') {
     if (method === 'GET') {
@@ -256,6 +329,19 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
   if (path === '/api/v1/surge/status' && method === 'GET') {
     const status = await service.getSurgeStatus();
     return jsonResponse(status);
+  }
+
+  // 5.1 连通性主动测试: /api/v1/surge/test-connection
+  if (path === '/api/v1/surge/test-connection' && method === 'POST') {
+    const body = parseJsonBody(req);
+    const result = await service.testSurgeConnectivity(body.api_url, body.api_key);
+    return jsonResponse(result);
+  }
+
+  // 5.2 详细运行状态仪表盘: /api/v1/surge/runtime
+  if (path === '/api/v1/surge/runtime' && method === 'GET') {
+    const runtime = await service.getSurgeDetailedRuntime();
+    return jsonResponse(runtime);
   }
 
   if (path === '/api/v1/surge/outbound' && method === 'POST') {

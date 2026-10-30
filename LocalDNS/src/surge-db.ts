@@ -594,6 +594,51 @@ export class SurgeDatabase {
     }));
   }
 
+  public async replaceGroupRules(
+    groupId: string,
+    rules: Array<{ match_type: DiversionRule['match_type']; pattern: string; comment?: string }>
+  ): Promise<number> {
+    await this.init();
+    await this.getDb().execute('DELETE FROM diversion_rules WHERE group_id = ?', [groupId]);
+    let inserted = 0;
+    for (const r of rules) {
+      const p = String(r.pattern || '').trim().toLowerCase();
+      if (!p) continue;
+      await this.getDb().execute(
+        `INSERT INTO diversion_rules (group_id, match_type, pattern, enabled, comment, is_auto_learned)
+         VALUES (?, ?, ?, 1, ?, 0)`,
+        [groupId, r.match_type || 'DOMAIN-SUFFIX', p, r.comment || null]
+      );
+      inserted++;
+    }
+    return inserted;
+  }
+
+  public async appendGroupRules(
+    groupId: string,
+    rules: Array<{ match_type: DiversionRule['match_type']; pattern: string; comment?: string }>
+  ): Promise<number> {
+    await this.init();
+    let appended = 0;
+    for (const r of rules) {
+      const p = String(r.pattern || '').trim().toLowerCase();
+      if (!p) continue;
+      const exist = await this.getDb().fetchOne<any>(
+        'SELECT id FROM diversion_rules WHERE group_id = ? AND pattern = ?',
+        [groupId, p]
+      );
+      if (!exist) {
+        await this.getDb().execute(
+          `INSERT INTO diversion_rules (group_id, match_type, pattern, enabled, comment, is_auto_learned)
+           VALUES (?, ?, ?, 1, ?, 0)`,
+          [groupId, r.match_type || 'DOMAIN-SUFFIX', p, r.comment || null]
+        );
+        appended++;
+      }
+    }
+    return appended;
+  }
+
   public async recordRuleHit(id: number): Promise<void> {
     await this.init();
     await this.getDb().execute(
