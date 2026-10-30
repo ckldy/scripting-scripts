@@ -59,7 +59,21 @@
     }
   }
 
-  function q(sel) { try { return document.querySelector(sel); } catch (e) { return null; } }
+  function q(sel, parent) {
+    try {
+      return (parent || document).querySelector(sel);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function qq(sel, parent) {
+    try {
+      return Array.from((parent || document).querySelectorAll(sel));
+    } catch (e) {
+      return [];
+    }
+  }
 
   // 仅在内容变化时写 DOM，避免每秒无意义的重排
   function setText(el, text) {
@@ -165,19 +179,292 @@
     if (isFinite(avgMs)) setText(q('#float-stat-bot'), '↓ ' + fmtMs(avgMs));
   }
 
-  // ==================== 阶段 06 出站执行与动态拓扑联动 ====================
+  // ==================== 拓扑展示面积优化与阶段 06 出站执行 ====================
 
   var topoInjected = false;
+  var isFitView = false;
+  var isMaximized = false;
+  var hideZeroFlow = false;
+
+  function injectTopologyEnhanceStyles() {
+    if (q('#topo-enhance-style')) return;
+    var style = document.createElement('style');
+    style.id = 'topo-enhance-style';
+    style.textContent = [
+      '/* LocalDNS 拓扑大图展示面积与全景自适应增强 */',
+      '.topology-glass-card {',
+      '  position: relative !important;',
+      '  overflow-x: auto !important;',
+      '  overflow-y: visible !important;',
+      '  -webkit-overflow-scrolling: touch !important;',
+      '  scroll-behavior: smooth !important;',
+      '  padding: 18px 20px 24px !important;',
+      '  transition: all 0.25s ease-out !important;',
+      '}',
+      '.topology-glass-card.is-maximized {',
+      '  position: fixed !important;',
+      '  inset: 10px !important;',
+      '  z-index: 9999 !important;',
+      '  max-width: none !important;',
+      '  margin: 0 !important;',
+      '  background: rgba(18, 20, 24, 0.94) !important;',
+      '  backdrop-filter: blur(24px) !important;',
+      '  -webkit-backdrop-filter: blur(24px) !important;',
+      '  box-shadow: 0 24px 64px rgba(0,0,0,0.6) !important;',
+      '  border-radius: 16px !important;',
+      '}',
+      '.topology-glass-card::-webkit-scrollbar {',
+      '  height: 6px;',
+      '}',
+      '.topology-glass-card::-webkit-scrollbar-track {',
+      '  background: rgba(148, 163, 184, 0.08);',
+      '  border-radius: 999px;',
+      '}',
+      '.topology-glass-card::-webkit-scrollbar-thumb {',
+      '  background: rgba(148, 163, 184, 0.35);',
+      '  border-radius: 999px;',
+      '}',
+      '.topology-glass-card::-webkit-scrollbar-thumb:hover {',
+      '  background: rgba(148, 163, 184, 0.6);',
+      '}',
+      '.topo-stage-wrap {',
+      '  min-width: 1380px !important;',
+      '  width: 1380px !important;',
+      '  transform-origin: top left !important;',
+      '  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;',
+      '}',
+      '.topo-grid {',
+      '  grid-template-columns: repeat(6, minmax(205px, 1fr)) !important;',
+      '  gap: 22px !important;',
+      '  overflow: visible !important;',
+      '}',
+      '.topo-col {',
+      '  min-width: 205px !important;',
+      '}',
+      '.topo-col-body {',
+      '  display: flex !important;',
+      '  flex-direction: column !important;',
+      '  gap: 8px !important;',
+      '  overflow: visible !important;',
+      '}',
+      '.t-node {',
+      '  min-height: 56px !important;',
+      '  padding: 8px 12px !important;',
+      '  border-radius: 10px !important;',
+      '}',
+      '.console-topology-heading {',
+      '  display: flex !important;',
+      '  align-items: center !important;',
+      '  justify-content: space-between !important;',
+      '  flex-wrap: wrap !important;',
+      '  gap: 12px !important;',
+      '  margin-bottom: 14px !important;',
+      '}',
+      '.topo-controls {',
+      '  display: inline-flex !important;',
+      '  align-items: center !important;',
+      '  gap: 6px !important;',
+      '  flex-wrap: wrap !important;',
+      '}',
+      '.topo-ctrl-btn {',
+      '  display: inline-flex !important;',
+      '  align-items: center !important;',
+      '  gap: 5px !important;',
+      '  padding: 5px 11px !important;',
+      '  font-size: 11px !important;',
+      '  font-weight: 600 !important;',
+      '  border-radius: 7px !important;',
+      '  border: 1px solid rgba(148, 163, 184, 0.28) !important;',
+      '  background: rgba(255, 255, 255, 0.05) !important;',
+      '  color: inherit !important;',
+      '  cursor: pointer !important;',
+      '  user-select: none !important;',
+      '  transition: all 0.15s !important;',
+      '}',
+      '.topo-ctrl-btn:hover {',
+      '  background: rgba(148, 163, 184, 0.18) !important;',
+      '  border-color: rgba(148, 163, 184, 0.45) !important;',
+      '}',
+      '.topo-ctrl-btn.active {',
+      '  background: var(--color-primary, #B45309) !important;',
+      '  color: #fff !important;',
+      '  border-color: transparent !important;',
+      '}',
+      '.topo-stages-nav {',
+      '  display: flex !important;',
+      '  gap: 6px !important;',
+      '  margin: 2px 0 16px !important;',
+      '  overflow-x: auto !important;',
+      '  padding-bottom: 4px !important;',
+      '}',
+      '.topo-stages-nav::-webkit-scrollbar { display: none; }',
+      '.topo-stage-pill {',
+      '  font-size: 11px !important;',
+      '  padding: 4px 10px !important;',
+      '  border-radius: 999px !important;',
+      '  background: rgba(148, 163, 184, 0.1) !important;',
+      '  border: 1px solid rgba(148, 163, 184, 0.2) !important;',
+      '  color: inherit !important;',
+      '  white-space: nowrap !important;',
+      '  cursor: pointer !important;',
+      '  transition: all 0.15s !important;',
+      '}',
+      '.topo-stage-pill:hover, .topo-stage-pill.active {',
+      '  background: rgba(148, 163, 184, 0.25) !important;',
+      '  border-color: var(--color-primary, #B45309) !important;',
+      '}',
+      '.t-node[data-zero-flow="true"].is-hidden-zero {',
+      '  display: none !important;',
+      '}'
+    ].join('\n');
+    document.head.appendChild(style);
+  }
+
+  function applyFitView(card, wrap) {
+    if (!card || !wrap) return;
+    if (isFitView) {
+      var availableW = card.clientWidth - 40;
+      var naturalW = 1380;
+      var ratio = Math.max(0.25, Math.min(1, availableW / naturalW));
+      var naturalH = wrap.offsetHeight || 520;
+      wrap.style.transform = 'scale(' + ratio + ')';
+      wrap.style.transformOrigin = 'top left';
+      wrap.style.marginBottom = -Math.round((1 - ratio) * naturalH) + 'px';
+      wrap.style.marginRight = -Math.round((1 - ratio) * naturalW) + 'px';
+    } else {
+      wrap.style.transform = '';
+      wrap.style.transformOrigin = '';
+      wrap.style.marginBottom = '';
+      wrap.style.marginRight = '';
+    }
+  }
+
+  function setupTopologyControls(card, wrap) {
+    var heading = q('.console-topology-heading');
+    if (!heading || q('.topo-controls', heading)) return;
+
+    var controls = document.createElement('div');
+    controls.className = 'topo-controls';
+    controls.innerHTML = [
+      '<button type="button" class="topo-ctrl-btn" id="topo-btn-fit" title="自适应一屏全貌展示全部 6 个阶段">',
+      '  <span>🔎 全貌</span>',
+      '</button>',
+      '<button type="button" class="topo-ctrl-btn" id="topo-btn-max" title="突破常规栅格限制，全屏铺满大图展示">',
+      '  <span>⛶ 展开大图</span>',
+      '</button>',
+      '<button type="button" class="topo-ctrl-btn" id="topo-btn-compact" title="折叠 0 流量空闲分支，保持专注">',
+      '  <span>⚡️ 仅看活跃</span>',
+      '</button>'
+    ].join('');
+    heading.appendChild(controls);
+
+    // 阶段导航胶囊条
+    var nav = q('.topo-stages-nav', card);
+    if (!nav) {
+      nav = document.createElement('div');
+      nav.className = 'topo-stages-nav';
+      nav.setAttribute('role', 'navigation');
+      nav.setAttribute('aria-label', '阶段快速平移导航');
+      var stages = [
+        { col: '1', title: '01 客户端来源' },
+        { col: '2', title: '02 引擎多级缓存' },
+        { col: '3', title: '03 分流规则集' },
+        { col: '4', title: '04 上游策略组' },
+        { col: '5', title: '05 DNS 解析节点' },
+        { col: '6', title: '06 Surge 出站执行' }
+      ];
+      nav.innerHTML = stages.map(function (s) {
+        return '<button type="button" class="topo-stage-pill" data-stage-col="' + s.col + '">' + s.title + '</button>';
+      }).join('');
+      heading.insertAdjacentElement('afterend', nav);
+
+      // 绑定胶囊平移事件
+      qq('.topo-stage-pill', nav).forEach(function (pill) {
+        pill.onclick = function () {
+          if (isFitView) {
+            // 若在全貌模式下，先切回 1:1 细节再滚动
+            isFitView = false;
+            applyFitView(card, wrap);
+            var btnFit = q('#topo-btn-fit');
+            if (btnFit) btnFit.classList.remove('active');
+          }
+          var targetCol = q('.topo-col[data-col="' + pill.dataset.stageCol + '"]', card);
+          if (targetCol) {
+            card.scrollLeft = Math.max(0, targetCol.offsetLeft - 16);
+          }
+        };
+      });
+
+      // 监听卡片横向滚动，自动高亮最靠近的胶囊
+      card.addEventListener('scroll', function () {
+        var scrollLeft = card.scrollLeft;
+        var cols = qq('.topo-col', card);
+        var activeCol = '1';
+        for (var i = 0; i < cols.length; i++) {
+          if (cols[i].offsetLeft - 60 <= scrollLeft) {
+            activeCol = cols[i].dataset.col || '1';
+          }
+        }
+        qq('.topo-stage-pill', nav).forEach(function (p) {
+          p.classList.toggle('active', p.dataset.stageCol === activeCol);
+        });
+      }, { passive: true });
+    }
+
+    // 绑定全貌切换事件
+    var btnFit = q('#topo-btn-fit');
+    if (btnFit) {
+      btnFit.onclick = function () {
+        isFitView = !isFitView;
+        btnFit.classList.toggle('active', isFitView);
+        btnFit.innerHTML = isFitView ? '<span>🔍 1:1 细节</span>' : '<span>🔎 全貌</span>';
+        applyFitView(card, wrap);
+        window.dispatchEvent(new CustomEvent('localdns:layoutchange'));
+      };
+    }
+
+    // 绑定展开大图事件
+    var btnMax = q('#topo-btn-max');
+    if (btnMax) {
+      btnMax.onclick = function () {
+        isMaximized = !isMaximized;
+        card.classList.toggle('is-maximized', isMaximized);
+        btnMax.classList.toggle('active', isMaximized);
+        btnMax.innerHTML = isMaximized ? '<span>⛶ 还原视窗</span>' : '<span>⛶ 展开大图</span>';
+        if (isFitView) applyFitView(card, wrap);
+        window.dispatchEvent(new CustomEvent('localdns:layoutchange'));
+        window.dispatchEvent(new Event('resize'));
+      };
+    }
+
+    // 绑定折叠空闲事件
+    var btnCompact = q('#topo-btn-compact');
+    if (btnCompact) {
+      btnCompact.onclick = function () {
+        hideZeroFlow = !hideZeroFlow;
+        btnCompact.classList.toggle('active', hideZeroFlow);
+        qq('.t-node[data-zero-flow="true"]', card).forEach(function (node) {
+          node.classList.toggle('is-hidden-zero', hideZeroFlow);
+        });
+        window.dispatchEvent(new CustomEvent('localdns:layoutchange'));
+      };
+    }
+  }
+
   function updateDynamicTopology() {
+    var card = q('.topology-glass-card');
     var wrap = q('#topo-stage-wrap');
     var grid = q('.topo-grid');
     var svg = q('#topo-svg');
-    if (!wrap || !grid || !svg) return;
+    if (!card || !wrap || !grid || !svg) return;
+
+    // 注入增强 CSS 与控制工具条
+    injectTopologyEnhanceStyles();
+    setupTopologyControls(card, wrap);
 
     // 1. 动态注入阶段 06：出站执行 (Surge 节点与阻断)
     var col6 = q('.topo-col[data-col="6"]');
     if (!col6) {
-      grid.style.gridTemplateColumns = 'repeat(6, minmax(0, 1fr))';
       col6 = document.createElement('div');
       col6.className = 'topo-col';
       col6.dataset.col = '6';
@@ -218,6 +505,7 @@
       ].join('');
       grid.appendChild(col6);
       topoInjected = true;
+      window.dispatchEvent(new CustomEvent('localdns:layoutchange'));
     }
 
     // 2. 拉取后端动态拓扑数据，更新阶段 06 状态与自愈标记
@@ -286,10 +574,16 @@
   }
 
   function run() {
-    if (document.visibilityState !== 'visible') return;
     var onOverview = q('[data-service-metric="uptime"]') || q('.spark-kpi-card');
     if (!onOverview) return; // 仅概览页存在
     tick++;
+
+    // 拓扑增强初始化与出站更新：首次进入立刻执行，后续每 3 秒刷新
+    if (!topoInjected || tick % 3 === 0) {
+      try { updateDynamicTopology(); } catch (e) {}
+    }
+
+    if (document.visibilityState === 'hidden') return;
     fetch('/metrics', { cache: 'no-store' })
       .then(function (r) { return r.text(); })
       .then(function (txt) {
@@ -320,11 +614,6 @@
           if (rss != null && isFinite(rss)) {
             setText(q('[data-service-metric="memory"] [data-display-number]'), fmtBytes(rss));
           }
-        }
-
-        // 动态拓扑与阶段 06：每 3 秒更新
-        if (tick % 3 === 0) {
-          try { updateDynamicTopology(); } catch (e) {}
         }
       })
       .catch(function () {});
