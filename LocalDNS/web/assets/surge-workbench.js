@@ -14,6 +14,114 @@
   var workbenchInjected = false;
   var cachedRuntime = null;
 
+  function injectWorkbenchStyles() {
+    if (document.getElementById('sw-workbench-styles')) return;
+    var style = document.createElement('style');
+    style.id = 'sw-workbench-styles';
+    style.textContent = [
+      '/* LocalDNS × Surge 工作台全站主题自适应与编辑器对比度优化 */',
+      '.sw-modal-panel {',
+      '  width: 100% !important;',
+      '  max-width: 660px !important;',
+      '  max-height: 90vh !important;',
+      '  display: flex !important;',
+      '  flex-direction: column !important;',
+      '  border-radius: 16px !important;',
+      '  background: var(--glass-bg, #FAF8F5) !important;',
+      '  color: var(--text-1, #191816) !important;',
+      '  border: 1px solid var(--border-highlight, rgba(148, 163, 184, 0.35)) !important;',
+      '  box-shadow: 0 24px 64px rgba(0,0,0,0.3) !important;',
+      '  padding: 20px !important;',
+      '  overflow: hidden !important;',
+      '}',
+      '.sw-modal-panel h3, .sw-modal-panel strong {',
+      '  color: var(--text-1, #191816) !important;',
+      '}',
+      '.sw-modal-panel label {',
+      '  color: var(--text-1, #191816) !important;',
+      '  font-size: 12px !important;',
+      '  font-weight: 600 !important;',
+      '}',
+      '.sw-modal-panel p, .sw-modal-panel small {',
+      '  color: var(--text-2, #64748b) !important;',
+      '}',
+      '.sw-modal-panel .icon-button {',
+      '  color: var(--text-2, #64748b) !important;',
+      '}',
+      '.sw-modal-panel .icon-button:hover {',
+      '  color: var(--text-1, #191816) !important;',
+      '}',
+      '/* 代码与规则编辑器 textarea: 清晰浅灰底色/深黑文字，深色模式自动反色 */',
+      'textarea.sw-textarea {',
+      '  width: 100% !important;',
+      '  box-sizing: border-box !important;',
+      '  padding: 12px 14px !important;',
+      '  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;',
+      '  font-size: 13px !important;',
+      '  line-height: 1.6 !important;',
+      '  border-radius: 10px !important;',
+      '  background: rgba(0, 0, 0, 0.04) !important;',
+      '  color: var(--text-1, #191816) !important;',
+      '  border: 1px solid var(--border-glass, rgba(148, 163, 184, 0.35)) !important;',
+      '  resize: vertical !important;',
+      '  tab-size: 2 !important;',
+      '  outline: none !important;',
+      '  transition: border-color 0.15s, box-shadow 0.15s !important;',
+      '}',
+      'textarea.sw-textarea:focus {',
+      '  border-color: var(--color-primary, #B45309) !important;',
+      '  box-shadow: 0 0 0 2px rgba(180, 83, 9, 0.2) !important;',
+      '}',
+      'html[data-theme="dark-glass"] textarea.sw-textarea {',
+      '  background: rgba(0, 0, 0, 0.45) !important;',
+      '  color: #f1f5f9 !important;',
+      '  border-color: rgba(255, 255, 255, 0.16) !important;',
+      '}',
+      '/* 输入框与下拉选择框 */',
+      '.sw-input, .sw-select {',
+      '  width: 100% !important;',
+      '  box-sizing: border-box !important;',
+      '  padding: 8px 12px !important;',
+      '  margin-top: 4px !important;',
+      '  border-radius: 8px !important;',
+      '  background: rgba(0, 0, 0, 0.04) !important;',
+      '  color: var(--text-1, #191816) !important;',
+      '  border: 1px solid var(--border-glass, rgba(148, 163, 184, 0.3)) !important;',
+      '  font-size: 13px !important;',
+      '  outline: none !important;',
+      '}',
+      '.sw-input:focus, .sw-select:focus {',
+      '  border-color: var(--color-primary, #B45309) !important;',
+      '  box-shadow: 0 0 0 2px rgba(180, 83, 9, 0.18) !important;',
+      '}',
+      'html[data-theme="dark-glass"] .sw-input,',
+      'html[data-theme="dark-glass"] .sw-select {',
+      '  background: rgba(0, 0, 0, 0.4) !important;',
+      '  color: #f1f5f9 !important;',
+      '  border-color: rgba(255, 255, 255, 0.15) !important;',
+      '}',
+      '/* 配置向导 pre 预览块 */',
+      '.sw-code-pre {',
+      '  padding: 12px 14px !important;',
+      '  border-radius: 8px !important;',
+      '  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;',
+      '  font-size: 12px !important;',
+      '  line-height: 1.55 !important;',
+      '  overflow-x: auto !important;',
+      '  margin: 0 0 10px 0 !important;',
+      '  background: rgba(0, 0, 0, 0.04) !important;',
+      '  border: 1px solid rgba(148, 163, 184, 0.25) !important;',
+      '  color: var(--text-1, #191816) !important;',
+      '}',
+      'html[data-theme="dark-glass"] .sw-code-pre {',
+      '  background: rgba(0, 0, 0, 0.45) !important;',
+      '  border-color: rgba(255, 255, 255, 0.15) !important;',
+      '  color: #A7F3D0 !important;',
+      '}'
+    ].join('\n');
+    document.head.appendChild(style);
+  }
+
   function q(sel, parent) {
     try {
       return (parent || document).querySelector(sel);
@@ -44,16 +152,17 @@
   }
 
   function openModal(title, contentHtml, onConfirm, confirmText) {
+    injectWorkbenchStyles();
     var modal = q('#sw-global-modal');
     if (!modal) {
       modal = document.createElement('div');
       modal.id = 'sw-global-modal';
-      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:99990;padding:16px;opacity:0;transition:opacity 0.2s';
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:99990;padding:16px;opacity:0;transition:opacity 0.2s';
       modal.innerHTML = [
-        '<div class="sw-modal-panel glass-card" style="width:100%;max-width:640px;max-height:90vh;display:flex;flex-direction:column;border-radius:16px;background:rgba(20,24,32,0.92);border:1px solid rgba(255,255,255,0.12);box-shadow:0 24px 64px rgba(0,0,0,0.6);padding:20px;overflow:hidden">',
+        '<div class="sw-modal-panel glass-card">',
         '  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-shrink:0">',
         '    <h3 id="sw-modal-title" style="margin:0;font-size:16px;font-weight:600"></h3>',
-        '    <button type="button" class="icon-button" id="sw-modal-close" style="background:none;border:none;color:inherit;font-size:20px;cursor:pointer;padding:4px 8px">✕</button>',
+        '    <button type="button" class="icon-button" id="sw-modal-close" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px 8px">✕</button>',
         '  </div>',
         '  <div id="sw-modal-body" style="flex:1;overflow-y:auto;padding-right:4px"></div>',
         '  <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;padding-top:12px;border-top:1px solid rgba(148,163,184,0.15);flex-shrink:0">',
@@ -293,7 +402,7 @@
       '    <div style="margin-bottom:20px;padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border-left:4px solid #3B82F6">',
       '      <h3 style="font-size:14px;margin:0 0 6px">第一步：在 Surge 中开启 HTTP API 控制通道</h3>',
       '      <p style="font-size:12px;opacity:0.8;margin:0 0 10px">打开 Surge 的主配置文件（或文本编辑），在 <code>[General]</code> 段落中加入以下配置：</p>',
-      '      <pre style="padding:10px;background:rgba(0,0,0,0.4);border-radius:6px;font-size:12px;overflow-x:auto;margin:0 0 10px;color:#A7F3D0">' + surgeGeneralSnippet + '</pre>',
+      '      <pre class="sw-code-pre">' + surgeGeneralSnippet + '</pre>',
       '      <div style="display:flex;justify-content:flex-end">',
       '        <button type="button" class="button small" id="sw-guide-copy-general">📋 复制 [General] 配置片段</button>',
       '      </div>',
@@ -313,7 +422,7 @@
       '    <div style="margin-bottom:20px;padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border-left:4px solid #F59E0B">',
       '      <h3 style="font-size:14px;margin:0 0 6px">第三步：在 Surge 中引用动态 RULE-SET 分流</h3>',
       '      <p style="font-size:12px;opacity:0.8;margin:0 0 10px">将 Surge 配置文件中的 <code>[Rule]</code> 段落精简为以下内容，分流规则变动即可在 LocalDNS 网页端秒更，Surge 零重启：</p>',
-      '      <pre style="padding:10px;background:rgba(0,0,0,0.4);border-radius:6px;font-size:12px;overflow-x:auto;margin:0 0 10px;color:#FDE68A">' + surgeRulesSnippet + '</pre>',
+      '      <pre class="sw-code-pre">' + surgeRulesSnippet + '</pre>',
       '      <div style="display:flex;justify-content:flex-end">',
       '        <button type="button" class="button small" id="sw-guide-copy-rules">📋 复制 [Rule] 配置片段</button>',
       '      </div>',
@@ -405,13 +514,13 @@
           var content = (modData.module && modData.module.raw_content) || '';
 
           var editorHtml = [
-            '<div style="margin-bottom:10px">',
-            '  <label style="font-size:12px;font-weight:600">模块名称</label>',
-            '  <input type="text" id="sw-edit-mod-name" value="' + name + '" style="width:100%;margin-top:4px;padding:8px;border-radius:6px;border:1px solid rgba(148,163,184,0.3);background:transparent" />',
+            '<div style="margin-bottom:12px">',
+            '  <label>模块名称</label>',
+            '  <input type="text" id="sw-edit-mod-name" class="sw-input" value="' + name + '" />',
             '</div>',
             '<div>',
-            '  <label style="font-size:12px;font-weight:600">.sgmodule 原始代码</label>',
-            '  <textarea id="sw-edit-mod-code" rows="14" style="width:100%;margin-top:4px;padding:10px;font-family:monospace;font-size:12px;border-radius:8px;border:1px solid rgba(148,163,184,0.3);background:rgba(0,0,0,0.3);color:inherit">' + content + '</textarea>',
+            '  <label>.sgmodule 原始代码 (支持在线编辑与重新脱水)</label>',
+            '  <textarea id="sw-edit-mod-code" class="sw-textarea" rows="15" spellcheck="false">' + content + '</textarea>',
             '</div>'
           ].join('');
 
@@ -494,8 +603,8 @@
           var rulesText = rdata.text || '';
 
           var bodyHtml = [
-            '<p style="font-size:12px;opacity:0.8;margin:0 0 8px">每行一条规则，格式支持 <code>DOMAIN-SUFFIX,xxx</code>、<code>DOMAIN,yyy</code> 或纯域名。</p>',
-            '<textarea id="sw-edit-rules-textarea" rows="15" style="width:100%;padding:10px;font-family:monospace;font-size:12px;border-radius:8px;border:1px solid rgba(148,163,184,0.3);background:rgba(0,0,0,0.3);color:inherit">' + rulesText + '</textarea>'
+            '<p style="font-size:12px;margin:0 0 8px">每行一条规则，格式支持 <code>DOMAIN-SUFFIX,xxx</code>、<code>DOMAIN,yyy</code> 或纯域名。</p>',
+            '<textarea id="sw-edit-rules-textarea" class="sw-textarea" rows="16" spellcheck="false">' + rulesText + '</textarea>'
           ].join('');
 
           openModal('在线编辑规则集: ' + gname, bodyHtml, async function () {
@@ -707,17 +816,17 @@
       btnImportRemoteMod.onclick = function () {
         var html = [
           '<div style="margin-bottom:12px">',
-          '  <label style="font-size:12px;font-weight:600">远程 .sgmodule 链接 (URL)</label>',
-          '  <input type="url" id="sw-import-mod-url" placeholder="https://raw.githubusercontent.com/.../app.sgmodule" style="width:100%;margin-top:4px;padding:8px;border-radius:6px;border:1px solid rgba(148,163,184,0.3);background:transparent" />',
-          '  <p style="font-size:11px;opacity:0.75;margin:3px 0 0">支持 GitHub raw、jsDelivr 或任意公开 HTTP(S) 模块直链，自动国内镜像加速。</p>',
+          '  <label>远程 .sgmodule 链接 (URL)</label>',
+          '  <input type="url" id="sw-import-mod-url" class="sw-input" placeholder="https://raw.githubusercontent.com/.../app.sgmodule" />',
+          '  <p style="font-size:11px;margin:4px 0 0">支持 GitHub raw、jsDelivr 或任意公开 HTTP(S) 模块直链，自动国内镜像加速。</p>',
           '</div>',
           '<div style="margin-bottom:12px">',
-          '  <label style="font-size:12px;font-weight:600">自定义模块名称 (选填)</label>',
-          '  <input type="text" id="sw-import-mod-name" placeholder="留空则自动从模块 #!name= 读取" style="width:100%;margin-top:4px;padding:8px;border-radius:6px;border:1px solid rgba(148,163,184,0.3);background:transparent" />',
+          '  <label>自定义模块名称 (选填)</label>',
+          '  <input type="text" id="sw-import-mod-name" class="sw-input" placeholder="留空则自动从模块 #!name= 读取" />',
           '</div>',
           '<div>',
-          '  <label style="font-size:12px;font-weight:600">模块分类</label>',
-          '  <select id="sw-import-mod-cat" style="width:100%;margin-top:4px;padding:8px;border-radius:6px;border:1px solid rgba(148,163,184,0.3);background:transparent">',
+          '  <label>模块分类</label>',
+          '  <select id="sw-import-mod-cat" class="sw-select">',
           '    <option value="app">App 净化</option>',
           '    <option value="media">流媒体增强</option>',
           '    <option value="privacy">隐私防追踪</option>',
@@ -762,12 +871,12 @@
       btnAddRawMod.onclick = function () {
         var html = [
           '<div style="margin-bottom:12px">',
-          '  <label style="font-size:12px;font-weight:600">模块名称</label>',
-          '  <input type="text" id="sw-raw-mod-name" placeholder="例如：知乎去推荐流" style="width:100%;margin-top:4px;padding:8px;border-radius:6px;border:1px solid rgba(148,163,184,0.3);background:transparent" />',
+          '  <label>模块名称</label>',
+          '  <input type="text" id="sw-raw-mod-name" class="sw-input" placeholder="例如：知乎去推荐流" />',
           '</div>',
           '<div>',
-          '  <label style="font-size:12px;font-weight:600">.sgmodule 原始文本</label>',
-          '  <textarea id="sw-raw-mod-content" rows="10" placeholder="请粘贴完整的 .sgmodule 文本内容" style="width:100%;margin-top:4px;padding:8px;font-family:monospace;font-size:12px;border-radius:8px;border:1px solid rgba(148,163,184,0.3);background:rgba(0,0,0,0.3);color:inherit"></textarea>',
+          '  <label>.sgmodule 原始文本</label>',
+          '  <textarea id="sw-raw-mod-content" class="sw-textarea" rows="12" placeholder="请粘贴完整的 .sgmodule 文本内容" spellcheck="false"></textarea>',
           '</div>'
         ].join('');
 
@@ -808,18 +917,18 @@
 
         var html = [
           '<div style="margin-bottom:12px">',
-          '  <label style="font-size:12px;font-weight:600">目标分流组</label>',
-          '  <select id="sw-rules-target-group" style="width:100%;margin-top:4px;padding:8px;border-radius:6px;border:1px solid rgba(148,163,184,0.3);background:transparent">' + options + '</select>',
+          '  <label>目标分流组</label>',
+          '  <select id="sw-rules-target-group" class="sw-select">' + options + '</select>',
           '</div>',
           '<div style="margin-bottom:12px">',
-          '  <label style="font-size:12px;font-weight:600">远程规则集 URL (.list / .txt)</label>',
-          '  <input type="url" id="sw-rules-url" placeholder="https://raw.githubusercontent.com/.../direct.list" style="width:100%;margin-top:4px;padding:8px;border-radius:6px;border:1px solid rgba(148,163,184,0.3);background:transparent" />',
+          '  <label>远程规则集 URL (.list / .txt)</label>',
+          '  <input type="url" id="sw-rules-url" class="sw-input" placeholder="https://raw.githubusercontent.com/.../direct.list" />',
           '</div>',
           '<div>',
-          '  <label style="font-size:12px;font-weight:600">导入模式</label>',
+          '  <label>导入模式</label>',
           '  <div style="display:flex;gap:16px;margin-top:6px;font-size:13px">',
-          '    <label><input type="radio" name="sw-rules-mode" value="append" checked /> 追加到现有规则</label>',
-          '    <label><input type="radio" name="sw-rules-mode" value="replace" /> 覆盖全组已有规则</label>',
+          '    <label style="cursor:pointer;display:inline-flex;align-items:center;gap:4px"><input type="radio" name="sw-rules-mode" value="append" checked /> 追加到现有规则</label>',
+          '    <label style="cursor:pointer;display:inline-flex;align-items:center;gap:4px"><input type="radio" name="sw-rules-mode" value="replace" /> 覆盖全组已有规则</label>',
           '  </div>',
           '</div>'
         ].join('');
@@ -867,12 +976,12 @@
 
         var html = [
           '<div style="margin-bottom:12px">',
-          '  <label style="font-size:12px;font-weight:600">目标分流组</label>',
-          '  <select id="sw-add-rule-gid" style="width:100%;margin-top:4px;padding:8px;border-radius:6px;border:1px solid rgba(148,163,184,0.3);background:transparent">' + options + '</select>',
+          '  <label>目标分流组</label>',
+          '  <select id="sw-add-rule-gid" class="sw-select">' + options + '</select>',
           '</div>',
           '<div style="margin-bottom:12px">',
-          '  <label style="font-size:12px;font-weight:600">匹配类型</label>',
-          '  <select id="sw-add-rule-type" style="width:100%;margin-top:4px;padding:8px;border-radius:6px;border:1px solid rgba(148,163,184,0.3);background:transparent">',
+          '  <label>匹配类型</label>',
+          '  <select id="sw-add-rule-type" class="sw-select">',
           '    <option value="DOMAIN-SUFFIX">DOMAIN-SUFFIX (后缀通配)</option>',
           '    <option value="DOMAIN">DOMAIN (完全匹配)</option>',
           '    <option value="DOMAIN-KEYWORD">DOMAIN-KEYWORD (关键字)</option>',
@@ -880,12 +989,12 @@
           '  </select>',
           '</div>',
           '<div style="margin-bottom:12px">',
-          '  <label style="font-size:12px;font-weight:600">匹配表达式 (域名/IP)</label>',
-          '  <input type="text" id="sw-add-rule-pat" placeholder="例如：example.com" style="width:100%;margin-top:4px;padding:8px;border-radius:6px;border:1px solid rgba(148,163,184,0.3);background:transparent" />',
+          '  <label>匹配表达式 (域名/IP)</label>',
+          '  <input type="text" id="sw-add-rule-pat" class="sw-input" placeholder="例如：example.com" />',
           '</div>',
           '<div>',
-          '  <label style="font-size:12px;font-weight:600">备注说明 (选填)</label>',
-          '  <input type="text" id="sw-add-rule-comment" placeholder="例如：办公内网" style="width:100%;margin-top:4px;padding:8px;border-radius:6px;border:1px solid rgba(148,163,184,0.3);background:transparent" />',
+          '  <label>备注说明 (选填)</label>',
+          '  <input type="text" id="sw-add-rule-comment" class="sw-input" placeholder="例如：办公内网" />',
           '</div>'
         ].join('');
 
@@ -1035,6 +1144,9 @@
         pcRoot.prepend(container);
       }
     }
+
+    // 确保自适应样式已注入
+    injectWorkbenchStyles();
 
     // 控制原生编辑器的显隐
     var sourceBar = q('.pc-sourcebar', pcRoot);
