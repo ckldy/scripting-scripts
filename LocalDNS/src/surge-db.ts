@@ -258,25 +258,32 @@ export class SurgeDatabase {
       `);
     }
 
-    // 检查默认分流组
-    const groupCount = await this.getDb().fetchOne<{ count: number }>('SELECT count(*) as count FROM diversion_groups');
-    if (groupCount && groupCount.count === 0) {
-      const defaultGroups: DiversionGroup[] = [
-        { id: 'block', name: '广告与黑洞拦截', surge_policy: 'REJECT', enabled: true, priority: 5, description: '恶意广告、隐私追踪与黑洞化域名，直接返回 0.0.0.0' },
-        { id: 'direct', name: '国内直连', surge_policy: 'DIRECT', enabled: true, priority: 10, description: '大陆主流服务、CDN 与局域网流量' },
-        { id: 'proxy', name: '节点代理', surge_policy: 'PROXY', enabled: true, priority: 20, description: '被阻断或需要代理加速的境外服务' },
-        { id: 'media', name: '海外流媒体', surge_policy: 'PROXY', enabled: true, priority: 30, description: 'YouTube, Netflix, Spotify, Disney+ 等流媒体' },
-        { id: 'game', name: '游戏加速', surge_policy: 'DIRECT', enabled: true, priority: 40, description: 'Steam, PSN, Xbox, Nintendo 等游戏下载' },
-        { id: 'apple', name: 'Apple服务', surge_policy: 'DIRECT', enabled: true, priority: 50, description: 'Apple 官方推送、App Store 与 iCloud' },
-      ];
-      for (const g of defaultGroups) {
+    // 确保 6 大默认分流组完整存在
+    const defaultGroups: DiversionGroup[] = [
+      { id: 'block', name: '广告与黑洞拦截', surge_policy: 'REJECT', enabled: true, priority: 5, description: '恶意广告、隐私追踪与黑洞化域名，直接返回 0.0.0.0' },
+      { id: 'direct', name: '国内直连', surge_policy: 'DIRECT', enabled: true, priority: 10, description: '大陆主流服务、CDN 与局域网流量' },
+      { id: 'proxy', name: '节点代理', surge_policy: 'PROXY', enabled: true, priority: 20, description: '被阻断或需要代理加速的境外服务' },
+      { id: 'media', name: '海外流媒体', surge_policy: 'PROXY', enabled: true, priority: 30, description: 'YouTube, Netflix, Spotify, Disney+ 等流媒体' },
+      { id: 'game', name: '游戏加速', surge_policy: 'DIRECT', enabled: true, priority: 40, description: 'Steam, PSN, Xbox, Nintendo 等游戏下载' },
+      { id: 'apple', name: 'Apple服务', surge_policy: 'DIRECT', enabled: true, priority: 50, description: 'Apple 官方推送、App Store 与 iCloud' },
+    ];
+    for (const g of defaultGroups) {
+      const exist = await this.getDb().fetchOne<any>('SELECT id FROM diversion_groups WHERE id = ?', [g.id]);
+      if (!exist) {
         await this.getDb().execute(
           'INSERT INTO diversion_groups (id, name, surge_policy, enabled, priority, description) VALUES (?, ?, ?, ?, ?, ?)',
           [g.id, g.name, g.surge_policy, g.enabled ? 1 : 0, g.priority, g.description]
         );
       }
+    }
 
-      // 默认分流规则种子
+    // 清理之前测试误生成的异常临时分组
+    await this.getDb().execute("DELETE FROM diversion_groups WHERE id LIKE 'direct%geoip%'");
+    await this.getDb().execute("DELETE FROM diversion_rules WHERE group_id LIKE 'direct%geoip%'");
+
+    // 默认分流规则种子 (若无规则时填充基础规则)
+    const ruleCount = await this.getDb().fetchOne<{ count: number }>('SELECT count(*) as count FROM diversion_rules');
+    if (ruleCount && ruleCount.count === 0) {
       const defaultRules: Array<{ group: string; type: DiversionRule['match_type']; pattern: string; comment: string }> = [
         { group: 'block', type: 'DOMAIN-SUFFIX', pattern: 'adservice.google.com', comment: 'Google 广告' },
         { group: 'block', type: 'DOMAIN-KEYWORD', pattern: 'telemetry', comment: '遥测打点' },
@@ -301,15 +308,6 @@ export class SurgeDatabase {
         await this.getDb().execute(
           'INSERT INTO diversion_rules (group_id, match_type, pattern, enabled, comment, is_auto_learned) VALUES (?, ?, ?, 1, ?, 0)',
           [r.group, r.type, r.pattern, r.comment]
-        );
-      }
-    } else {
-      // 老数据库增量补齐 block 组
-      const blockGroup = await this.getDb().fetchOne<any>('SELECT id FROM diversion_groups WHERE id = ?', ['block']);
-      if (!blockGroup) {
-        await this.getDb().execute(
-          'INSERT INTO diversion_groups (id, name, surge_policy, enabled, priority, description) VALUES (?, ?, ?, ?, ?, ?)',
-          ['block', '广告与黑洞拦截', 'REJECT', 1, 5, '恶意广告、隐私追踪与黑洞化域名，直接返回 0.0.0.0']
         );
       }
     }
@@ -638,18 +636,31 @@ export class SurgeDatabase {
   ): Promise<number> {
     await this.init();
     await this.getDb().execute('DELETE FROM diversion_rules WHERE group_id = ?', [groupId]);
-    let inserted = 0;
+    if (!rules || rules.length === 0) return 0;
+
+    const seen = new Set<string>();
+    const toInsert: Array<{ match_type: string; pattern: string; comment: string | null }> = [];
     for (const r of rules) {
       const p = String(r.pattern || '').trim().toLowerCase();
-      if (!p) continue;
-      await this.getDb().execute(
-        `INSERT INTO diversion_rules (group_id, match_type, pattern, enabled, comment, is_auto_learned)
-         VALUES (?, ?, ?, 1, ?, 0)`,
-        [groupId, r.match_type || 'DOMAIN-SUFFIX', p, r.comment || null]
-      );
-      inserted++;
+      if (!p || seen.has(p)) continue;
+      seen.add(p);
+      toInsert.push({
+        match_type: r.match_type || 'DOMAIN-SUFFIX',
+        pattern: p,
+        comment: r.comment || null,
+      });
     }
-    return inserted;
+
+    const batchSize = 2000;
+    for (let i = 0; i < toInsert.length; i += batchSize) {
+      const chunk = toInsert.slice(i, i + batchSize);
+      const steps: SQLite.TransactionStep[] = chunk.map((item) => ({
+        sql: 'INSERT INTO diversion_rules (group_id, match_type, pattern, enabled, comment, is_auto_learned) VALUES (?, ?, ?, 1, ?, 0)',
+        args: [groupId, item.match_type, item.pattern, item.comment],
+      }));
+      await this.getDb().transaction(steps);
+    }
+    return toInsert.length;
   }
 
   public async appendGroupRules(
@@ -657,24 +668,40 @@ export class SurgeDatabase {
     rules: Array<{ match_type: DiversionRule['match_type']; pattern: string; comment?: string }>
   ): Promise<number> {
     await this.init();
-    let appended = 0;
+    if (!rules || rules.length === 0) return 0;
+
+    // 一次性查出该组已存在的所有 pattern 进行 O(1) 查重
+    const existingRows = await this.getDb().fetchAll<{ pattern: string }>(
+      'SELECT pattern FROM diversion_rules WHERE group_id = ?',
+      [groupId]
+    );
+    const existingSet = new Set<string>();
+    for (const r of existingRows) existingSet.add(r.pattern.toLowerCase());
+
+    const toInsert: Array<{ match_type: string; pattern: string; comment: string | null }> = [];
     for (const r of rules) {
       const p = String(r.pattern || '').trim().toLowerCase();
-      if (!p) continue;
-      const exist = await this.getDb().fetchOne<any>(
-        'SELECT id FROM diversion_rules WHERE group_id = ? AND pattern = ?',
-        [groupId, p]
-      );
-      if (!exist) {
-        await this.getDb().execute(
-          `INSERT INTO diversion_rules (group_id, match_type, pattern, enabled, comment, is_auto_learned)
-           VALUES (?, ?, ?, 1, ?, 0)`,
-          [groupId, r.match_type || 'DOMAIN-SUFFIX', p, r.comment || null]
-        );
-        appended++;
-      }
+      if (!p || existingSet.has(p)) continue;
+      existingSet.add(p);
+      toInsert.push({
+        match_type: r.match_type || 'DOMAIN-SUFFIX',
+        pattern: p,
+        comment: r.comment || null,
+      });
     }
-    return appended;
+
+    if (toInsert.length === 0) return 0;
+
+    const batchSize = 2000;
+    for (let i = 0; i < toInsert.length; i += batchSize) {
+      const chunk = toInsert.slice(i, i + batchSize);
+      const steps: SQLite.TransactionStep[] = chunk.map((item) => ({
+        sql: 'INSERT INTO diversion_rules (group_id, match_type, pattern, enabled, comment, is_auto_learned) VALUES (?, ?, ?, 1, ?, 0)',
+        args: [groupId, item.match_type, item.pattern, item.comment],
+      }));
+      await this.getDb().transaction(steps);
+    }
+    return toInsert.length;
   }
 
   public async recordRuleHit(id: number): Promise<void> {

@@ -823,6 +823,44 @@ export class SurgeService {
       groupRulesMap.get(groupId)!.push(rule);
     };
 
+    const SURGE_OPTIONS = new Set(['NO-RESOLVE', 'EXTENDED-MATCHING', 'PRE-MATCHING', 'AUTO']);
+    const extractPolicy = (tokens: string[]): string => {
+      for (let i = 2; i < tokens.length; i++) {
+        const cleanTok = tokens[i].replace(/[^\w-]/g, '').trim();
+        if (cleanTok && !SURGE_OPTIONS.has(cleanTok.toUpperCase())) {
+          return cleanTok;
+        }
+      }
+      return 'DIRECT';
+    };
+
+    const cleanPattern = (type: string, rawPat: string) => {
+      let p = rawPat.trim();
+      let t = type.toUpperCase();
+      // 剥离端口号，例如 *.gyks.cf:443 -> *.gyks.cf
+      if (/:\d+$/.test(p)) {
+        p = p.replace(/:\d+$/, '');
+      }
+      // 通配符处理：例如 *.gyks.cf -> gyks.cf, 转换为 DOMAIN-SUFFIX
+      if (p.startsWith('*.')) {
+        p = p.slice(2);
+        if (t === 'DOMAIN') t = 'DOMAIN-SUFFIX';
+      } else if (p.startsWith('.')) {
+        p = p.slice(1);
+        if (t === 'DOMAIN') t = 'DOMAIN-SUFFIX';
+      }
+      return { type: t, pattern: p.toLowerCase() };
+    };
+
+    // 收集全部需要远程抓取的任务进行并发处理
+    interface RemoteTask {
+      targetGroupId: string;
+      url: string;
+      comment: string;
+      isReject: boolean;
+    }
+    const remoteTasks: RemoteTask[] = [];
+
     for (let rawLine of lines) {
       let line = rawLine.trim();
       if (!line) continue;
@@ -833,12 +871,19 @@ export class SurgeService {
         continue;
       }
 
-      // 剥离行尾注释 (避开 http:// 与 https:// 中的 //)
+      // 剥离行尾注释：支持 # 与 //，同时避开 http:// 与 https:// 中的 //
       let inlineComment = lastComment;
+      const hashIdx = line.indexOf('#');
+      if (hashIdx !== -1) {
+        const afterHash = line.slice(hashIdx + 1).trim();
+        if (afterHash) inlineComment = afterHash;
+        line = line.slice(0, hashIdx).trim();
+      }
       const slashMatch = line.match(/(^|[^:])\/\/(.*)$/);
       if (slashMatch && slashMatch.index !== undefined) {
         const cutAt = slashMatch.index + slashMatch[1].length;
-        inlineComment = line.slice(cutAt + 2).trim();
+        const afterSlash = line.slice(cutAt + 2).trim();
+        if (afterSlash) inlineComment = afterSlash;
         line = line.slice(0, cutAt).trim();
       }
 
@@ -847,7 +892,8 @@ export class SurgeService {
         // 纯域名兼容
         if (line.includes('.') && !line.includes(' ')) {
           const gid = targetOverride || 'direct';
-          addRuleToGroup(gid, { match_type: 'DOMAIN-SUFFIX', pattern: line, comment: inlineComment });
+          const cp = cleanPattern('DOMAIN-SUFFIX', line);
+          addRuleToGroup(gid, { match_type: cp.type, pattern: cp.pattern, comment: inlineComment });
           parsedRulesCount++;
           directCount++;
         }
@@ -860,66 +906,33 @@ export class SurgeService {
       if (typeUpper === 'RULE-SET') {
         parsedRulesCount++;
         const ruleSetUrl = tokens[1];
-        const rawPolicy = (tokens[2] || 'DIRECT').toUpperCase();
+        const rawPolicy = extractPolicy(tokens);
+        const policyUpper = rawPolicy.toUpperCase();
         let targetGroupId = targetOverride || '';
 
         let isReject = false;
         if (!targetGroupId) {
-          if (rawPolicy.startsWith('REJECT')) {
+          if (policyUpper.startsWith('REJECT')) {
             targetGroupId = 'block';
             isReject = true;
-          } else if (rawPolicy === 'DIRECT') {
+          } else if (policyUpper === 'DIRECT') {
             targetGroupId = 'direct';
-          } else if (rawPolicy === 'PROXY') {
+          } else if (policyUpper === 'PROXY') {
             targetGroupId = 'proxy';
           } else {
             // 自定义策略名（如 Media, HK-Node 等）
-            targetGroupId = rawPolicy.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+            targetGroupId = policyUpper.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
           }
         } else {
           isReject = targetGroupId === 'block';
         }
 
         // 确保目标分组存在
-        await this.db.ensureGroupExists(targetGroupId, undefined, rawPolicy);
+        await this.db.ensureGroupExists(targetGroupId, undefined, policyUpper);
 
-        // 若是远程 HTTP(S) 链接且需要自动展开内容
         if (downloadRuleSets && (ruleSetUrl.startsWith('http://') || ruleSetUrl.startsWith('https://'))) {
-          try {
-            const { text: remoteContent } = await this.fetchRemoteText(ruleSetUrl);
-            const extracted = this.parseRulesList(remoteContent);
-            ruleSetsFetchedCount++;
-
-            for (const r of extracted) {
-              addRuleToGroup(targetGroupId, {
-                match_type: r.match_type,
-                pattern: r.pattern,
-                comment: r.comment || inlineComment || `来自 ${ruleSetUrl.split('/').pop()}`,
-              });
-            }
-
-            if (isReject) {
-              rejectCount += extracted.length;
-            } else if (targetGroupId === 'direct') {
-              directCount += extracted.length;
-            } else if (targetGroupId === 'proxy') {
-              proxyCount += extracted.length;
-            } else {
-              otherCount += extracted.length;
-            }
-
-            details.push(`RULE-SET [${ruleSetUrl.split('/').pop()}]: 成功抓取并展开 ${extracted.length} 条规则至 [${targetGroupId}]`);
-          } catch (e: any) {
-            // 抓取失败时保留该引用链接，不中断主流程
-            addRuleToGroup(targetGroupId, {
-              match_type: 'RULE-SET',
-              pattern: ruleSetUrl,
-              comment: (inlineComment ? inlineComment + ' · ' : '') + `抓取失败，保留引用: ${e?.message || e}`,
-            });
-            details.push(`RULE-SET [${ruleSetUrl.split('/').pop()}]: 下载失败 (${e?.message || e})，已保留原引用`);
-          }
+          remoteTasks.push({ targetGroupId, url: ruleSetUrl, comment: inlineComment, isReject });
         } else {
-          // 不下载或本地路径，直接存为引用规则
           addRuleToGroup(targetGroupId, {
             match_type: 'RULE-SET',
             pattern: ruleSetUrl,
@@ -939,31 +952,32 @@ export class SurgeService {
       // 2. 处理内联规则 (DOMAIN, DOMAIN-SUFFIX, IP-CIDR 等)
       if (['DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'IP-CIDR', 'IP-CIDR6', 'GEOIP', 'USER-AGENT', 'URL-REGEX'].includes(typeUpper)) {
         parsedRulesCount++;
-        const pattern = tokens[1];
-        const rawPolicy = (tokens[2] || 'DIRECT').toUpperCase();
+        const rawPolicy = extractPolicy(tokens);
+        const policyUpper = rawPolicy.toUpperCase();
         let targetGroupId = targetOverride || '';
 
         let isReject = false;
         if (!targetGroupId) {
-          if (rawPolicy.startsWith('REJECT')) {
+          if (policyUpper.startsWith('REJECT')) {
             targetGroupId = 'block';
             isReject = true;
-          } else if (rawPolicy === 'DIRECT') {
+          } else if (policyUpper === 'DIRECT') {
             targetGroupId = 'direct';
-          } else if (rawPolicy === 'PROXY') {
+          } else if (policyUpper === 'PROXY') {
             targetGroupId = 'proxy';
           } else {
-            targetGroupId = rawPolicy.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+            targetGroupId = policyUpper.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
           }
         } else {
           isReject = targetGroupId === 'block';
         }
 
-        await this.db.ensureGroupExists(targetGroupId, undefined, rawPolicy);
+        await this.db.ensureGroupExists(targetGroupId, undefined, policyUpper);
 
+        const cp = cleanPattern(typeUpper, tokens[1]);
         addRuleToGroup(targetGroupId, {
-          match_type: typeUpper,
-          pattern,
+          match_type: cp.type,
+          pattern: cp.pattern,
           comment: inlineComment,
         });
 
@@ -975,6 +989,53 @@ export class SurgeService {
         lastComment = '';
         continue;
       }
+    }
+
+    // 并发抓取远程规则集（6 并发线程池，性能最大化）
+    if (remoteTasks.length > 0) {
+      const concurrency = 6;
+      let taskIdx = 0;
+      const worker = async () => {
+        while (taskIdx < remoteTasks.length) {
+          const t = remoteTasks[taskIdx++];
+          try {
+            const { text: remoteContent } = await this.fetchRemoteText(t.url);
+            const extracted = this.parseRulesList(remoteContent);
+            ruleSetsFetchedCount++;
+
+            for (const r of extracted) {
+              const cp = cleanPattern(r.match_type, r.pattern);
+              addRuleToGroup(t.targetGroupId, {
+                match_type: cp.type,
+                pattern: cp.pattern,
+                comment: r.comment || t.comment || `来自 ${t.url.split('/').pop()}`,
+              });
+            }
+
+            if (t.isReject) {
+              rejectCount += extracted.length;
+            } else if (t.targetGroupId === 'direct') {
+              directCount += extracted.length;
+            } else if (t.targetGroupId === 'proxy') {
+              proxyCount += extracted.length;
+            } else {
+              otherCount += extracted.length;
+            }
+
+            details.push(`RULE-SET [${t.url.split('/').pop()}]: 成功抓取并展开 ${extracted.length} 条规则至 [${t.targetGroupId}]`);
+          } catch (e: any) {
+            addRuleToGroup(t.targetGroupId, {
+              match_type: 'RULE-SET',
+              pattern: t.url,
+              comment: (t.comment ? t.comment + ' · ' : '') + `抓取失败，保留引用: ${e?.message || e}`,
+            });
+            details.push(`RULE-SET [${t.url.split('/').pop()}]: 下载失败 (${e?.message || e})，已保留原引用`);
+          }
+        }
+      };
+
+      const workers = new Array(Math.min(concurrency, remoteTasks.length)).fill(0).map(() => worker());
+      await Promise.all(workers);
     }
 
     // 3. 批量持久化写入数据库
