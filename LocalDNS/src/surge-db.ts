@@ -54,12 +54,13 @@ export interface DiversionGroup {
   enabled: boolean;
   priority: number;
   description: string | null;
+  rule_count?: number;
 }
 
 export interface DiversionRule {
   id?: number;
   group_id: string;
-  match_type: 'DOMAIN' | 'DOMAIN-SUFFIX' | 'DOMAIN-KEYWORD' | 'IP-CIDR' | 'GEOIP';
+  match_type: 'DOMAIN' | 'DOMAIN-SUFFIX' | 'DOMAIN-KEYWORD' | 'IP-CIDR' | 'GEOIP' | 'RULE-SET' | string;
   pattern: string;
   enabled: boolean;
   comment?: string | null;
@@ -131,6 +132,11 @@ export class SurgeDatabase {
 
       const dbPath = Path.join(baseDir, 'surge_link.db');
       this.db = SQLite.open(dbPath);
+      try {
+        await this.db.execute('PRAGMA busy_timeout = 5000;');
+      } catch (e) {
+        console.warn('Failed to set busy_timeout for SQLite:', e);
+      }
 
       await this.createTables();
       await this.seedDefaults();
@@ -491,7 +497,13 @@ export class SurgeDatabase {
 
   public async getDiversionGroups(): Promise<DiversionGroup[]> {
     await this.init();
-    const rows = await this.getDb().fetchAll<any>('SELECT * FROM diversion_groups ORDER BY priority ASC, id ASC');
+    const rows = await this.getDb().fetchAll<any>(`
+      SELECT g.*, COUNT(r.id) as rule_count
+      FROM diversion_groups g
+      LEFT JOIN diversion_rules r ON g.id = r.group_id
+      GROUP BY g.id
+      ORDER BY g.priority ASC, g.id ASC
+    `);
     return rows.map((r: any) => ({
       id: r.id,
       name: r.name,
@@ -499,12 +511,19 @@ export class SurgeDatabase {
       enabled: Boolean(r.enabled),
       priority: r.priority,
       description: r.description,
+      rule_count: Number(r.rule_count || 0),
     }));
   }
 
   public async getDiversionGroup(id: string): Promise<DiversionGroup | null> {
     await this.init();
-    const r = await this.getDb().fetchOne<any>('SELECT * FROM diversion_groups WHERE id = ?', [id]);
+    const r = await this.getDb().fetchOne<any>(`
+      SELECT g.*, COUNT(r.id) as rule_count
+      FROM diversion_groups g
+      LEFT JOIN diversion_rules r ON g.id = r.group_id
+      WHERE g.id = ?
+      GROUP BY g.id
+    `, [id]);
     if (!r) return null;
     return {
       id: r.id,
@@ -513,6 +532,7 @@ export class SurgeDatabase {
       enabled: Boolean(r.enabled),
       priority: r.priority,
       description: r.description,
+      rule_count: Number(r.rule_count || 0),
     };
   }
 
@@ -552,6 +572,79 @@ export class SurgeDatabase {
   public async deleteDiversionGroup(id: string): Promise<void> {
     await this.init();
     await this.getDb().execute('DELETE FROM diversion_groups WHERE id = ?', [id]);
+  }
+
+  public async getDiversionRule(id: number): Promise<DiversionRule | null> {
+    await this.init();
+    const r = await this.getDb().fetchOne<any>('SELECT * FROM diversion_rules WHERE id = ?', [id]);
+    if (!r) return null;
+    return {
+      id: r.id,
+      group_id: r.group_id,
+      match_type: r.match_type,
+      pattern: r.pattern,
+      enabled: Boolean(r.enabled),
+      comment: r.comment,
+      is_auto_learned: Boolean(r.is_auto_learned),
+      hit_count: r.hit_count,
+      last_hit_at: r.last_hit_at,
+    };
+  }
+
+  public async getDiversionRulesPaged(options: {
+    groupId?: string;
+    search?: string;
+    matchType?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ total: number; rules: DiversionRule[] }> {
+    await this.init();
+    const whereParts: string[] = [];
+    const params: any[] = [];
+
+    if (options.groupId) {
+      whereParts.push('group_id = ?');
+      params.push(options.groupId);
+    }
+    if (options.matchType && options.matchType !== 'ALL') {
+      whereParts.push('match_type = ?');
+      params.push(options.matchType);
+    }
+    if (options.search && options.search.trim()) {
+      const q = `%${options.search.trim().toLowerCase()}%`;
+      whereParts.push("(LOWER(pattern) LIKE ? OR LOWER(COALESCE(comment, '')) LIKE ?)");
+      params.push(q, q);
+    }
+
+    const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
+
+    const countRow = await this.getDb().fetchOne<{ total: number }>(
+      `SELECT COUNT(*) as total FROM diversion_rules ${whereSql}`,
+      params
+    );
+    const total = countRow ? Number(countRow.total) : 0;
+
+    const limit = Math.max(1, Math.min(500, options.limit || 50));
+    const offset = Math.max(0, options.offset || 0);
+
+    const rows = await this.getDb().fetchAll<any>(
+      `SELECT * FROM diversion_rules ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    const rules: DiversionRule[] = rows.map((r: any) => ({
+      id: r.id,
+      group_id: r.group_id,
+      match_type: r.match_type,
+      pattern: r.pattern,
+      enabled: Boolean(r.enabled),
+      comment: r.comment,
+      is_auto_learned: Boolean(r.is_auto_learned),
+      hit_count: r.hit_count,
+      last_hit_at: r.last_hit_at,
+    }));
+
+    return { total, rules };
   }
 
   public async getDiversionRules(groupId?: string): Promise<DiversionRule[]> {

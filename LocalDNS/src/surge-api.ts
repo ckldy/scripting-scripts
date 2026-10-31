@@ -226,8 +226,30 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
   if (path === '/api/v1/surge/diversion/rules' || path === '/api/v1/surge/diversion/rules/') {
     const getParam = (k: string) => req.queryParams?.find((p) => p.key === k)?.value;
     const groupId = getParam('group');
+    const search = getParam('search') || getParam('q');
+    const matchType = getParam('type') || getParam('match_type');
+    const paged = getParam('paged') === '1' || getParam('paged') === 'true' || search !== undefined || getParam('limit') !== undefined;
 
     if (method === 'GET') {
+      if (paged) {
+        const limit = Number(getParam('limit')) || 50;
+        const offset = Number(getParam('offset')) || 0;
+        const res = await db.getDiversionRulesPaged({
+          groupId: groupId || undefined,
+          search: search || undefined,
+          matchType: matchType || undefined,
+          limit,
+          offset,
+        });
+        return jsonResponse({
+          success: true,
+          total: res.total,
+          limit,
+          offset,
+          rules: res.rules,
+        });
+      }
+
       const rules = await db.getDiversionRules(groupId);
       return jsonResponse({ success: true, count: rules.length, rules });
     }
@@ -247,7 +269,7 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
       };
       const ruleId = await db.saveDiversionRule(rule);
       service.scheduleSurgeSync();
-      return jsonResponse({ success: true, id: ruleId, rule });
+      return jsonResponse({ success: true, id: ruleId, rule: { ...rule, id: ruleId } });
     }
   }
 

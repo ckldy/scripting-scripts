@@ -117,6 +117,44 @@
       '  background: rgba(0, 0, 0, 0.45) !important;',
       '  border-color: rgba(255, 255, 255, 0.15) !important;',
       '  color: #A7F3D0 !important;',
+      '}',
+      '/* 大号弹窗与明细管理列表 */',
+      '.sw-modal-panel.sw-modal-large {',
+      '  max-width: 860px !important;',
+      '  width: 95vw !important;',
+      '}',
+      '.sw-rule-item {',
+      '  display: flex !important;',
+      '  align-items: center !important;',
+      '  justify-content: space-between !important;',
+      '  padding: 8px 12px !important;',
+      '  border-radius: 8px !important;',
+      '  background: rgba(0, 0, 0, 0.02) !important;',
+      '  border: 1px solid rgba(148, 163, 184, 0.18) !important;',
+      '  gap: 10px !important;',
+      '  font-size: 13px !important;',
+      '  transition: background 0.15s, border-color 0.15s !important;',
+      '}',
+      '.sw-rule-item:hover {',
+      '  background: rgba(0, 0, 0, 0.05) !important;',
+      '  border-color: rgba(148, 163, 184, 0.35) !important;',
+      '}',
+      'html[data-theme="dark-glass"] .sw-rule-item {',
+      '  background: rgba(255, 255, 255, 0.03) !important;',
+      '  border-color: rgba(255, 255, 255, 0.08) !important;',
+      '}',
+      'html[data-theme="dark-glass"] .sw-rule-item:hover {',
+      '  background: rgba(255, 255, 255, 0.07) !important;',
+      '  border-color: rgba(255, 255, 255, 0.16) !important;',
+      '}',
+      '.sw-badge {',
+      '  font-size: 11px !important;',
+      '  font-weight: 600 !important;',
+      '  padding: 2px 7px !important;',
+      '  border-radius: 5px !important;',
+      '  display: inline-block !important;',
+      '  font-family: ui-monospace, SFMono-Regular, monospace !important;',
+      '  white-space: nowrap !important;',
       '}'
     ].join('\n');
     document.head.appendChild(style);
@@ -151,8 +189,9 @@
     }, 2800);
   }
 
-  function openModal(title, contentHtml, onConfirm, confirmText) {
+  function openModal(title, contentHtml, onConfirm, confirmText, options) {
     injectWorkbenchStyles();
+    options = options || {};
     var modal = q('#sw-global-modal');
     if (!modal) {
       modal = document.createElement('div');
@@ -165,7 +204,7 @@
         '    <button type="button" class="icon-button" id="sw-modal-close" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px 8px">✕</button>',
         '  </div>',
         '  <div id="sw-modal-body" style="flex:1;overflow-y:auto;padding-right:4px"></div>',
-        '  <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;padding-top:12px;border-top:1px solid rgba(148,163,184,0.15);flex-shrink:0">',
+        '  <div id="sw-modal-footer" style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;padding-top:12px;border-top:1px solid rgba(148,163,184,0.15);flex-shrink:0">',
         '    <button type="button" class="button" id="sw-modal-cancel">取消</button>',
         '    <button type="button" class="button primary" id="sw-modal-ok">确定</button>',
         '  </div>',
@@ -175,6 +214,25 @@
 
       q('#sw-modal-close', modal).onclick = closeModal;
       q('#sw-modal-cancel', modal).onclick = closeModal;
+    }
+
+    var panel = q('.sw-modal-panel', modal);
+    if (panel) {
+      if (options.large) {
+        panel.classList.add('sw-modal-large');
+      } else {
+        panel.classList.remove('sw-modal-large');
+      }
+    }
+
+    var footer = q('#sw-modal-footer', modal);
+    if (footer) {
+      footer.style.display = options.hideFooter ? 'none' : 'flex';
+      var cancelBtn = q('#sw-modal-cancel', modal);
+      if (cancelBtn) {
+        cancelBtn.style.display = options.hideCancel ? 'none' : '';
+        cancelBtn.textContent = options.cancelText || '取消';
+      }
     }
 
     q('#sw-modal-title', modal).textContent = title;
@@ -196,6 +254,57 @@
 
   function closeModal() {
     var modal = q('#sw-global-modal');
+    if (modal) {
+      modal.style.opacity = '0';
+      setTimeout(function () { modal.style.display = 'none'; }, 200);
+    }
+  }
+
+  function openSubModal(title, contentHtml, onConfirm, confirmText) {
+    injectWorkbenchStyles();
+    var modal = q('#sw-sub-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'sw-sub-modal';
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:99998;padding:16px;opacity:0;transition:opacity 0.2s';
+      modal.innerHTML = [
+        '<div class="sw-modal-panel glass-card" style="max-width:520px;z-index:99999">',
+        '  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-shrink:0">',
+        '    <h3 id="sw-sub-modal-title" style="margin:0;font-size:15px;font-weight:600"></h3>',
+        '    <button type="button" class="icon-button" id="sw-sub-modal-close" style="background:none;border:none;font-size:18px;cursor:pointer;padding:4px 8px">✕</button>',
+        '  </div>',
+        '  <div id="sw-sub-modal-body" style="flex:1;overflow-y:auto;padding-right:4px"></div>',
+        '  <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;padding-top:12px;border-top:1px solid rgba(148,163,184,0.15);flex-shrink:0">',
+        '    <button type="button" class="button" id="sw-sub-modal-cancel">取消</button>',
+        '    <button type="button" class="button primary" id="sw-sub-modal-ok">确定</button>',
+        '  </div>',
+        '</div>'
+      ].join('');
+      document.body.appendChild(modal);
+
+      q('#sw-sub-modal-close', modal).onclick = closeSubModal;
+      q('#sw-sub-modal-cancel', modal).onclick = closeSubModal;
+    }
+
+    q('#sw-sub-modal-title', modal).textContent = title;
+    q('#sw-sub-modal-body', modal).innerHTML = contentHtml;
+    var okBtn = q('#sw-sub-modal-ok', modal);
+    okBtn.textContent = confirmText || '确定';
+    okBtn.onclick = async function () {
+      if (onConfirm) {
+        var shouldClose = await onConfirm();
+        if (shouldClose !== false) closeSubModal();
+      } else {
+        closeSubModal();
+      }
+    };
+
+    modal.style.display = 'flex';
+    requestAnimationFrame(function () { modal.style.opacity = '1'; });
+  }
+
+  function closeSubModal() {
+    var modal = q('#sw-sub-modal');
     if (modal) {
       modal.style.opacity = '0';
       setTimeout(function () { modal.style.display = 'none'; }, 200);
@@ -281,14 +390,24 @@
       '<div class="sw-panel" id="sw-panel-diversion">',
       '  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">',
       '    <div>',
-      '      <h2 style="font-size:16px;margin:0 0 4px">动态分流规则组</h2>',
-      '      <p style="font-size:12px;opacity:0.75;margin:0">每个分流组独立生成在线 RULE-SET 订阅链接，Surge 引用后即可零重启热更新。</p>',
+      '      <h2 style="font-size:16px;margin:0 0 4px">动态分流规则治理中枢</h2>',
+      '      <p style="font-size:12px;opacity:0.75;margin:0">全量分流规则入库 SQLite 托管，支持单条细则增删改查、全组多行编辑与零重启动态订阅。</p>',
       '    </div>',
       '    <div style="display:flex;gap:8px;flex-wrap:wrap">',
       '      <button type="button" class="button small primary" id="sw-btn-batch-rules" style="background:#8B5CF6;color:#fff;border-color:transparent">⚡️ 批量导入 Surge 规则 (一键清洗)</button>',
       '      <button type="button" class="button small" id="sw-btn-import-remote-rules">🌐 导入远程规则集 (URL)</button>',
-      '      <button type="button" class="button small" id="sw-btn-add-rule">+ 添加单个域名</button>',
+      '      <button type="button" class="button small" id="sw-btn-add-rule">+ 添加单条规则</button>',
+      '      <button type="button" class="button small" id="sw-btn-create-group">+ 新建分流组</button>',
       '    </div>',
+      '  </div>',
+      '  <!-- 规则治理体征与统计概览卡片 -->',
+      '  <div id="sw-diversion-summary" class="glass-card" style="padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;font-size:13px">',
+      '    <div style="display:flex;gap:18px;flex-wrap:wrap">',
+      '      <span><strong>分流规则组：</strong><span id="sw-stat-total-groups" style="color:#3B82F6;font-weight:700">0</span> 组</span>',
+      '      <span><strong>已收录规则总量：</strong><span id="sw-stat-total-rules" style="color:#10B981;font-weight:700">0</span> 条</span>',
+      '      <span><strong>已启用分流组：</strong><span id="sw-stat-active-groups" style="color:#8B5CF6;font-weight:700">0</span> 组</span>',
+      '    </div>',
+      '    <div style="font-size:12px;opacity:0.75">💡 点击每个分流组卡片上的「📋 规则明细」即可搜索、修改或删除细则条目</div>',
       '  </div>',
       '  <div id="sw-groups-list" style="display:flex;flex-direction:column;gap:12px">',
       '    <div style="padding:20px;text-align:center;opacity:0.6">正在加载分流数据库…</div>',
@@ -550,6 +669,569 @@
     }
   }
 
+  // ==================== 分流治理细则与分组管理 ====================
+
+  function getBadgeStyle(type) {
+    if (type === 'DOMAIN-SUFFIX') return 'background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.3)';
+    if (type === 'DOMAIN') return 'background:rgba(59,130,246,0.15);color:#3B82F6;border:1px solid rgba(59,130,246,0.3)';
+    if (type === 'DOMAIN-KEYWORD') return 'background:rgba(245,158,11,0.15);color:#F59E0B;border:1px solid rgba(245,158,11,0.3)';
+    if (type === 'IP-CIDR') return 'background:rgba(99,102,241,0.15);color:#6366F1;border:1px solid rgba(99,102,241,0.3)';
+    if (type === 'RULE-SET') return 'background:rgba(139,92,246,0.15);color:#8B5CF6;border:1px solid rgba(139,92,246,0.3)';
+    return 'background:rgba(148,163,184,0.15);color:#94A3B8;border:1px solid rgba(148,163,184,0.3)';
+  }
+
+  // 单条规则编辑弹窗
+  function openEditRuleModal(rule, onDone) {
+    var html = [
+      '<div style="margin-bottom:12px">',
+      '  <label>所属分流组</label>',
+      '  <input type="text" class="sw-input" disabled value="' + rule.group_id + '" style="opacity:0.75" />',
+      '</div>',
+      '<div style="margin-bottom:12px">',
+      '  <label>匹配类型</label>',
+      '  <select id="sw-er-type" class="sw-select">',
+      '    <option value="DOMAIN-SUFFIX"' + (rule.match_type === 'DOMAIN-SUFFIX' ? ' selected' : '') + '>DOMAIN-SUFFIX (后缀通配)</option>',
+      '    <option value="DOMAIN"' + (rule.match_type === 'DOMAIN' ? ' selected' : '') + '>DOMAIN (完全匹配)</option>',
+      '    <option value="DOMAIN-KEYWORD"' + (rule.match_type === 'DOMAIN-KEYWORD' ? ' selected' : '') + '>DOMAIN-KEYWORD (关键字)</option>',
+      '    <option value="IP-CIDR"' + (rule.match_type === 'IP-CIDR' ? ' selected' : '') + '>IP-CIDR (网段)</option>',
+      '    <option value="RULE-SET"' + (rule.match_type === 'RULE-SET' ? ' selected' : '') + '>RULE-SET (远程规则集)</option>',
+      '  </select>',
+      '</div>',
+      '<div style="margin-bottom:12px">',
+      '  <label>匹配表达式 (域名 / IP / 规则集 URL)</label>',
+      '  <input type="text" id="sw-er-pat" class="sw-input" value="' + (rule.pattern || '') + '" />',
+      '</div>',
+      '<div style="margin-bottom:12px">',
+      '  <label>备注说明 (选填)</label>',
+      '  <input type="text" id="sw-er-comment" class="sw-input" value="' + (rule.comment || '') + '" />',
+      '</div>',
+      '<div>',
+      '  <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:13px">',
+      '    <input type="checkbox" id="sw-er-enabled" ' + (rule.enabled ? 'checked' : '') + ' /> 规则生效启用',
+      '  </label>',
+      '</div>'
+    ].join('');
+
+    openSubModal('✏️ 编辑单条分流规则 (ID: ' + rule.id + ')', html, async function () {
+      var pat = q('#sw-er-pat').value.trim();
+      var type = q('#sw-er-type').value;
+      var comment = q('#sw-er-comment').value.trim();
+      var enabled = q('#sw-er-enabled').checked;
+      if (!pat) { alert('请输入匹配表达式'); return false; }
+
+      var payload = {
+        id: rule.id,
+        group_id: rule.group_id,
+        match_type: type,
+        pattern: pat,
+        comment: comment,
+        enabled: enabled,
+      };
+
+      try {
+        var res = await fetch('/api/v1/surge/diversion/rules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        var data = await res.json();
+        if (data.success) {
+          toast('规则已修改', pat);
+          if (onDone) onDone();
+          return true;
+        } else {
+          alert('修改失败: ' + (data.error || '未知错误'));
+          return false;
+        }
+      } catch (e) {
+        alert('网络异常: ' + e.message);
+        return false;
+      }
+    }, '保存修改');
+  }
+
+  // 在明细弹窗内直接添加单条规则
+  function openAddRuleInGroupModal(groupId, onDone) {
+    var html = [
+      '<div style="margin-bottom:12px">',
+      '  <label>所属分流组</label>',
+      '  <input type="text" class="sw-input" disabled value="' + groupId + '" style="opacity:0.75" />',
+      '</div>',
+      '<div style="margin-bottom:12px">',
+      '  <label>匹配类型</label>',
+      '  <select id="sw-ar-type" class="sw-select">',
+      '    <option value="DOMAIN-SUFFIX">DOMAIN-SUFFIX (后缀通配)</option>',
+      '    <option value="DOMAIN">DOMAIN (完全匹配)</option>',
+      '    <option value="DOMAIN-KEYWORD">DOMAIN-KEYWORD (关键字)</option>',
+      '    <option value="IP-CIDR">IP-CIDR (网段)</option>',
+      '    <option value="RULE-SET">RULE-SET (远程规则集)</option>',
+      '  </select>',
+      '</div>',
+      '<div style="margin-bottom:12px">',
+      '  <label>匹配表达式 (域名 / IP / 规则集 URL)</label>',
+      '  <input type="text" id="sw-ar-pat" class="sw-input" placeholder="例如：example.com 或 https://..." />',
+      '</div>',
+      '<div>',
+      '  <label>备注说明 (选填)</label>',
+      '  <input type="text" id="sw-ar-comment" class="sw-input" placeholder="例如：自定义规则" />',
+      '</div>'
+    ].join('');
+
+    openSubModal('➕ 添加规则到分流组: ' + groupId, html, async function () {
+      var pat = q('#sw-ar-pat').value.trim();
+      var type = q('#sw-ar-type').value;
+      var comment = q('#sw-ar-comment').value.trim();
+      if (!pat) { alert('请输入匹配表达式'); return false; }
+
+      var payload = {
+        group_id: groupId,
+        match_type: type,
+        pattern: pat,
+        comment: comment,
+        enabled: true,
+      };
+
+      try {
+        var res = await fetch('/api/v1/surge/diversion/rules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        var data = await res.json();
+        if (data.success) {
+          toast('规则已添加', pat);
+          if (onDone) onDone();
+          return true;
+        } else {
+          alert('添加失败: ' + (data.error || '未知错误'));
+          return false;
+        }
+      } catch (e) {
+        alert('网络异常: ' + e.message);
+        return false;
+      }
+    }, '立即添加');
+  }
+
+  // 规则明细管理大弹窗（支持搜索、类型筛选、分页翻页、启禁与修改删除）
+  async function openRulesDetailModal(groupId, groupName) {
+    var curPage = 1;
+    var pageSize = 20;
+    var curSearch = '';
+    var curType = 'ALL';
+    var totalCount = 0;
+
+    var containerHtml = [
+      '<div style="display:flex;flex-direction:column;gap:12px">',
+      '  <!-- 工具栏 -->',
+      '  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding-bottom:10px;border-bottom:1px solid rgba(148,163,184,0.15)">',
+      '    <div style="display:flex;gap:8px;flex:1;min-width:260px;flex-wrap:wrap">',
+      '      <input type="text" id="sw-rd-search" class="sw-input" placeholder="🔍 搜索域名、IP 或备注..." style="margin-top:0;flex:1;min-width:180px" />',
+      '      <select id="sw-rd-type" class="sw-select" style="margin-top:0;width:150px">',
+      '        <option value="ALL">全部类型</option>',
+      '        <option value="DOMAIN-SUFFIX">DOMAIN-SUFFIX</option>',
+      '        <option value="DOMAIN">DOMAIN</option>',
+      '        <option value="DOMAIN-KEYWORD">DOMAIN-KEYWORD</option>',
+      '        <option value="IP-CIDR">IP-CIDR</option>',
+      '        <option value="RULE-SET">RULE-SET</option>',
+      '      </select>',
+      '    </div>',
+      '    <div style="display:flex;gap:6px">',
+      '      <button type="button" class="button small primary" id="sw-rd-btn-add" style="background:#10B981;color:#fff;border-color:transparent">+ 添加规则</button>',
+      '      <button type="button" class="button small" id="sw-rd-btn-refresh">🔄 刷新</button>',
+      '    </div>',
+      '  </div>',
+      '  <!-- 规则列表容器 -->',
+      '  <div id="sw-rd-list" style="max-height:56vh;overflow-y:auto;min-height:220px;display:flex;flex-direction:column;gap:6px;padding-right:4px">',
+      '    <div style="text-align:center;padding:40px;opacity:0.6">正在检索数据库…</div>',
+      '  </div>',
+      '  <!-- 底部分页控制 -->',
+      '  <div style="display:flex;justify-content:space-between;align-items:center;padding-top:10px;border-top:1px solid rgba(148,163,184,0.15);font-size:12px;flex-wrap:wrap;gap:8px">',
+      '    <span id="sw-rd-page-info" style="opacity:0.85">共 0 条规则</span>',
+      '    <div style="display:flex;gap:6px;align-items:center">',
+      '      <button type="button" class="button small" id="sw-rd-prev" disabled>上一页</button>',
+      '      <span id="sw-rd-cur-page" style="font-weight:600;min-width:32px;text-align:center">1</span>',
+      '      <button type="button" class="button small" id="sw-rd-next" disabled>下一页</button>',
+      '    </div>',
+      '  </div>',
+      '</div>'
+    ].join('');
+
+    openModal('📋 分流规则明细: ' + groupName + ' (' + groupId + ')', containerHtml, null, '关闭', {
+      large: true,
+      hideCancel: true,
+    });
+
+    var listEl = q('#sw-rd-list');
+    var searchInput = q('#sw-rd-search');
+    var typeSelect = q('#sw-rd-type');
+    var pageInfo = q('#sw-rd-page-info');
+    var curPageEl = q('#sw-rd-cur-page');
+    var prevBtn = q('#sw-rd-prev');
+    var nextBtn = q('#sw-rd-next');
+    var addBtn = q('#sw-rd-btn-add');
+    var refreshBtn = q('#sw-rd-btn-refresh');
+
+    var searchTimer = null;
+
+    async function fetchAndRender() {
+      if (!listEl) return;
+      listEl.innerHTML = '<div style="text-align:center;padding:30px;opacity:0.6">正在读取规则记录…</div>';
+      var offset = (curPage - 1) * pageSize;
+      var url = '/api/v1/surge/diversion/rules?paged=1&group=' + encodeURIComponent(groupId) +
+                '&limit=' + pageSize + '&offset=' + offset;
+      if (curSearch) url += '&search=' + encodeURIComponent(curSearch);
+      if (curType && curType !== 'ALL') url += '&type=' + encodeURIComponent(curType);
+
+      try {
+        var res = await fetch(url);
+        var data = await res.json();
+        totalCount = data.total || 0;
+        var rules = data.rules || [];
+        var maxPage = Math.max(1, Math.ceil(totalCount / pageSize));
+
+        if (curPageEl) curPageEl.textContent = curPage + ' / ' + maxPage;
+        if (pageInfo) pageInfo.textContent = '共 ' + totalCount.toLocaleString() + ' 条规则';
+        if (prevBtn) prevBtn.disabled = (curPage <= 1);
+        if (nextBtn) nextBtn.disabled = (curPage >= maxPage);
+
+        if (rules.length === 0) {
+          listEl.innerHTML = '<div style="text-align:center;padding:40px;opacity:0.6">未查询到匹配的分流规则条目</div>';
+          return;
+        }
+
+        listEl.innerHTML = rules.map(function (r) {
+          var badgeCss = getBadgeStyle(r.match_type);
+          var commentHtml = r.comment ? '<span style="font-size:12px;opacity:0.75;margin-left:8px">// ' + r.comment + '</span>' : '';
+          var learnedBadge = r.is_auto_learned ? '<span class="sw-badge" style="background:rgba(245,158,11,0.15);color:#F59E0B;border:1px solid rgba(245,158,11,0.3);margin-left:6px">自愈学习</span>' : '';
+          var hitBadge = (r.hit_count && r.hit_count > 0) ? '<span style="font-size:11px;opacity:0.7;margin-left:6px">🎯 ' + r.hit_count + '</span>' : '';
+
+          return [
+            '<div class="sw-rule-item" data-id="' + r.id + '">',
+            '  <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">',
+            '    <span class="sw-badge" style="' + badgeCss + '">' + r.match_type + '</span>',
+            '    <code style="font-size:13px;font-weight:600;word-break:break-all">' + r.pattern + '</code>',
+            '    ' + commentHtml,
+            '    ' + learnedBadge,
+            '    ' + hitBadge,
+            '  </div>',
+            '  <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">',
+            '    <label style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-size:12px">',
+            '      <input type="checkbox" class="sw-rd-chk-toggle" data-rule-id="' + r.id + '" ' + (r.enabled ? 'checked' : '') + ' /> 生效',
+            '    </label>',
+            '    <button type="button" class="button small sw-rd-btn-edit" data-rule-id="' + r.id + '" style="padding:2px 8px;font-size:12px">✏️</button>',
+            '    <button type="button" class="button small sw-rd-btn-del" data-rule-id="' + r.id + '" data-rule-pat="' + r.pattern + '" style="padding:2px 8px;font-size:12px;color:#EF4444;border-color:rgba(239,68,68,0.3)">🗑️</button>',
+            '  </div>',
+            '</div>'
+          ].join('');
+        }).join('');
+
+        // 绑定单条启闭
+        qq('.sw-rd-chk-toggle', listEl).forEach(function (chk) {
+          chk.onchange = async function () {
+            var rid = chk.dataset.ruleId;
+            var en = chk.checked;
+            await fetch('/api/v1/surge/diversion/rules/' + rid + '/toggle', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ enabled: en }),
+            });
+            toast('规则状态已更新');
+          };
+        });
+
+        // 绑定编辑单条
+        qq('.sw-rd-btn-edit', listEl).forEach(function (btn) {
+          btn.onclick = function () {
+            var rid = Number(btn.dataset.ruleId);
+            var targetRule = rules.find(function (x) { return x.id === rid; });
+            if (targetRule) {
+              openEditRuleModal(targetRule, function () {
+                fetchAndRender();
+                loadDiversion();
+              });
+            }
+          };
+        });
+
+        // 绑定删除单条
+        qq('.sw-rd-btn-del', listEl).forEach(function (btn) {
+          btn.onclick = async function () {
+            var rid = btn.dataset.ruleId;
+            var pat = btn.dataset.rulePat;
+            if (!confirm('确定彻底删除该分流规则吗？\n' + pat)) return;
+
+            try {
+              var delRes = await fetch('/api/v1/surge/diversion/rules/' + rid, { method: 'DELETE' });
+              var delData = await delRes.json();
+              if (delData.success) {
+                toast('规则已删除', pat);
+                fetchAndRender();
+                loadDiversion();
+              } else {
+                alert('删除失败: ' + (delData.error || '未知错误'));
+              }
+            } catch (e) {
+              alert('请求异常: ' + e.message);
+            }
+          };
+        });
+      } catch (e) {
+        listEl.innerHTML = '<div style="color:#EF4444;padding:20px;text-align:center">检索规则失败: ' + e.message + '</div>';
+      }
+    }
+
+    if (searchInput) {
+      searchInput.oninput = function () {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(function () {
+          curSearch = searchInput.value.trim();
+          curPage = 1;
+          fetchAndRender();
+        }, 260);
+      };
+      searchInput.onkeydown = function (e) {
+        if (e.key === 'Enter') {
+          clearTimeout(searchTimer);
+          curSearch = searchInput.value.trim();
+          curPage = 1;
+          fetchAndRender();
+        }
+      };
+    }
+
+    if (typeSelect) {
+      typeSelect.onchange = function () {
+        curType = typeSelect.value;
+        curPage = 1;
+        fetchAndRender();
+      };
+    }
+
+    if (prevBtn) {
+      prevBtn.onclick = function () {
+        if (curPage > 1) {
+          curPage--;
+          fetchAndRender();
+        }
+      };
+    }
+
+    if (nextBtn) {
+      nextBtn.onclick = function () {
+        curPage++;
+        fetchAndRender();
+      };
+    }
+
+    if (addBtn) {
+      addBtn.onclick = function () {
+        openAddRuleInGroupModal(groupId, function () {
+          fetchAndRender();
+          loadDiversion();
+        });
+      };
+    }
+
+    if (refreshBtn) {
+      refreshBtn.onclick = fetchAndRender;
+    }
+
+    fetchAndRender();
+  }
+
+  // 分流组属性编辑
+  function openEditGroupModal(group) {
+    var isCore = ['direct', 'proxy', 'block', 'media', 'game', 'apple'].includes(group.id);
+
+    var html = [
+      '<div style="margin-bottom:12px">',
+      '  <label>分流组标识 (ID)</label>',
+      '  <input type="text" class="sw-input" disabled value="' + group.id + '" style="opacity:0.75" />',
+      '</div>',
+      '<div style="margin-bottom:12px">',
+      '  <label>分流组名称</label>',
+      '  <input type="text" id="sw-eg-name" class="sw-input" value="' + group.name + '" />',
+      '</div>',
+      '<div style="margin-bottom:12px">',
+      '  <label>Surge 导出策略</label>',
+      '  <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">',
+      '    <input type="text" id="sw-eg-policy" class="sw-input" style="margin-top:0" value="' + group.surge_policy + '" placeholder="DIRECT / PROXY / REJECT 或策略组名" />',
+      '  </div>',
+      '  <div style="display:flex;gap:6px;font-size:11px">',
+      '    <button type="button" class="button small sw-eg-quick-pol" data-pol="DIRECT">DIRECT 直连</button>',
+      '    <button type="button" class="button small sw-eg-quick-pol" data-pol="PROXY">PROXY 代理</button>',
+      '    <button type="button" class="button small sw-eg-quick-pol" data-pol="REJECT">REJECT 拦截</button>',
+      '  </div>',
+      '</div>',
+      '<div style="margin-bottom:12px">',
+      '  <label>匹配优先级 (越小越优先)</label>',
+      '  <input type="number" id="sw-eg-priority" class="sw-input" value="' + (group.priority || 0) + '" />',
+      '</div>',
+      '<div style="margin-bottom:14px">',
+      '  <label>描述说明</label>',
+      '  <input type="text" id="sw-eg-desc" class="sw-input" value="' + (group.description || '') + '" />',
+      '</div>',
+      (!isCore ? [
+        '<div style="padding-top:10px;border-top:1px solid rgba(239,68,68,0.2);display:flex;justify-content:flex-end">',
+        '  <button type="button" class="button small" id="sw-eg-btn-delete" style="color:#EF4444;border-color:rgba(239,68,68,0.4)">🗑️ 删除此分流组</button>',
+        '</div>'
+      ].join('') : '')
+    ].join('');
+
+    openModal('⚙️ 编辑分流组: ' + group.name, html, async function () {
+      var name = q('#sw-eg-name').value.trim();
+      var policy = q('#sw-eg-policy').value.trim();
+      var priority = Number(q('#sw-eg-priority').value) || 0;
+      var desc = q('#sw-eg-desc').value.trim();
+      if (!name || !policy) { alert('分流组名称与策略不能为空'); return false; }
+
+      var payload = {
+        id: group.id,
+        name: name,
+        surge_policy: policy,
+        priority: priority,
+        description: desc,
+        enabled: group.enabled,
+      };
+
+      try {
+        var res = await fetch('/api/v1/surge/diversion/groups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        var data = await res.json();
+        if (data.success) {
+          toast('分流组设置已更新', name);
+          loadDiversion();
+          return true;
+        } else {
+          alert('保存失败: ' + (data.error || '未知错误'));
+          return false;
+        }
+      } catch (e) {
+        alert('请求失败: ' + e.message);
+        return false;
+      }
+    }, '保存分流组');
+
+    qq('.sw-eg-quick-pol').forEach(function (btn) {
+      btn.onclick = function () {
+        var pol = btn.dataset.pol;
+        var pInput = q('#sw-eg-policy');
+        if (pInput) pInput.value = pol;
+      };
+    });
+
+    var delBtn = q('#sw-eg-btn-delete');
+    if (delBtn) {
+      delBtn.onclick = async function () {
+        if (!confirm('确定彻底删除该分流组及其包含的所有规则吗？此操作不可撤销！')) return;
+        try {
+          var res = await fetch('/api/v1/surge/diversion/groups/' + encodeURIComponent(group.id), { method: 'DELETE' });
+          var data = await res.json();
+          if (data.success) {
+            toast('分流组已删除', group.id);
+            closeModal();
+            loadDiversion();
+          } else {
+            alert('删除失败: ' + (data.error || '未知错误'));
+          }
+        } catch (e) {
+          alert('请求异常: ' + e.message);
+        }
+      };
+    }
+  }
+
+  // 新建分流组
+  function openCreateGroupModal() {
+    var html = [
+      '<div style="margin-bottom:12px">',
+      '  <label>分流组唯一标识 (英文字母/数字，如 telegram)</label>',
+      '  <input type="text" id="sw-cg-id" class="sw-input" placeholder="例如：telegram" />',
+      '</div>',
+      '<div style="margin-bottom:12px">',
+      '  <label>分流组显示名称</label>',
+      '  <input type="text" id="sw-cg-name" class="sw-input" placeholder="例如：Telegram 专线" />',
+      '</div>',
+      '<div style="margin-bottom:12px">',
+      '  <label>Surge 导出策略</label>',
+      '  <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">',
+      '    <input type="text" id="sw-cg-policy" class="sw-input" style="margin-top:0" value="PROXY" placeholder="DIRECT / PROXY / REJECT 或策略组名" />',
+      '  </div>',
+      '  <div style="display:flex;gap:6px;font-size:11px">',
+      '    <button type="button" class="button small sw-cg-quick-pol" data-pol="DIRECT">DIRECT 直连</button>',
+      '    <button type="button" class="button small sw-cg-quick-pol" data-pol="PROXY">PROXY 代理</button>',
+      '    <button type="button" class="button small sw-cg-quick-pol" data-pol="REJECT">REJECT 拦截</button>',
+      '  </div>',
+      '</div>',
+      '<div style="margin-bottom:12px">',
+      '  <label>匹配优先级 (越小越优先)</label>',
+      '  <input type="number" id="sw-cg-priority" class="sw-input" value="60" />',
+      '</div>',
+      '<div>',
+      '  <label>描述说明 (选填)</label>',
+      '  <input type="text" id="sw-cg-desc" class="sw-input" placeholder="例如：电报通讯服务分流" />',
+      '</div>'
+    ].join('');
+
+    openModal('➕ 新建动态分流规则组', html, async function () {
+      var id = q('#sw-cg-id').value.trim().toLowerCase();
+      var name = q('#sw-cg-name').value.trim();
+      var policy = q('#sw-cg-policy').value.trim();
+      var priority = Number(q('#sw-cg-priority').value) || 60;
+      var desc = q('#sw-cg-desc').value.trim();
+
+      if (!id || !name || !policy) {
+        alert('分流组标识、名称与策略均为必填项');
+        return false;
+      }
+      if (!/^[a-z0-9_-]+$/.test(id)) {
+        alert('分流组标识仅支持小写字母、数字、下划线与中划线');
+        return false;
+      }
+
+      var payload = {
+        id: id,
+        name: name,
+        surge_policy: policy,
+        priority: priority,
+        description: desc,
+        enabled: true,
+      };
+
+      try {
+        var res = await fetch('/api/v1/surge/diversion/groups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        var data = await res.json();
+        if (data.success) {
+          toast('新建分流组成功', name);
+          loadDiversion();
+          return true;
+        } else {
+          alert('创建失败: ' + (data.error || '未知错误'));
+          return false;
+        }
+      } catch (e) {
+        alert('请求失败: ' + e.message);
+        return false;
+      }
+    }, '立即创建');
+
+    qq('.sw-cg-quick-pol').forEach(function (btn) {
+      btn.onclick = function () {
+        var pol = btn.dataset.pol;
+        var pInput = q('#sw-cg-policy');
+        if (pInput) pInput.value = pol;
+      };
+    });
+  }
+
   // 刷新分流组列表
   async function loadDiversion() {
     var container = q('#sw-groups-list');
@@ -559,7 +1241,22 @@
       var data = await res.json();
       if (!data.groups) return;
 
-      container.innerHTML = data.groups.map(function (g) {
+      var groups = data.groups;
+      var totalRules = 0;
+      var activeCount = 0;
+      groups.forEach(function (g) {
+        totalRules += (g.rule_count || 0);
+        if (g.enabled) activeCount++;
+      });
+
+      var statGroups = q('#sw-stat-total-groups');
+      var statRules = q('#sw-stat-total-rules');
+      var statActive = q('#sw-stat-active-groups');
+      if (statGroups) statGroups.textContent = groups.length;
+      if (statRules) statRules.textContent = totalRules.toLocaleString();
+      if (statActive) statActive.textContent = activeCount;
+
+      container.innerHTML = groups.map(function (g) {
         var subUrl = location.origin + '/rules/' + g.id + '.list';
         var isReject = g.surge_policy.startsWith('REJECT');
         var isDirect = g.surge_policy === 'DIRECT';
@@ -567,18 +1264,27 @@
         var badgeBg = isReject ? 'rgba(239,68,68,0.12)' : (isDirect ? 'rgba(16,185,129,0.12)' : 'rgba(59,130,246,0.12)');
         var badgeBorder = isReject ? 'rgba(239,68,68,0.3)' : (isDirect ? 'rgba(16,185,129,0.3)' : 'rgba(59,130,246,0.3)');
 
+        var ruleCount = g.rule_count || 0;
+        var rBg = ruleCount > 0 ? 'rgba(16,185,129,0.12)' : 'rgba(148,163,184,0.12)';
+        var rColor = ruleCount > 0 ? '#10B981' : '#94A3B8';
+        var rBorder = ruleCount > 0 ? 'rgba(16,185,129,0.3)' : 'rgba(148,163,184,0.25)';
+
         return [
           '<div class="glass-card" style="padding:14px">',
           '  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">',
           '    <div>',
-          '      <strong style="font-size:14px">' + g.name + '</strong>',
+          '      <strong style="font-size:15px">' + g.name + '</strong>',
+          '      <code style="font-size:11px;opacity:0.6;margin-left:4px">(' + g.id + ')</code>',
           '      <span style="font-size:12px;margin-left:8px;padding:3px 8px;background:' + badgeBg + ';color:' + badgeColor + ';border:1px solid ' + badgeBorder + ';border-radius:6px;font-weight:600">策略: ' + g.surge_policy + '</span>',
-          '      <p style="font-size:12px;opacity:0.75;margin:4px 0 0">' + (g.description || '') + '</p>',
+          '      <span style="font-size:12px;margin-left:6px;padding:3px 8px;background:' + rBg + ';color:' + rColor + ';border:1px solid ' + rBorder + ';border-radius:6px;font-weight:600">📦 ' + ruleCount.toLocaleString() + ' 条规则</span>',
+          '      <p style="font-size:12px;opacity:0.75;margin:4px 0 0">' + (g.description || '无备注') + '</p>',
           '    </div>',
-          '    <div style="display:flex;align-items:center;gap:8px">',
-          '      <a href="' + subUrl + '" target="_blank" class="button small">查看订阅</a>',
-          '      <button type="button" class="button small sw-btn-edit-rules" data-group-id="' + g.id + '" data-group-name="' + g.name + '">✏️ 编辑全组规则</button>',
-          '      <label style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-size:13px;margin-left:6px">',
+          '    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">',
+          '      <a href="' + subUrl + '" target="_blank" class="button small">🔗 订阅</a>',
+          '      <button type="button" class="button small primary sw-btn-view-rules" data-group-id="' + g.id + '" data-group-name="' + g.name + '" style="background:#0D9488;color:#fff;border-color:transparent">📋 规则明细 (' + ruleCount.toLocaleString() + ')</button>',
+          '      <button type="button" class="button small sw-btn-edit-rules" data-group-id="' + g.id + '" data-group-name="' + g.name + '">📝 文本编辑</button>',
+          '      <button type="button" class="button small sw-btn-edit-group" data-group-id="' + g.id + '" title="修改分流组名称/策略/优先级">⚙️ 设置</button>',
+          '      <label style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-size:13px;margin-left:4px">',
           '        <input type="checkbox" class="sw-group-toggle" data-group-id="' + g.id + '" ' + (g.enabled ? 'checked' : '') + ' /> 启用',
           '      </label>',
           '    </div>',
@@ -597,6 +1303,23 @@
             body: JSON.stringify({ enabled: en }),
           });
           toast('分流组已更新', (en ? '已开启 ' : '已禁用 ') + id);
+          loadDiversion();
+        };
+      });
+
+      // 查看与管理明细
+      qq('.sw-btn-view-rules', container).forEach(function (btn) {
+        btn.onclick = function () {
+          openRulesDetailModal(btn.dataset.groupId, btn.dataset.groupName);
+        };
+      });
+
+      // 分组设置编辑
+      qq('.sw-btn-edit-group', container).forEach(function (btn) {
+        btn.onclick = function () {
+          var gid = btn.dataset.groupId;
+          var targetGroup = groups.find(function (x) { return x.id === gid; });
+          if (targetGroup) openEditGroupModal(targetGroup);
         };
       });
 
@@ -624,6 +1347,7 @@
             var saveData = await saveRes.json();
             if (saveData.success) {
               toast('分流规则已更新', '保存并生效 ' + saveData.count + ' 条规则');
+              loadDiversion();
               return true;
             } else {
               alert('保存失败: ' + (saveData.error || '未知错误'));
@@ -1046,7 +1770,7 @@
       };
     }
 
-    // 添加单条域名
+    // 添加单条规则
     var btnAddRule = q('#sw-btn-add-rule');
     if (btnAddRule) {
       btnAddRule.onclick = async function () {
@@ -1069,11 +1793,12 @@
           '    <option value="DOMAIN">DOMAIN (完全匹配)</option>',
           '    <option value="DOMAIN-KEYWORD">DOMAIN-KEYWORD (关键字)</option>',
           '    <option value="IP-CIDR">IP-CIDR (网段)</option>',
+          '    <option value="RULE-SET">RULE-SET (远程规则集)</option>',
           '  </select>',
           '</div>',
           '<div style="margin-bottom:12px">',
-          '  <label>匹配表达式 (域名/IP)</label>',
-          '  <input type="text" id="sw-add-rule-pat" class="sw-input" placeholder="例如：example.com" />',
+          '  <label>匹配表达式 (域名 / IP / 规则集 URL)</label>',
+          '  <input type="text" id="sw-add-rule-pat" class="sw-input" placeholder="例如：example.com 或 https://..." />',
           '</div>',
           '<div>',
           '  <label>备注说明 (选填)</label>',
@@ -1104,6 +1829,12 @@
           }
         }, '立即添加');
       };
+    }
+
+    // 新建分流组
+    var btnCreateGroup = q('#sw-btn-create-group');
+    if (btnCreateGroup) {
+      btnCreateGroup.onclick = openCreateGroupModal;
     }
 
     // 运行体征刷新
