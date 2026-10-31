@@ -345,8 +345,12 @@ async function runTests() {
 
     // 2.15.5 动态 DNS 解析路径与全链路拓扑端点
     const resTopo = await fetch(`${baseUrl}/api/v1/topology/flow`);
+    const topoRawText = await resTopo.text();
+    if (resTopo.status !== 200) {
+      console.error('DEBUG resTopo status:', resTopo.status, 'body:', topoRawText);
+    }
     assert(resTopo.status === 200, 'GET /api/v1/topology/flow returns 200 OK');
-    const topoData = await resTopo.json();
+    const topoData = JSON.parse(topoRawText);
     assert(topoData.success === true && typeof topoData.surge === 'object', 'Topology flow includes Surge outbound stage');
     assert(topoData.modules.enabled >= 1, 'Topology flow includes active App modules');
     assert(Array.isArray(topoData.diversion.groups) && topoData.diversion.groups.length >= 5, 'Topology flow includes diversion groups');
@@ -418,6 +422,33 @@ async function runTests() {
     assert(resRuntime.status === 200, 'GET /api/v1/surge/runtime returns 200 OK');
     const runtimeData = await resRuntime.json();
     assert(typeof runtimeData.online === 'boolean', 'Surge detailed runtime contract valid');
+
+    // 2.15.11 Surge 规则多行批量导入与智能清洗
+    const surgeRawRules = [
+      '# > ① 广告识别 - 识别模块（默认注释，用户自行配置）',
+      'RULE-SET,https://raw.githubusercontent.com/Thoseyearsbrian/Aegis/main/rules/AdDomain.list,REJECT,no-resolve',
+      'DOMAIN-SUFFIX,google.com,PROXY',
+      'DOMAIN,baidu.com,DIRECT',
+      'DOMAIN-KEYWORD,adtrack,REJECT',
+    ].join('\n');
+
+    const resBatchImport = await fetch(`${baseUrl}/api/v1/surge/rules/batch-import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: surgeRawRules, downloadRuleSets: false }),
+    });
+    assert(resBatchImport.status === 200, 'POST /api/v1/surge/rules/batch-import returns 200 OK');
+    const batchData = await resBatchImport.json();
+    assert(batchData.success === true, 'Batch import reported success');
+    assert(batchData.parsedRulesCount === 4, 'Batch import successfully parsed all 4 rule lines');
+    assert(batchData.rejectCount === 2, 'Batch import automatically routed 2 REJECT rules to block group');
+    assert(batchData.directCount === 1, 'Batch import routed DIRECT rule');
+    assert(batchData.proxyCount === 1, 'Batch import routed PROXY rule');
+    assert(batchData.groupsUpdated.includes('block'), 'Block group was updated');
+
+    // 验证 REJECT 规则实时在 DNS 拦截
+    const adtrackAnswers = await resolveTestDomain('adtrack.example.com');
+    assert(adtrackAnswers.includes('0.0.0.0'), 'adtrack.example.com 即刻被批量导入的 REJECT 规则拦截为 0.0.0.0');
   } catch (err: any) {
     console.error('API Test Error:', err);
     failed++;

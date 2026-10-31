@@ -758,17 +758,18 @@ export class SurgeService {
       if (!line || line.startsWith('#') || line.startsWith(';')) continue;
 
       let comment = '';
-      if (line.includes('//')) {
-        const parts = line.split('//');
-        line = parts[0].trim();
-        comment = parts.slice(1).join('//').trim();
+      const slashMatch = line.match(/(^|[^:])\/\/(.*)$/);
+      if (slashMatch && slashMatch.index !== undefined) {
+        const cutAt = slashMatch.index + slashMatch[1].length;
+        comment = line.slice(cutAt + 2).trim();
+        line = line.slice(0, cutAt).trim();
       }
 
       const tokens = line.split(',').map((t) => t.trim());
       if (tokens.length >= 2) {
         const type = tokens[0].toUpperCase();
         const pattern = tokens[1];
-        if (['DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'IP-CIDR', 'GEOIP'].includes(type)) {
+        if (['DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'IP-CIDR', 'GEOIP', 'RULE-SET'].includes(type)) {
           result.push({ match_type: type, pattern, comment });
           continue;
         }
@@ -780,5 +781,225 @@ export class SurgeService {
       }
     }
     return result;
+  }
+
+  /**
+   * 批量导入与智能清洗 Surge 规则文本（支持多规则集、多行内联规则同时导入并按策略自动分流）
+   */
+  public async ingestSurgeRulesBlock(
+    text: string,
+    options?: { downloadRuleSets?: boolean; targetGroupOverride?: string }
+  ): Promise<{
+    totalLines: number;
+    parsedRulesCount: number;
+    ruleSetsFetchedCount: number;
+    rejectCount: number;
+    directCount: number;
+    proxyCount: number;
+    otherCount: number;
+    groupsUpdated: string[];
+    details: string[];
+  }> {
+    await this.init();
+    const lines = text.split(/\r?\n/);
+    const downloadRuleSets = options?.downloadRuleSets !== false;
+    const targetOverride = options?.targetGroupOverride?.trim();
+
+    let parsedRulesCount = 0;
+    let ruleSetsFetchedCount = 0;
+    let rejectCount = 0;
+    let directCount = 0;
+    let proxyCount = 0;
+    let otherCount = 0;
+
+    const groupRulesMap = new Map<string, Array<{ match_type: any; pattern: string; comment?: string }>>();
+    const details: string[] = [];
+    let lastComment = '';
+
+    const addRuleToGroup = (groupId: string, rule: { match_type: any; pattern: string; comment?: string }) => {
+      if (!groupRulesMap.has(groupId)) {
+        groupRulesMap.set(groupId, []);
+      }
+      groupRulesMap.get(groupId)!.push(rule);
+    };
+
+    for (let rawLine of lines) {
+      let line = rawLine.trim();
+      if (!line) continue;
+
+      // 捕获前导注释
+      if (line.startsWith('#') || line.startsWith(';') || line.startsWith('//')) {
+        lastComment = line.replace(/^[#;/\s>]+/, '').trim();
+        continue;
+      }
+
+      // 剥离行尾注释 (避开 http:// 与 https:// 中的 //)
+      let inlineComment = lastComment;
+      const slashMatch = line.match(/(^|[^:])\/\/(.*)$/);
+      if (slashMatch && slashMatch.index !== undefined) {
+        const cutAt = slashMatch.index + slashMatch[1].length;
+        inlineComment = line.slice(cutAt + 2).trim();
+        line = line.slice(0, cutAt).trim();
+      }
+
+      const tokens = line.split(',').map((t) => t.trim());
+      if (tokens.length < 2) {
+        // 纯域名兼容
+        if (line.includes('.') && !line.includes(' ')) {
+          const gid = targetOverride || 'direct';
+          addRuleToGroup(gid, { match_type: 'DOMAIN-SUFFIX', pattern: line, comment: inlineComment });
+          parsedRulesCount++;
+          directCount++;
+        }
+        continue;
+      }
+
+      const typeUpper = tokens[0].toUpperCase();
+
+      // 1. 处理 RULE-SET 外部规则集
+      if (typeUpper === 'RULE-SET') {
+        parsedRulesCount++;
+        const ruleSetUrl = tokens[1];
+        const rawPolicy = (tokens[2] || 'DIRECT').toUpperCase();
+        let targetGroupId = targetOverride || '';
+
+        let isReject = false;
+        if (!targetGroupId) {
+          if (rawPolicy.startsWith('REJECT')) {
+            targetGroupId = 'block';
+            isReject = true;
+          } else if (rawPolicy === 'DIRECT') {
+            targetGroupId = 'direct';
+          } else if (rawPolicy === 'PROXY') {
+            targetGroupId = 'proxy';
+          } else {
+            // 自定义策略名（如 Media, HK-Node 等）
+            targetGroupId = rawPolicy.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+          }
+        } else {
+          isReject = targetGroupId === 'block';
+        }
+
+        // 确保目标分组存在
+        await this.db.ensureGroupExists(targetGroupId, undefined, rawPolicy);
+
+        // 若是远程 HTTP(S) 链接且需要自动展开内容
+        if (downloadRuleSets && (ruleSetUrl.startsWith('http://') || ruleSetUrl.startsWith('https://'))) {
+          try {
+            const { text: remoteContent } = await this.fetchRemoteText(ruleSetUrl);
+            const extracted = this.parseRulesList(remoteContent);
+            ruleSetsFetchedCount++;
+
+            for (const r of extracted) {
+              addRuleToGroup(targetGroupId, {
+                match_type: r.match_type,
+                pattern: r.pattern,
+                comment: r.comment || inlineComment || `来自 ${ruleSetUrl.split('/').pop()}`,
+              });
+            }
+
+            if (isReject) {
+              rejectCount += extracted.length;
+            } else if (targetGroupId === 'direct') {
+              directCount += extracted.length;
+            } else if (targetGroupId === 'proxy') {
+              proxyCount += extracted.length;
+            } else {
+              otherCount += extracted.length;
+            }
+
+            details.push(`RULE-SET [${ruleSetUrl.split('/').pop()}]: 成功抓取并展开 ${extracted.length} 条规则至 [${targetGroupId}]`);
+          } catch (e: any) {
+            // 抓取失败时保留该引用链接，不中断主流程
+            addRuleToGroup(targetGroupId, {
+              match_type: 'RULE-SET',
+              pattern: ruleSetUrl,
+              comment: (inlineComment ? inlineComment + ' · ' : '') + `抓取失败，保留引用: ${e?.message || e}`,
+            });
+            details.push(`RULE-SET [${ruleSetUrl.split('/').pop()}]: 下载失败 (${e?.message || e})，已保留原引用`);
+          }
+        } else {
+          // 不下载或本地路径，直接存为引用规则
+          addRuleToGroup(targetGroupId, {
+            match_type: 'RULE-SET',
+            pattern: ruleSetUrl,
+            comment: inlineComment,
+          });
+          if (isReject) rejectCount++;
+          else if (targetGroupId === 'direct') directCount++;
+          else if (targetGroupId === 'proxy') proxyCount++;
+          else otherCount++;
+          details.push(`RULE-SET [${ruleSetUrl}]: 已保存引用至 [${targetGroupId}]`);
+        }
+
+        lastComment = '';
+        continue;
+      }
+
+      // 2. 处理内联规则 (DOMAIN, DOMAIN-SUFFIX, IP-CIDR 等)
+      if (['DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'IP-CIDR', 'IP-CIDR6', 'GEOIP', 'USER-AGENT', 'URL-REGEX'].includes(typeUpper)) {
+        parsedRulesCount++;
+        const pattern = tokens[1];
+        const rawPolicy = (tokens[2] || 'DIRECT').toUpperCase();
+        let targetGroupId = targetOverride || '';
+
+        let isReject = false;
+        if (!targetGroupId) {
+          if (rawPolicy.startsWith('REJECT')) {
+            targetGroupId = 'block';
+            isReject = true;
+          } else if (rawPolicy === 'DIRECT') {
+            targetGroupId = 'direct';
+          } else if (rawPolicy === 'PROXY') {
+            targetGroupId = 'proxy';
+          } else {
+            targetGroupId = rawPolicy.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+          }
+        } else {
+          isReject = targetGroupId === 'block';
+        }
+
+        await this.db.ensureGroupExists(targetGroupId, undefined, rawPolicy);
+
+        addRuleToGroup(targetGroupId, {
+          match_type: typeUpper,
+          pattern,
+          comment: inlineComment,
+        });
+
+        if (isReject) rejectCount++;
+        else if (targetGroupId === 'direct') directCount++;
+        else if (targetGroupId === 'proxy') proxyCount++;
+        else otherCount++;
+
+        lastComment = '';
+        continue;
+      }
+    }
+
+    // 3. 批量持久化写入数据库
+    const groupsUpdated: string[] = [];
+    for (const [gid, rules] of groupRulesMap.entries()) {
+      if (rules.length > 0) {
+        await this.db.appendGroupRules(gid, rules);
+        groupsUpdated.push(gid);
+      }
+    }
+
+    // 4. 刷新 DNS 拦截库与通知 Surge 同步
+    await this.reloadDnsBlockCache();
+    this.scheduleSurgeSync();
+
+    return {
+      totalLines: lines.length,
+      parsedRulesCount,
+      ruleSetsFetchedCount,
+      rejectCount,
+      directCount,
+      proxyCount,
+      otherCount,
+      groupsUpdated,
+      details,
+    };
   }
 }

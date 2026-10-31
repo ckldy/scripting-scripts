@@ -262,6 +262,7 @@ export class SurgeDatabase {
     const groupCount = await this.getDb().fetchOne<{ count: number }>('SELECT count(*) as count FROM diversion_groups');
     if (groupCount && groupCount.count === 0) {
       const defaultGroups: DiversionGroup[] = [
+        { id: 'block', name: '广告与黑洞拦截', surge_policy: 'REJECT', enabled: true, priority: 5, description: '恶意广告、隐私追踪与黑洞化域名，直接返回 0.0.0.0' },
         { id: 'direct', name: '国内直连', surge_policy: 'DIRECT', enabled: true, priority: 10, description: '大陆主流服务、CDN 与局域网流量' },
         { id: 'proxy', name: '节点代理', surge_policy: 'PROXY', enabled: true, priority: 20, description: '被阻断或需要代理加速的境外服务' },
         { id: 'media', name: '海外流媒体', surge_policy: 'PROXY', enabled: true, priority: 30, description: 'YouTube, Netflix, Spotify, Disney+ 等流媒体' },
@@ -277,6 +278,8 @@ export class SurgeDatabase {
 
       // 默认分流规则种子
       const defaultRules: Array<{ group: string; type: DiversionRule['match_type']; pattern: string; comment: string }> = [
+        { group: 'block', type: 'DOMAIN-SUFFIX', pattern: 'adservice.google.com', comment: 'Google 广告' },
+        { group: 'block', type: 'DOMAIN-KEYWORD', pattern: 'telemetry', comment: '遥测打点' },
         { group: 'direct', type: 'DOMAIN-SUFFIX', pattern: 'cn', comment: '国内顶级域名' },
         { group: 'direct', type: 'DOMAIN-SUFFIX', pattern: 'baidu.com', comment: '百度直连' },
         { group: 'direct', type: 'DOMAIN-SUFFIX', pattern: 'qq.com', comment: '腾讯服务' },
@@ -298,6 +301,15 @@ export class SurgeDatabase {
         await this.getDb().execute(
           'INSERT INTO diversion_rules (group_id, match_type, pattern, enabled, comment, is_auto_learned) VALUES (?, ?, ?, 1, ?, 0)',
           [r.group, r.type, r.pattern, r.comment]
+        );
+      }
+    } else {
+      // 老数据库增量补齐 block 组
+      const blockGroup = await this.getDb().fetchOne<any>('SELECT id FROM diversion_groups WHERE id = ?', ['block']);
+      if (!blockGroup) {
+        await this.getDb().execute(
+          'INSERT INTO diversion_groups (id, name, surge_policy, enabled, priority, description) VALUES (?, ?, ?, ?, ?, ?)',
+          ['block', '广告与黑洞拦截', 'REJECT', 1, 5, '恶意广告、隐私追踪与黑洞化域名，直接返回 0.0.0.0']
         );
       }
     }
@@ -453,14 +465,21 @@ export class SurgeDatabase {
 
   public async getActiveDnsBlockRules(): Promise<DnsRule[]> {
     await this.init();
-    const rows = await this.getDb().fetchAll<any>(`
-      SELECT d.*
+    // 聚合 module_dns_rules (REJECT) 与 diversion_rules (group_id = 'block')
+    const modRows = await this.getDb().fetchAll<any>(`
+      SELECT d.id, d.module_id, d.type, d.pattern, d.action, d.enabled
       FROM module_dns_rules d
       JOIN app_modules a ON d.module_id = a.id
       WHERE a.enabled = 1 AND d.enabled = 1 AND d.action LIKE 'REJECT%'
-      ORDER BY d.id ASC
     `);
-    return rows.map((r: any) => ({
+    const divRows = await this.getDb().fetchAll<any>(`
+      SELECT r.id, 'diversion_block' as module_id, r.match_type as type, r.pattern, 'REJECT' as action, r.enabled
+      FROM diversion_rules r
+      JOIN diversion_groups g ON r.group_id = g.id
+      WHERE (g.id = 'block' OR g.surge_policy LIKE 'REJECT%') AND g.enabled = 1 AND r.enabled = 1
+    `);
+    const all = [...modRows, ...divRows];
+    return all.map((r: any) => ({
       id: r.id,
       module_id: r.module_id,
       type: r.type,
@@ -497,6 +516,25 @@ export class SurgeDatabase {
       priority: r.priority,
       description: r.description,
     };
+  }
+
+  public async ensureGroupExists(groupId: string, name?: string, policy?: string): Promise<DiversionGroup> {
+    await this.init();
+    const existing = await this.getDiversionGroup(groupId);
+    if (existing) return existing;
+
+    const finalPolicy = policy || (groupId === 'block' ? 'REJECT' : (groupId === 'direct' ? 'DIRECT' : 'PROXY'));
+    const finalName = name || (groupId === 'block' ? '广告与黑洞拦截' : (groupId === 'direct' ? '国内直连' : (groupId === 'proxy' ? '节点代理' : groupId)));
+    const newGroup: DiversionGroup = {
+      id: groupId,
+      name: finalName,
+      surge_policy: finalPolicy,
+      enabled: true,
+      priority: groupId === 'block' ? 5 : 50,
+      description: `由规则导入自动创建 (${finalPolicy})`,
+    };
+    await this.saveDiversionGroup(newGroup);
+    return newGroup;
   }
 
   public async saveDiversionGroup(group: DiversionGroup): Promise<void> {
@@ -657,8 +695,8 @@ export class SurgeDatabase {
       // 若原先在 direct 组，自动升阶至 proxy
       if (existing.group_id !== 'proxy') {
         await this.getDb().execute(
-          'UPDATE diversion_rules SET group_id = "proxy", is_auto_learned = 1, comment = ?, enabled = 1 WHERE id = ?',
-          [comment, existing.id]
+          'UPDATE diversion_rules SET group_id = ?, is_auto_learned = 1, comment = ?, enabled = 1 WHERE id = ?',
+          ['proxy', comment, existing.id]
         );
       }
     } else {

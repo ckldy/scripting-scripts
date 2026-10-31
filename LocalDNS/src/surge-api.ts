@@ -310,6 +310,23 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
     }
   }
 
+  // 4.6 批量导入与智能清洗 Surge 规则文本: /api/v1/surge/rules/batch-import
+  if (path === '/api/v1/surge/rules/batch-import' && method === 'POST') {
+    const body = parseJsonBody(req);
+    if (!body.content) {
+      return jsonResponse({ error: 'Missing content' }, 400);
+    }
+    try {
+      const summary = await service.ingestSurgeRulesBlock(String(body.content), {
+        downloadRuleSets: body.downloadRuleSets !== false,
+        targetGroupOverride: body.targetGroupOverride || undefined,
+      });
+      return jsonResponse({ success: true, ...summary });
+    } catch (e: any) {
+      return jsonResponse({ error: e?.message || 'Batch import failed' }, 500);
+    }
+  }
+
   // 5. Surge 联动配置与状态 (/api/v1/surge/config, status, outbound, policies, sync)
   if (path === '/api/v1/surge/config') {
     if (method === 'GET') {

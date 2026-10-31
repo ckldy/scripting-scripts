@@ -285,7 +285,8 @@
       '      <p style="font-size:12px;opacity:0.75;margin:0">每个分流组独立生成在线 RULE-SET 订阅链接，Surge 引用后即可零重启热更新。</p>',
       '    </div>',
       '    <div style="display:flex;gap:8px;flex-wrap:wrap">',
-      '      <button type="button" class="button small primary" id="sw-btn-import-remote-rules">🌐 导入远程规则集 (URL)</button>',
+      '      <button type="button" class="button small primary" id="sw-btn-batch-rules" style="background:#8B5CF6;color:#fff;border-color:transparent">⚡️ 批量导入 Surge 规则 (一键清洗)</button>',
+      '      <button type="button" class="button small" id="sw-btn-import-remote-rules">🌐 导入远程规则集 (URL)</button>',
       '      <button type="button" class="button small" id="sw-btn-add-rule">+ 添加单个域名</button>',
       '    </div>',
       '  </div>',
@@ -560,12 +561,18 @@
 
       container.innerHTML = data.groups.map(function (g) {
         var subUrl = location.origin + '/rules/' + g.id + '.list';
+        var isReject = g.surge_policy.startsWith('REJECT');
+        var isDirect = g.surge_policy === 'DIRECT';
+        var badgeColor = isReject ? '#EF4444' : (isDirect ? '#10B981' : '#3B82F6');
+        var badgeBg = isReject ? 'rgba(239,68,68,0.12)' : (isDirect ? 'rgba(16,185,129,0.12)' : 'rgba(59,130,246,0.12)');
+        var badgeBorder = isReject ? 'rgba(239,68,68,0.3)' : (isDirect ? 'rgba(16,185,129,0.3)' : 'rgba(59,130,246,0.3)');
+
         return [
           '<div class="glass-card" style="padding:14px">',
           '  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">',
           '    <div>',
           '      <strong style="font-size:14px">' + g.name + '</strong>',
-          '      <span style="font-size:12px;margin-left:8px;padding:2px 6px;background:rgba(148,163,184,0.15);border-radius:4px">策略: ' + g.surge_policy + '</span>',
+          '      <span style="font-size:12px;margin-left:8px;padding:3px 8px;background:' + badgeBg + ';color:' + badgeColor + ';border:1px solid ' + badgeBorder + ';border-radius:6px;font-weight:600">策略: ' + g.surge_policy + '</span>',
           '      <p style="font-size:12px;opacity:0.75;margin:4px 0 0">' + (g.description || '') + '</p>',
           '    </div>',
           '    <div style="display:flex;align-items:center;gap:8px">',
@@ -903,6 +910,82 @@
       };
     }
 
+    // 批量导入与智能清洗 Surge 规则
+    var btnBatchRules = q('#sw-btn-batch-rules');
+    if (btnBatchRules) {
+      btnBatchRules.onclick = async function () {
+        var gRes = await fetch('/api/v1/surge/diversion/groups');
+        var gData = await gRes.json();
+        var groups = gData.groups || [];
+
+        var groupOpts = '<option value="">🤖 自动按每行末尾策略智能分配 (推荐)</option>' +
+          groups.map(function (g) {
+            return '<option value="' + g.id + '">强制分配到【' + g.name + '】(' + g.surge_policy + ')</option>';
+          }).join('');
+
+        var html = [
+          '<div style="margin-bottom:12px">',
+          '  <p style="font-size:12px;margin:0 0 8px;line-height:1.5">',
+          '    直接从 Surge 配置文件中完整复制多行规则（如 <code>RULE-SET,https://.../AdDomain.list,REJECT,no-resolve</code> 或 <code>DOMAIN-SUFFIX,google.com,PROXY</code>）。<br/>',
+          '    系统自动识别 <strong>REJECT 广告拦截</strong>、<strong>DIRECT 直连</strong>、<strong>PROXY 代理</strong>，自动抓取并展开外部规则集，广告域名自动下沉至 DNS 秒级拦截！',
+          '  </p>',
+          '  <textarea id="sw-batch-rules-content" class="sw-textarea" rows="12" placeholder="在此粘贴任意 Surge 规则段落、注释与外部 RULE-SET 链接..." spellcheck="false"></textarea>',
+          '</div>',
+          '<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:12px;padding:12px;background:rgba(148,163,184,0.06);border-radius:10px">',
+          '  <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;cursor:pointer">',
+          '    <input type="checkbox" id="sw-batch-download" checked style="margin-top:2px" />',
+          '    <span><strong>自动抓取并展开远程 RULE-SET 内部域名</strong> (REJECT 广告域名自动提取并入库本地 DNS 拦截库，直连/代理规则自动归类)</span>',
+          '  </label>',
+          '  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">',
+          '    <span style="font-size:12px;opacity:0.85">目标策略分配：</span>',
+          '    <select id="sw-batch-override" class="sw-select" style="max-width:320px;margin-top:0">' + groupOpts + '</select>',
+          '  </div>',
+          '</div>'
+        ].join('');
+
+        openModal('⚡️ 批量导入 Surge 规则 (一键清洗)', html, async function () {
+          var content = q('#sw-batch-rules-content').value.trim();
+          if (!content) { alert('请粘贴 Surge 规则文本'); return false; }
+          var download = q('#sw-batch-download').checked;
+          var override = q('#sw-batch-override').value;
+
+          toast('正在智能清洗并抓取外部规则集…', '可能需要数秒');
+          try {
+            var res = await fetch('/api/v1/surge/rules/batch-import', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                content: content,
+                downloadRuleSets: download,
+                targetGroupOverride: override,
+              }),
+            });
+            var data = await res.json();
+            if (data.success) {
+              var report = [
+                '总识别行数: ' + data.totalLines,
+                '解析有效规则: ' + data.parsedRulesCount + ' 条',
+                '抓取远程规则集: ' + data.ruleSetsFetchedCount + ' 个',
+                '下沉 REJECT 广告拦截域名: ' + data.rejectCount + ' 个 (DNS 秒阻 0.0.0.0)',
+                '新增直连规则: ' + data.directCount + ' 条',
+                '新增代理规则: ' + data.proxyCount + ' 条',
+                '更新分流组: ' + data.groupsUpdated.join('、')
+              ].join('\n');
+              alert('🎉 Surge 规则批量清洗与导入成功！\n\n' + report);
+              loadDiversion();
+              return true;
+            } else {
+              alert('导入失败: ' + (data.error || '未知错误'));
+              return false;
+            }
+          } catch (e) {
+            alert('网络异常: ' + e.message);
+            return false;
+          }
+        }, '开始一键清洗导入');
+      };
+    }
+
     // 导入远程规则集
     var btnImportRemoteRules = q('#sw-btn-import-remote-rules');
     if (btnImportRemoteRules) {
@@ -971,7 +1054,7 @@
         var gData = await gRes.json();
         var groups = gData.groups || [];
         var options = groups.map(function (g) {
-          return '<option value="' + g.id + '">' + g.name + '</option>';
+          return '<option value="' + g.id + '">' + g.name + ' (' + g.surge_policy + ')</option>';
         }).join('');
 
         var html = [
