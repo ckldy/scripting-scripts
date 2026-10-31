@@ -1063,4 +1063,136 @@ export class SurgeService {
       details,
     };
   }
+
+  /**
+   * 按照 Surge 标准格式，自动生成完整的 Surge 配置文件 (.conf)
+   * 支持通过 URL 在线订阅导入、一键调起安装或直接下载导入
+   */
+  public async generateSurgeConfig(options?: {
+    host?: string;
+    mode?: 'ruleset' | 'inline';
+    apiKey?: string;
+    customProxyNode?: string;
+  }): Promise<string> {
+    await this.init();
+    const host = options?.host || '127.0.0.1:9053';
+    const mode = options?.mode || 'ruleset';
+    const cfg = await this.db.getSurgeConfig();
+    const apiKey = options?.apiKey || cfg.api_key || 'localdnskey';
+
+    const groups = await this.db.getDiversionGroups();
+    const activeGroups = groups.filter((g) => g.enabled);
+
+    // 收集所有用到的出站策略名
+    const customPolicies = new Set<string>();
+    const isBuiltinPolicy = (p: string) => {
+      const u = p.toUpperCase();
+      return u === 'DIRECT' || u.startsWith('REJECT');
+    };
+
+    for (const g of activeGroups) {
+      if (!isBuiltinPolicy(g.surge_policy)) {
+        customPolicies.add(g.surge_policy);
+      }
+    }
+
+    const lines: string[] = [
+      '#!name=LocalDNS',
+      '#!desc=由 LocalDNS 自动生成的 Surge 完整配置文件。集成本地 DNS 纳秒拦截、App 模块脱水、动态分流治理与 HTTP API 自动化自愈调度。',
+      '#!author=LocalDNS',
+      '',
+      '[General]',
+      '# --- LocalDNS 专属智能解析与基础接管 ---',
+      'dns-server = 127.0.0.1, 223.5.5.5, 119.29.29.29',
+      '# 加密 DNS (若开启本地 DoH，可取消注释)',
+      `# encrypted-dns-server = https://${host}/dns-query`,
+      'read-etc-hosts = true',
+      'loglevel = notify',
+      'bypass-tun = 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12',
+      'skip-proxy = 127.0.0.1, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, localhost, *.local, captive.apple.com',
+      'always-real-ip = *.srv.nintendo.net, *.stun.playstation.net, xbox.*.microsoft.com, *.msftncsi.com',
+      '',
+      '# --- 连通性测速与容错 ---',
+      'test-timeout = 5',
+      'internet-test-url = http://connectivitycheck.platform.hicloud.com/generate_204',
+      'proxy-test-url = http://cp.cloudflare.com/generate_204',
+      'show-error-page-for-reject = true',
+      '',
+      '# --- HTTP API 控制通道（LocalDNS 与 Surge 实时联动与拓扑自愈核心） ---',
+      `http-api = ${apiKey}@0.0.0.0:6171`,
+      'http-api-tls = false',
+      'http-api-web-dashboard = false',
+      '',
+      '[Replica]',
+      'hide-apple-request = 1',
+      'hide-crash-reporter-request = 1',
+      'hide-udp = 0',
+      'keyword-filter-type = false',
+      '',
+      '[Proxy]',
+      '# 基础内置节点',
+      'DIRECT = direct',
+      '# 示范代理节点（可替换为自己的真实代理节点或订阅导入）',
+      options?.customProxyNode || 'PROXY_DEMO = ss, 1.2.3.4, 443, encrypt-method=chacha20-ietf-poly1305, password=password',
+      '',
+      '[Proxy Group]',
+      '# 核心出站策略组',
+      'PROXY = select, PROXY_DEMO, DIRECT',
+      'Auto-Select = url-test, PROXY_DEMO, url=http://cp.cloudflare.com/generate_204, interval=300, tolerance=50',
+      'Fallback = fallback, PROXY_DEMO, url=http://cp.cloudflare.com/generate_204, interval=300',
+    ];
+
+    // 添加其他分流组中用到的自定义策略组
+    for (const pol of customPolicies) {
+      if (pol !== 'PROXY' && pol !== 'Auto-Select' && pol !== 'Fallback') {
+        lines.push(`${pol} = select, PROXY, DIRECT`);
+      }
+    }
+
+    lines.push('', '[Rule]');
+    lines.push('# LocalDNS 运行环境与局域网保护（避免回环）');
+    lines.push('IP-CIDR,127.0.0.0/8,DIRECT,no-resolve');
+    lines.push('IP-CIDR,192.168.0.0/16,DIRECT,no-resolve');
+    lines.push('IP-CIDR,10.0.0.0/8,DIRECT,no-resolve');
+    lines.push('IP-CIDR,172.16.0.0/12,DIRECT,no-resolve');
+    lines.push('');
+
+    if (mode === 'inline') {
+      lines.push('# LocalDNS 全量规则内联展开模式');
+      for (const g of activeGroups) {
+        const rules = await this.db.getActiveRulesByGroup(g.id);
+        if (rules.length > 0) {
+          lines.push(`\n# --- 分流组: ${g.name} (${g.id}) ---`);
+          for (const r of rules) {
+            const comment = r.comment ? ` // ${r.comment}` : '';
+            lines.push(`${r.match_type},${r.pattern},${g.surge_policy}${comment}`);
+          }
+        }
+      }
+    } else {
+      lines.push('# LocalDNS 动态分流托管规则集（零重启热更新）');
+      for (const g of activeGroups) {
+        const subUrl = `http://${host}/rules/${g.id}.list`;
+        const countInfo = g.rule_count !== undefined ? ` · ${g.rule_count} 条` : '';
+        lines.push(`# ${g.name} (${g.id}${countInfo})`);
+        lines.push(`RULE-SET,${subUrl},${g.surge_policy}`);
+      }
+    }
+
+    lines.push('');
+    lines.push('# 兜底规则');
+    lines.push('GEOIP,CN,DIRECT');
+    lines.push('FINAL,PROXY,dns-failed');
+    lines.push('');
+
+    lines.push('[Host]');
+    lines.push('localdns.local = 127.0.0.1');
+    lines.push('');
+
+    lines.push('# --- LocalDNS 统一脱水调度模块引用提示 ---');
+    lines.push(`# 推荐在 Surge 中直接添加模块: http://${host}/surge/hub.sgmodule`);
+    lines.push('# （所有 App 模块的七层解密重写已提纯聚合在该单一模块中，广告拦截已下沉至 LocalDNS 秒阻）');
+
+    return lines.join('\n');
+  }
 }

@@ -39,15 +39,22 @@ function jsonResponse(data: any, status = 200): HttpResponse {
   });
 }
 
-function textResponse(text: string, status = 200, contentType = 'text/plain; charset=utf-8'): HttpResponse {
+function textResponse(
+  text: string,
+  status = 200,
+  contentType = 'text/plain; charset=utf-8',
+  extraHeaders?: Record<string, string>
+): HttpResponse {
   const bodyData = Data.fromRawString(text, 'utf-8');
+  const headers: Record<string, string> = {
+    'Content-Type': contentType,
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    ...(extraHeaders || {}),
+  };
   return HttpResponse.raw(status, 'OK', {
-    headers: {
-      'Content-Type': contentType,
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
+    headers,
     body: bodyData,
   });
 }
@@ -62,6 +69,80 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
       const moduleContent = await service.compileUnifiedHubModule();
       return textResponse(moduleContent, 200, 'text/plain; charset=utf-8');
     }
+  }
+
+  // 1.1 自动生成完整的 Surge 配置文件 (.conf): /surge/localdns.conf, /surge/profile.conf, /api/v1/surge/config.conf
+  if (
+    path === '/surge/localdns.conf' ||
+    path === '/surge/profile.conf' ||
+    path === '/api/v1/surge/config.conf' ||
+    path === '/api/v1/surge/localdns.conf'
+  ) {
+    if (method === 'GET') {
+      const getParam = (k: string) => req.queryParams?.find((p) => p.key === k)?.value;
+      const getHeader = (name: string): string => {
+        if (!req.headers) return '';
+        const lower = name.toLowerCase();
+        for (const [k, v] of Object.entries(req.headers)) {
+          if (k.toLowerCase() === lower) return v;
+        }
+        return '';
+      };
+      const reqHost = getHeader('host') || '127.0.0.1:9053';
+      const host = getParam('host') || reqHost;
+      const mode = (getParam('mode') === 'inline' ? 'inline' : 'ruleset') as 'ruleset' | 'inline';
+      const apiKey = getParam('api_key') || getParam('key');
+      const isDownload = getParam('download') === '1' || getParam('download') === 'true';
+
+      const conf = await service.generateSurgeConfig({
+        host,
+        mode,
+        apiKey,
+      });
+
+      const extraHeaders: Record<string, string> = {};
+      if (isDownload) {
+        extraHeaders['Content-Disposition'] = 'attachment; filename="LocalDNS.conf"';
+      }
+
+      return textResponse(conf, 200, 'text/plain; charset=utf-8', extraHeaders);
+    }
+  }
+
+  // 1.2 在线生成并定制 Surge 配置参数: /api/v1/surge/generate-conf
+  if (path === '/api/v1/surge/generate-conf' && method === 'POST') {
+    const body = parseJsonBody(req);
+    const getHeader = (name: string): string => {
+      if (!req.headers) return '';
+      const lower = name.toLowerCase();
+      for (const [k, v] of Object.entries(req.headers)) {
+        if (k.toLowerCase() === lower) return v;
+      }
+      return '';
+    };
+    const reqHost = getHeader('host') || '127.0.0.1:9053';
+    const host = body.host || reqHost;
+    const mode = (body.mode === 'inline' ? 'inline' : 'ruleset') as 'ruleset' | 'inline';
+    const apiKey = body.api_key || body.apiKey;
+
+    const conf = await service.generateSurgeConfig({
+      host,
+      mode,
+      apiKey,
+      customProxyNode: body.custom_proxy_node,
+    });
+
+    const downloadUrl = `/surge/localdns.conf?host=${encodeURIComponent(host)}&mode=${mode}&download=1`;
+    const installUrl = `surge:///install-config?url=${encodeURIComponent(`http://${host}/surge/localdns.conf?mode=${mode}`)}`;
+
+    return jsonResponse({
+      success: true,
+      conf,
+      host,
+      mode,
+      downloadUrl,
+      installUrl,
+    });
   }
 
   // 2. 动态分流 RULE-SET 导出: /rules/:group.list 或 /api/v1/rules/:group.list

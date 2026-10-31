@@ -398,6 +398,7 @@
       '      <button type="button" class="button small" id="sw-btn-import-remote-rules">🌐 导入远程规则集 (URL)</button>',
       '      <button type="button" class="button small" id="sw-btn-add-rule">+ 添加单条规则</button>',
       '      <button type="button" class="button small" id="sw-btn-create-group">+ 新建分流组</button>',
+      '      <button type="button" class="button small" id="sw-btn-export-conf" style="background:#0284C7;color:#fff;border-color:transparent">🚀 生成/导出 Surge 配置</button>',
       '    </div>',
       '  </div>',
       '  <!-- 规则治理体征与统计概览卡片 -->',
@@ -490,6 +491,7 @@
 
   function renderGuideView() {
     var origin = location.origin;
+    var confUrl = origin + '/surge/localdns.conf';
     var hubUrl = origin + '/surge/hub.sgmodule';
     var directUrl = origin + '/rules/direct.list';
     var proxyUrl = origin + '/rules/proxy.list';
@@ -516,7 +518,31 @@
       '<div class="sw-panel" id="sw-panel-guide">',
       '  <div class="glass-card" style="padding:20px;max-width:780px">',
       '    <h2 style="font-size:17px;margin:0 0 8px">📖 Surge 联动配置向导</h2>',
-      '    <p style="font-size:13px;opacity:0.8;margin:0 0 20px;line-height:1.5">只需 3 步，即可完成 LocalDNS 与 Surge 的深度缝合，实现 DNS 拦截脱水、单一模块调度与全链路动态分流。</p>',
+      '    <p style="font-size:13px;opacity:0.8;margin:0 0 20px;line-height:1.5">LocalDNS 与 Surge 深度缝合，支持一键生成标准 .conf 配置文件直接导入，亦可分步局部集成。</p>',
+      '',
+      '    <!-- 核心重点：一键自动生成 Surge 完整配置文件 -->',
+      '    <div style="margin-bottom:24px;padding:16px 18px;background:linear-gradient(135deg, rgba(59,130,246,0.12), rgba(16,185,129,0.08));border-radius:12px;border:1px solid rgba(59,130,246,0.35)">',
+      '      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">',
+      '        <div>',
+      '          <strong style="font-size:15px;color:var(--text-1, #191816)">🚀 一键生成 Surge 完整配置文件 (.conf)</strong>',
+      '          <p style="font-size:12px;opacity:0.8;margin:4px 0 0">已按照 Surge 规范生成完整配置（含 General、DNS 指向、Proxy Group、动态 RULE-SET 与 Hub 模块）。</p>',
+      '        </div>',
+      '        <div style="display:flex;gap:6px;flex-wrap:wrap">',
+      '          <button type="button" class="button small primary" id="sw-guide-open-conf" style="background:#10B981;color:#fff;border-color:transparent">📲 一键调起 Surge 安装</button>',
+      '          <button type="button" class="button small" id="sw-guide-download-conf">📥 下载 .conf 文件</button>',
+      '          <button type="button" class="button small" id="sw-guide-copy-full-conf">📋 复制全部配置</button>',
+      '          <button type="button" class="button small" id="sw-guide-customize-conf">⚙️ 定制/预览</button>',
+      '        </div>',
+      '      </div>',
+      '      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">',
+      '        <span style="font-size:12px;opacity:0.75;white-space:nowrap">Surge 在线下载直链:</span>',
+      '        <input type="text" readonly value="' + confUrl + '" id="sw-guide-conf-url-input" style="flex:1;min-width:200px;padding:6px 10px;font-size:12px;border-radius:6px;border:1px solid rgba(148,163,184,0.3);background:transparent" />',
+      '        <button type="button" class="button small" id="sw-guide-copy-conf-url">复制链接</button>',
+      '      </div>',
+      '      <p style="font-size:11px;opacity:0.65;margin:6px 0 0">💡 在 Surge App 中点击「Download Profile from Web」，粘贴上方直链即可一秒完整导入并自动更新。</p>',
+      '    </div>',
+      '',
+      '    <h3 style="font-size:14px;margin:0 0 12px;opacity:0.9">或者：将 LocalDNS 局部集成到现有 Surge 配置中（3 步教程）</h3>',
       '',
       '    <!-- 步骤 1 -->',
       '    <div style="margin-bottom:20px;padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border-left:4px solid #3B82F6">',
@@ -1232,6 +1258,143 @@
     });
   }
 
+  // 按照 Surge 格式自动生成配置的大弹窗
+  async function openSurgeConfModal(initialMode) {
+    var curMode = initialMode || 'ruleset';
+    var curHost = location.host || '127.0.0.1:9053';
+    var curKey = 'localdnskey';
+
+    try {
+      var cfgRes = await fetch('/api/v1/surge/config');
+      var cfgData = await cfgRes.json();
+      if (cfgData.api_key) curKey = cfgData.api_key;
+    } catch (e) {}
+
+    var bodyHtml = [
+      '<div style="display:flex;flex-direction:column;gap:14px">',
+      '  <div style="background:rgba(59,130,246,0.08);border-left:4px solid #3B82F6;padding:12px;border-radius:8px;font-size:13px;line-height:1.5">',
+      '    <strong>💡 按照 Surge 标准格式自动生成完整配置文件 (.conf)</strong>',
+      '    <p style="margin:4px 0 0;opacity:0.85;font-size:12px">根据 LocalDNS 当前的数据库规则组、策略与 API 联动参数，自动编译生成标准配置文件，可直接导入 Surge 使用。</p>',
+      '  </div>',
+      '  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">',
+      '    <div>',
+      '      <label>规则引用模式</label>',
+      '      <select id="sw-cm-mode" class="sw-select">',
+      '        <option value="ruleset"' + (curMode === 'ruleset' ? ' selected' : '') + '>动态订阅模式 (推荐，零重启热更新)</option>',
+      '        <option value="inline"' + (curMode === 'inline' ? ' selected' : '') + '>静态内联模式 (全量规则直接写入配置)</option>',
+      '      </select>',
+      '    </div>',
+      '    <div>',
+      '      <label>LocalDNS 服务地址 (Host:Port)</label>',
+      '      <input type="text" id="sw-cm-host" class="sw-input" value="' + curHost + '" placeholder="例如：127.0.0.1:9053 或 局域网IP:9053" />',
+      '    </div>',
+      '  </div>',
+      '  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">',
+      '    <div>',
+      '      <label>HTTP API 控制密钥 (X-Key)</label>',
+      '      <input type="text" id="sw-cm-key" class="sw-input" value="' + curKey + '" placeholder="与 Surge 设置保持一致" />',
+      '    </div>',
+      '    <div>',
+      '      <label>示范代理节点定义 (选填)</label>',
+      '      <input type="text" id="sw-cm-proxy" class="sw-input" placeholder="留空则使用默认 PROXY_DEMO 模板" />',
+      '    </div>',
+      '  </div>',
+      '  <div>',
+      '    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">',
+      '      <label>生成的完整配置内容 (.conf)</label>',
+      '      <button type="button" class="button small" id="sw-cm-btn-refresh">🔄 重新编译预览</button>',
+      '    </div>',
+      '    <textarea id="sw-cm-preview" class="sw-textarea" rows="12" spellcheck="false" readonly style="font-size:12px;font-family:ui-monospace, monospace"></textarea>',
+      '  </div>',
+      '  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding-top:10px;border-top:1px solid rgba(148,163,184,0.15)">',
+      '    <div style="display:flex;gap:8px;flex-wrap:wrap">',
+      '      <button type="button" class="button small primary" id="sw-cm-btn-install" style="background:#10B981;color:#fff;border-color:transparent">📲 一键调起 Surge 安装</button>',
+      '      <button type="button" class="button small" id="sw-cm-btn-download">📥 下载 .conf 文件</button>',
+      '      <button type="button" class="button small" id="sw-cm-btn-copy">📋 复制全部配置</button>',
+      '    </div>',
+      '    <span style="font-size:11px;opacity:0.7">文件名: LocalDNS.conf</span>',
+      '  </div>',
+      '</div>'
+    ].join('');
+
+    openModal('🚀 Surge 完整配置文件自动生成与导入', bodyHtml, null, '关闭', {
+      large: true,
+      hideCancel: true,
+    });
+
+    var modeSelect = q('#sw-cm-mode');
+    var hostInput = q('#sw-cm-host');
+    var keyInput = q('#sw-cm-key');
+    var proxyInput = q('#sw-cm-proxy');
+    var previewEl = q('#sw-cm-preview');
+    var refreshBtn = q('#sw-cm-btn-refresh');
+    var installBtn = q('#sw-cm-btn-install');
+    var downloadBtn = q('#sw-cm-btn-download');
+    var copyBtn = q('#sw-cm-btn-copy');
+
+    var currentConf = '';
+
+    async function compileAndRender() {
+      if (!previewEl) return;
+      previewEl.value = '正在自动编译 Surge 配置文件…';
+      var payload = {
+        mode: modeSelect ? modeSelect.value : curMode,
+        host: hostInput ? hostInput.value.trim() : curHost,
+        api_key: keyInput ? keyInput.value.trim() : curKey,
+        custom_proxy_node: proxyInput ? proxyInput.value.trim() : '',
+      };
+      try {
+        var res = await fetch('/api/v1/surge/generate-conf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        var data = await res.json();
+        if (data.success && data.conf) {
+          currentConf = data.conf;
+          previewEl.value = currentConf;
+        } else {
+          previewEl.value = '编译配置失败: ' + (data.error || '未知错误');
+        }
+      } catch (e) {
+        previewEl.value = '请求失败: ' + e.message;
+      }
+    }
+
+    if (modeSelect) modeSelect.onchange = compileAndRender;
+    if (refreshBtn) refreshBtn.onclick = compileAndRender;
+
+    if (installBtn) {
+      installBtn.onclick = function () {
+        var host = hostInput ? hostInput.value.trim() : location.host;
+        var mode = modeSelect ? modeSelect.value : 'ruleset';
+        var confUrl = 'http://' + host + '/surge/localdns.conf?mode=' + mode;
+        var installScheme = 'surge:///install-config?url=' + encodeURIComponent(confUrl);
+        location.href = installScheme;
+        toast('已调起 Surge 安装配置', '若未响应可使用直链: ' + confUrl);
+      };
+    }
+
+    if (downloadBtn) {
+      downloadBtn.onclick = function () {
+        var host = hostInput ? hostInput.value.trim() : location.host;
+        var mode = modeSelect ? modeSelect.value : 'ruleset';
+        var downloadUrl = '/surge/localdns.conf?host=' + encodeURIComponent(host) + '&mode=' + mode + '&download=1';
+        window.open(downloadUrl, '_blank');
+        toast('正在下载 LocalDNS.conf 配置文件');
+      };
+    }
+
+    if (copyBtn) {
+      copyBtn.onclick = function () {
+        if (!currentConf) { alert('配置尚未编译完成'); return; }
+        copyText(currentConf);
+      };
+    }
+
+    compileAndRender();
+  }
+
   // 刷新分流组列表
   async function loadDiversion() {
     var container = q('#sw-groups-list');
@@ -1937,6 +2100,67 @@
           'FINAL,PROXY,dns-failed'
         ].join('\n');
         copyText(txt);
+      };
+    }
+
+    // 导出 Surge 配置按钮 (分流治理面板)
+    var btnExportConf = q('#sw-btn-export-conf');
+    if (btnExportConf) {
+      btnExportConf.onclick = function () {
+        openSurgeConfModal('ruleset');
+      };
+    }
+
+    // 向导顶部：一键调起安装配置
+    var btnGuideOpenConf = q('#sw-guide-open-conf');
+    if (btnGuideOpenConf) {
+      btnGuideOpenConf.onclick = function () {
+        var confUrl = location.origin + '/surge/localdns.conf?mode=ruleset';
+        var installScheme = 'surge:///install-config?url=' + encodeURIComponent(confUrl);
+        location.href = installScheme;
+        toast('已调起 Surge 安装配置', '若未响应可使用直链: ' + confUrl);
+      };
+    }
+
+    // 向导顶部：下载 .conf 文件
+    var btnGuideDlConf = q('#sw-guide-download-conf');
+    if (btnGuideDlConf) {
+      btnGuideDlConf.onclick = function () {
+        var downloadUrl = '/surge/localdns.conf?host=' + encodeURIComponent(location.host) + '&mode=ruleset&download=1';
+        window.open(downloadUrl, '_blank');
+        toast('正在下载 LocalDNS.conf 配置文件');
+      };
+    }
+
+    // 向导顶部：复制完整配置
+    var btnGuideCopyFull = q('#sw-guide-copy-full-conf');
+    if (btnGuideCopyFull) {
+      btnGuideCopyFull.onclick = async function () {
+        toast('正在拉取完整配置文件…');
+        try {
+          var res = await fetch('/surge/localdns.conf?host=' + encodeURIComponent(location.host) + '&mode=ruleset');
+          var txt = await res.text();
+          copyText(txt);
+        } catch (e) {
+          alert('获取配置文件失败: ' + e.message);
+        }
+      };
+    }
+
+    // 向导顶部：定制/预览
+    var btnGuideCustomConf = q('#sw-guide-customize-conf');
+    if (btnGuideCustomConf) {
+      btnGuideCustomConf.onclick = function () {
+        openSurgeConfModal('ruleset');
+      };
+    }
+
+    // 向导顶部：复制直链
+    var btnGuideCopyUrl = q('#sw-guide-copy-conf-url');
+    if (btnGuideCopyUrl) {
+      btnGuideCopyUrl.onclick = function () {
+        var uInput = q('#sw-guide-conf-url-input');
+        if (uInput) copyText(uInput.value);
       };
     }
   }
