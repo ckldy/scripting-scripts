@@ -768,15 +768,24 @@ export class SurgeService {
     }
 
     // [MITM]
+    // 关键修复：Surge 模块的 [MITM] 区段中，同名键 hostname 只能出现一次！
+    // 若写多行 hostname = %APPEND%，Surge INI 解析器会用后一行直接覆盖前一行，导致前面行的域名被全部抹杀！
+    // 因此必须去重并统一合并为单行输出，且将含有脚本与重写的核心域名优先置顶
     const validMitmHosts = Array.from(mitmSet).filter(isValidSurgeMitmHost);
     if (validMitmHosts.length > 0) {
       sections.push('[MITM]');
-      // 聚合去重与规范输出，分批每 25 个域名一行，防止单行 13KB+ 超长导致 Surge 解析器缓冲区溢出/截断
-      const chunkSize = 25;
-      for (let i = 0; i < validMitmHosts.length; i += chunkSize) {
-        const chunk = validMitmHosts.slice(i, i + chunkSize);
-        sections.push(`hostname = %APPEND% ${chunk.join(', ')}`);
-      }
+      // 核心业务域名优先置顶
+      const prioritySet = new Set<string>([
+        'app.bilibili.com', 'grpc.biliapi.net', 'api.bilibili.com', 'api.live.bilibili.com',
+        'www.bilibili.com', 'line3-h5-mobile-api.biligame.com',
+        'www.youtube.com', 'm.youtube.com', 'youtubei.googleapis.com',
+        'api.pinduoduo.com', 'acs.m.goofish.com', 'g-acs.m.goofish.com'
+      ]);
+      const priorityHosts = validMitmHosts.filter((h) => prioritySet.has(h));
+      const otherHosts = validMitmHosts.filter((h) => !prioritySet.has(h));
+      const sortedHosts = [...priorityHosts, ...otherHosts];
+
+      sections.push(`hostname = %APPEND% ${sortedHosts.join(', ')}`);
       sections.push('');
     }
 
