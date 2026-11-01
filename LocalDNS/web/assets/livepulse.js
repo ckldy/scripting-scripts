@@ -185,6 +185,25 @@
   var isFitView = false;
   var isMaximized = false;
   var hideZeroFlow = false;
+  var is3DView = false;
+  try {
+    is3DView = (typeof localStorage !== 'undefined' && localStorage.getItem('localdns_topo_view_mode') === '3d');
+  } catch (_) {}
+
+  var TOPO_3D_PRESETS = {
+    isometric: { rx: 22, ry: -14, rz: 2, scale: 0.88, tx: 0, ty: 0, name: '斜视等轴' },
+    topdown: { rx: 42, ry: 0, rz: 0, scale: 0.85, tx: 0, ty: 12, name: '立体俯瞰' },
+    cinematic: { rx: 12, ry: -22, rz: 1, scale: 0.90, tx: -10, ty: -4, name: '深邃视角' }
+  };
+
+  var current3D = {
+    rx: 22,
+    ry: -14,
+    rz: 2,
+    scale: 0.88,
+    tx: 0,
+    ty: 0
+  };
 
   function injectTopologyEnhanceStyles() {
     if (q('#topo-enhance-style')) return;
@@ -354,6 +373,120 @@
       '}',
       '.t-node[data-zero-flow="true"].is-hidden-zero {',
       '  display: none !important;',
+      '}',
+      '/* 3D 空间立体拓扑样式体系 */',
+      '.topology-glass-card.is-3d-view {',
+      '  perspective: 1600px !important;',
+      '  perspective-origin: 50% 36% !important;',
+      '  overflow: visible !important;',
+      '  background: radial-gradient(circle at 50% 28%, rgba(30, 41, 59, 0.45) 0%, rgba(15, 23, 42, 0.92) 100%) !important;',
+      '}',
+      '.topo-stage-wrap.is-3d {',
+      '  transform-style: preserve-3d !important;',
+      '  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;',
+      '  position: relative !important;',
+      '}',
+      '.topo-stage-wrap.is-3d.is-dragging {',
+      '  transition: none !important;',
+      '}',
+      '.topo-stage-wrap.is-3d::before {',
+      '  content: "" !important;',
+      '  position: absolute !important;',
+      '  inset: -60px -80px -40px -80px !important;',
+      '  background-image:',
+      '    linear-gradient(to right, rgba(59, 130, 246, 0.15) 1px, transparent 1px),',
+      '    linear-gradient(to bottom, rgba(59, 130, 246, 0.15) 1px, transparent 1px) !important;',
+      '  background-size: 44px 44px !important;',
+      '  transform: translateZ(-60px) !important;',
+      '  border-radius: 24px !important;',
+      '  border: 1px solid rgba(59, 130, 246, 0.25) !important;',
+      '  box-shadow: 0 0 80px rgba(59, 130, 246, 0.12) inset, 0 32px 70px rgba(0, 0, 0, 0.6) !important;',
+      '  pointer-events: none !important;',
+      '}',
+      '.topo-stage-wrap.is-3d .topo-grid {',
+      '  transform-style: preserve-3d !important;',
+      '}',
+      '.topo-stage-wrap.is-3d .topo-col {',
+      '  transform-style: preserve-3d !important;',
+      '}',
+      '.topo-stage-wrap.is-3d .topo-col-title {',
+      '  transform: translateZ(28px) !important;',
+      '  text-shadow: 0 4px 12px rgba(0,0,0,0.6) !important;',
+      '  letter-spacing: 0.04em !important;',
+      '}',
+      '.topo-stage-wrap.is-3d .t-node {',
+      '  transform-style: preserve-3d !important;',
+      '  transform: translateZ(36px) !important;',
+      '  box-shadow: 0 16px 26px -4px rgba(0,0,0,0.48), 0 4px 10px -2px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.2) !important;',
+      '  border-color: rgba(255,255,255,0.18) !important;',
+      '  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s !important;',
+      '}',
+      '.topo-stage-wrap.is-3d .t-node:hover {',
+      '  transform: translateZ(56px) scale(1.025) !important;',
+      '  box-shadow: 0 24px 38px -4px rgba(0,0,0,0.65), 0 0 24px rgba(59,130,246,0.35) !important;',
+      '}',
+      '.topo-stage-wrap.is-3d #topo-svg {',
+      '  transform: translateZ(12px) !important;',
+      '  overflow: visible !important;',
+      '  filter: drop-shadow(0 8px 16px rgba(0,0,0,0.4)) !important;',
+      '}',
+      '.topo-stage-wrap.is-3d .loopback-badge-group {',
+      '  transform: translateZ(64px) !important;',
+      '}',
+      '.topo-stage-wrap.is-3d .topo-edge.is-loopback {',
+      '  stroke-width: 2.2 !important;',
+      '  filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.5)) !important;',
+      '}',
+      '.topo-btn-view-group {',
+      '  display: inline-flex !important;',
+      '  background: rgba(255, 255, 255, 0.06) !important;',
+      '  border: 1px solid rgba(148, 163, 184, 0.3) !important;',
+      '  border-radius: 8px !important;',
+      '  padding: 2px !important;',
+      '  gap: 2px !important;',
+      '}',
+      '.topo-btn-view {',
+      '  border: none !important;',
+      '  background: transparent !important;',
+      '  color: inherit !important;',
+      '  padding: 4px 10px !important;',
+      '  font-size: 11px !important;',
+      '  font-weight: 600 !important;',
+      '  border-radius: 6px !important;',
+      '  cursor: pointer !important;',
+      '  transition: all 0.15s !important;',
+      '  user-select: none !important;',
+      '}',
+      '.topo-btn-view:hover {',
+      '  background: rgba(255, 255, 255, 0.1) !important;',
+      '}',
+      '.topo-btn-view.active {',
+      '  background: #2563EB !important;',
+      '  color: #fff !important;',
+      '  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4) !important;',
+      '}',
+      '.topo-3d-preset-bar {',
+      '  display: inline-flex !important;',
+      '  align-items: center !important;',
+      '  gap: 4px !important;',
+      '  background: rgba(15, 23, 42, 0.75) !important;',
+      '  border: 1px solid rgba(59, 130, 246, 0.3) !important;',
+      '  border-radius: 8px !important;',
+      '  padding: 2px 6px !important;',
+      '  font-size: 11px !important;',
+      '  backdrop-filter: blur(12px) !important;',
+      '  -webkit-backdrop-filter: blur(12px) !important;',
+      '}',
+      '.topo-3d-hint {',
+      '  font-size: 11px !important;',
+      '  color: #38BDF8 !important;',
+      '  font-weight: 600 !important;',
+      '  margin-right: 2px !important;',
+      '  user-select: none !important;',
+      '}',
+      '.topo-btn-3d-preset {',
+      '  padding: 3px 8px !important;',
+      '  font-size: 10.5px !important;',
       '}'
     ].join('\n');
     document.head.appendChild(style);
@@ -378,6 +511,86 @@
     }
   }
 
+  function apply3DTransform(card, wrap) {
+    if (!card || !wrap) return;
+    if (!is3DView) {
+      card.classList.remove('is-3d-view');
+      wrap.classList.remove('is-3d');
+      applyFitView(card, wrap);
+      return;
+    }
+    card.classList.add('is-3d-view');
+    wrap.classList.add('is-3d');
+
+    var availableW = card.clientWidth - 40;
+    var baseScale = Math.max(0.42, Math.min(0.96, availableW / 1420));
+    var finalScale = (baseScale * (current3D.scale || 0.88)).toFixed(3);
+
+    wrap.style.transformOrigin = 'center center';
+    wrap.style.transform =
+      'translate3d(' + current3D.tx + 'px, ' + current3D.ty + 'px, 0) ' +
+      'rotateX(' + current3D.rx + 'deg) ' +
+      'rotateY(' + current3D.ry + 'deg) ' +
+      'rotateZ(' + current3D.rz + 'deg) ' +
+      'scale3d(' + finalScale + ', ' + finalScale + ', ' + finalScale + ')';
+    wrap.style.marginBottom = '';
+    wrap.style.marginRight = '';
+  }
+
+  var is3DDragBound = false;
+  function setup3DDragInteraction(card, wrap) {
+    if (is3DDragBound || !card || !wrap) return;
+    is3DDragBound = true;
+
+    var isDragging = false;
+    var startX = 0, startY = 0;
+    var startRx = current3D.rx, startRy = current3D.ry;
+
+    card.addEventListener('pointerdown', function (e) {
+      if (!is3DView) return;
+      if (e.target.closest('button, a, input, select, .topo-ctrl-btn, .topo-btn-view, .topo-stage-pill, .t-node')) return;
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      startRx = current3D.rx;
+      startRy = current3D.ry;
+      wrap.classList.add('is-dragging');
+      card.style.cursor = 'grabbing';
+      if (card.setPointerCapture) {
+        try { card.setPointerCapture(e.pointerId); } catch (_) {}
+      }
+    });
+
+    window.addEventListener('pointermove', function (e) {
+      if (!isDragging || !is3DView) return;
+      var dx = e.clientX - startX;
+      var dy = e.clientY - startY;
+
+      var newRy = startRy + dx * 0.22;
+      var newRx = startRx - dy * 0.18;
+
+      current3D.ry = Math.max(-55, Math.min(55, Math.round(newRy)));
+      current3D.rx = Math.max(0, Math.min(70, Math.round(newRx)));
+
+      qq('.topo-btn-3d-preset').forEach(function (btn) { btn.classList.remove('active'); });
+
+      apply3DTransform(card, wrap);
+    });
+
+    function stopDrag(e) {
+      if (!isDragging) return;
+      isDragging = false;
+      wrap.classList.remove('is-dragging');
+      card.style.cursor = '';
+      if (card.releasePointerCapture && e && e.pointerId) {
+        try { card.releasePointerCapture(e.pointerId); } catch (_) {}
+      }
+    }
+
+    window.addEventListener('pointerup', stopDrag);
+    window.addEventListener('pointercancel', stopDrag);
+  }
+
   function setupTopologyControls(card, wrap) {
     var heading = q('.console-topology-heading');
     if (!heading || q('.topo-controls', heading)) return;
@@ -385,6 +598,21 @@
     var controls = document.createElement('div');
     controls.className = 'topo-controls';
     controls.innerHTML = [
+      '<div class="topo-btn-view-group" title="切换平面 / 3D 立体视图">',
+      '  <button type="button" class="topo-btn-view ' + (!is3DView ? 'active' : '') + '" id="topo-btn-view-2d" title="经典平面视图 (2D)">',
+      '    <span>🗺 平面</span>',
+      '  </button>',
+      '  <button type="button" class="topo-btn-view ' + (is3DView ? 'active' : '') + '" id="topo-btn-view-3d" title="空间立体视图 (3D 透视 · 按住空白拖拽自由旋转)">',
+      '    <span>🧊 3D 立体</span>',
+      '  </button>',
+      '</div>',
+      '<div class="topo-3d-preset-bar" id="topo-3d-preset-bar" style="' + (is3DView ? 'display:inline-flex' : 'display:none') + '">',
+      '  <span class="topo-3d-hint">🧊 空间立体</span>',
+      '  <button type="button" class="topo-ctrl-btn topo-btn-3d-preset active" data-preset="isometric">斜视等轴</button>',
+      '  <button type="button" class="topo-ctrl-btn topo-btn-3d-preset" data-preset="topdown">俯瞰立体</button>',
+      '  <button type="button" class="topo-ctrl-btn topo-btn-3d-preset" data-preset="cinematic">深邃视角</button>',
+      '  <button type="button" class="topo-ctrl-btn" id="topo-btn-3d-reset" title="复位默认 3D 视角">🔄 复位</button>',
+      '</div>',
       '<button type="button" class="topo-ctrl-btn" id="topo-btn-fit" title="自适应一屏全貌展示全部 6 个阶段">',
       '  <span>🔎 全貌</span>',
       '</button>',
@@ -396,6 +624,72 @@
       '</button>'
     ].join('');
     heading.appendChild(controls);
+
+    // 绑定 2D / 3D 视图切换
+    var btnView2D = q('#topo-btn-view-2d');
+    var btnView3D = q('#topo-btn-view-3d');
+    var presetBar = q('#topo-3d-preset-bar');
+
+    function switchViewMode(to3D) {
+      is3DView = to3D;
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('localdns_topo_view_mode', is3DView ? '3d' : '2d');
+        }
+      } catch (_) {}
+      if (btnView2D) btnView2D.classList.toggle('active', !is3DView);
+      if (btnView3D) btnView3D.classList.toggle('active', is3DView);
+      if (presetBar) presetBar.style.display = is3DView ? 'inline-flex' : 'none';
+      if (is3DView) {
+        toast('进入 3D 空间立体视图', '可按住空白处拖拽自由旋转视角');
+      } else {
+        toast('切回平面视图', '已恢复 2D 经典渲染布局');
+      }
+      apply3DTransform(card, wrap);
+      window.dispatchEvent(new CustomEvent('localdns:layoutchange'));
+    }
+
+    if (btnView2D) {
+      btnView2D.onclick = function () { switchViewMode(false); };
+    }
+    if (btnView3D) {
+      btnView3D.onclick = function () { switchViewMode(true); };
+    }
+
+    // 绑定 3D 预设视角切换
+    qq('.topo-btn-3d-preset', controls).forEach(function (btn) {
+      btn.onclick = function () {
+        var key = btn.dataset.preset;
+        var p = TOPO_3D_PRESETS[key];
+        if (!p) return;
+        current3D.rx = p.rx;
+        current3D.ry = p.ry;
+        current3D.rz = p.rz;
+        current3D.scale = p.scale;
+        current3D.tx = p.tx;
+        current3D.ty = p.ty;
+        qq('.topo-btn-3d-preset', controls).forEach(function (b) { b.classList.toggle('active', b === btn); });
+        apply3DTransform(card, wrap);
+      };
+    });
+
+    // 绑定 3D 复位按钮
+    var btnReset3D = q('#topo-btn-3d-reset');
+    if (btnReset3D) {
+      btnReset3D.onclick = function () {
+        var p = TOPO_3D_PRESETS.isometric;
+        current3D.rx = p.rx;
+        current3D.ry = p.ry;
+        current3D.rz = p.rz;
+        current3D.scale = p.scale;
+        current3D.tx = p.tx;
+        current3D.ty = p.ty;
+        qq('.topo-btn-3d-preset', controls).forEach(function (b) {
+          b.classList.toggle('active', b.dataset.preset === 'isometric');
+        });
+        apply3DTransform(card, wrap);
+      };
+    }
 
     // 阶段导航胶囊条
     var nav = q('.topo-stages-nav', card);
@@ -489,6 +783,13 @@
         window.dispatchEvent(new CustomEvent('localdns:layoutchange'));
       };
     }
+
+    window.addEventListener('resize', function () {
+      if (is3DView) apply3DTransform(card, wrap);
+      else if (isFitView) applyFitView(card, wrap);
+    }, { passive: true });
+
+    setup3DDragInteraction(card, wrap);
   }
 
   var cachedTopologyData = null;
@@ -505,6 +806,7 @@
     // 注入增强 CSS 与控制工具条
     injectTopologyEnhanceStyles();
     setupTopologyControls(card, wrap);
+    apply3DTransform(card, wrap);
 
     // 1. 动态注入阶段 06：出站执行 (Surge 节点与阻断) 及 回环清洗自愈节点
     var col6 = q('.topo-col[data-col="6"]');
