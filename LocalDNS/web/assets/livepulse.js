@@ -832,6 +832,58 @@
         }
       })
       .catch(function () {});
+
+    // 进程守护实时状态注入：每 4 秒刷新一次
+    if (tick % 4 === 0) {
+      try { updateGuardianIndicator(); } catch (e) {}
+    }
+  }
+
+  // 进程守护实时状态徽章
+  function updateGuardianIndicator() {
+    var statusBox = q('.console-connection-status') || q('.top-header-grid .connection-indicator');
+    if (!statusBox) return;
+    var badge = q('#guardian-live-badge');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.id = 'guardian-live-badge';
+      badge.style.cssText = 'display:inline-flex;align-items:center;gap:4px;font-size:11.5px;padding:2px 8px;border-radius:12px;background:rgba(16,185,129,0.12);color:#10B981;border:1px solid rgba(16,185,129,0.3);margin-left:8px;cursor:pointer;user-select:none;font-weight:600';
+      badge.title = 'LocalDNS 进程守护神：看门狗每 6 秒巡检，持续保障后台存活与中断自愈';
+      badge.onclick = async function () {
+        try {
+          var r = await fetch('/api/v1/guardian/status');
+          var d = await r.json();
+          var tip = [
+            '🛡 LocalDNS 进程守护健康报告',
+            '• 看门狗状态: ' + (d.enabled ? '已激活 (每 6 秒巡检)' : '已停用'),
+            '• 系统后台保活: ' + (d.keeperActive ? '运行中 (' + d.keeperStatus + ')' : '未激活'),
+            '• 异常自愈复活: ' + d.autoHealedCount + ' 次',
+            '• 持续运行时间: ' + Math.floor(d.uptimeSeconds / 60) + ' 分钟',
+            '• 服务监听端口: ' + d.serverPort
+          ].join('\n');
+          alert(tip);
+        } catch (e) {
+          alert('获取守护状态失败: ' + e.message);
+        }
+      };
+      statusBox.appendChild(badge);
+    }
+
+    fetch('/api/v1/guardian/status', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.success) return;
+        var isOk = d.enabled && d.keeperActive && d.serverRunning;
+        var text = isOk ? '🛡 守护活跃' : '⚠️ 守护待命';
+        if (d.autoHealedCount > 0) {
+          text += ' (已自愈 ' + d.autoHealedCount + ' 次)';
+        }
+        badge.innerHTML = text;
+        badge.style.background = isOk ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.14)';
+        badge.style.color = isOk ? '#10B981' : '#F59E0B';
+        badge.style.borderColor = isOk ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.35)';
+      })
+      .catch(function () {});
   }
 
   setInterval(run, 1000);

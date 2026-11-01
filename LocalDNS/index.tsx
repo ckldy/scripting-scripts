@@ -26,6 +26,7 @@ import { DiversionEngine } from './src/diversion';
 import { DnsResolver, cleanDomain } from './src/resolver';
 import { parseDnsPacket, serializeDnsPacket } from './src/dns-packet';
 import type { DnsPacket } from './src/types';
+import { ProcessGuardian } from './src/guardian';
 
 // WebViewController global declaration for TypeScript
 declare class WebViewController {
@@ -51,10 +52,8 @@ function LocalDnsApp() {
   const store = Store.get();
 
   const handleExitScript = () => {
+    ProcessGuardian.get().stop();
     server.stop();
-    if (typeof BackgroundKeeper !== 'undefined' && BackgroundKeeper.stopKeepAlive) {
-      try { BackgroundKeeper.stopKeepAlive(); } catch {}
-    }
     Script.exit();
   };
 
@@ -154,21 +153,17 @@ function LocalDnsApp() {
 
   const handleToggleServer = async () => {
     if (isRunning) {
+      ProcessGuardian.get().stop();
       server.stop();
       setIsRunning(false);
-      if (typeof BackgroundKeeper !== 'undefined' && BackgroundKeeper.stopKeepAlive) {
-        try { await BackgroundKeeper.stopKeepAlive(); } catch {}
-      }
-      setStatusMessage('LocalDNS 服务已暂停，后台保活已释放');
+      setStatusMessage('LocalDNS 服务已暂停，后台进程守护已释放');
     } else {
       const res = server.start(port);
       if (res.success) {
         setIsRunning(true);
         setPort(res.port);
-        if (typeof BackgroundKeeper !== 'undefined' && BackgroundKeeper.keepAlive) {
-          try { await BackgroundKeeper.keepAlive(); } catch {}
-        }
-        setStatusMessage(`LocalDNS 服务已在端口 ${res.port} 启动，后台长驻保活已激活！`);
+        ProcessGuardian.get().start();
+        setStatusMessage(`LocalDNS 服务已在端口 ${res.port} 启动，后台进程守护看门狗已激活！`);
       } else {
         setStatusMessage(`启动失败: ${res.error}`);
       }
@@ -791,12 +786,8 @@ async function run() {
   const server = LocalDnsServer.get();
   server.start(9099);
 
-  // 3. Request official system background keep-alive to prevent iOS suspension
-  if (typeof BackgroundKeeper !== 'undefined' && BackgroundKeeper.keepAlive) {
-    try {
-      await BackgroundKeeper.keepAlive();
-    } catch {}
-  }
+  // 3. 启动高可靠进程守护神（看门狗巡检 + 中断自愈 + 生命周期保活加固）
+  ProcessGuardian.get().start();
 
   // 4. Permanent keepalive interval to maintain event loop references - NEVER CLEAR!
   // This ensures the JS runtime engine never marks the script as "completed" when UI is hidden.

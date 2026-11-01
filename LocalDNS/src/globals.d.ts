@@ -46,7 +46,14 @@ declare namespace Script {
   function onResume(callback: (details: any) => void): () => void;
 }
 declare namespace BackgroundKeeper {
+  interface State {
+    status: "idle" | "active" | "interrupted" | "inactive";
+    isActive: boolean;
+    requested: boolean;
+    lastFailure: string | null;
+  }
   const isActive: Promise<boolean>;
+  function getState(): Promise<State>;
   function keepAlive(): Promise<boolean>;
   function stopKeepAlive(): Promise<void>;
 }

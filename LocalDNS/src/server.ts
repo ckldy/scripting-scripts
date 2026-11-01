@@ -11,6 +11,7 @@ import { ClientRulesEngine } from './client-rules';
 import { LocalRecordsEngine } from './records';
 import { SurgeService } from './surge-service';
 import { handleSurgeApiRequest } from './surge-api';
+import { ProcessGuardian } from './guardian';
 
 function parseJsonBody(req: HttpRequest): any {
   try {
@@ -517,6 +518,27 @@ export class LocalDnsServer {
   private async handleApi(path: string, method: string, req: HttpRequest): Promise<HttpResponse> {
     const store = Store.get();
     const cleanPath = path.split('?')[0];
+
+    // 0. 进程守护中枢与自愈: /api/v1/guardian/*
+    if (cleanPath.startsWith('/api/v1/guardian')) {
+      const guardian = ProcessGuardian.get();
+      if (cleanPath === '/api/v1/guardian/status' && method === 'GET') {
+        const s = await guardian.getStatus();
+        return jsonResponse({ success: true, ...s });
+      }
+      if (cleanPath === '/api/v1/guardian/toggle' && method === 'POST') {
+        const body = parseJsonBody(req);
+        const en = body.enabled !== undefined ? Boolean(body.enabled) : true;
+        guardian.setEnabled(en);
+        const s = await guardian.getStatus();
+        return jsonResponse({ success: true, ...s });
+      }
+      if (cleanPath === '/api/v1/guardian/heal' && method === 'POST') {
+        const healed = await guardian.checkAndHeal();
+        const s = await guardian.getStatus();
+        return jsonResponse({ success: true, healed, ...s });
+      }
+    }
 
     // 1. /api/v1/status
     if (cleanPath === '/api/v1/status' && method === 'GET') {

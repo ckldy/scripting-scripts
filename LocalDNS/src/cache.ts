@@ -106,6 +106,18 @@ export class CachePool {
     this.entries.clear();
   }
 
+  pruneExpired(): number {
+    const now = Date.now();
+    let count = 0;
+    for (const [k, entry] of this.entries.entries()) {
+      if (entry.expiresAt <= now) {
+        this.entries.delete(k);
+        count++;
+      }
+    }
+    return count;
+  }
+
   getMetrics(): CachePoolMetrics {
     return {
       tag: this.tag,
@@ -209,6 +221,14 @@ export class CacheManager {
 
   getAllPools(): CachePool[] {
     return [this.mainCache, this.domesticCache, this.foreignCache, this.foreignEcsCache];
+  }
+
+  cleanup(): number {
+    let total = 0;
+    for (const pool of this.getAllPools()) {
+      total += pool.pruneExpired();
+    }
+    return total;
   }
 
   get(poolTag: string, domain: string, qtype: number, allowExpired = false, replyTtl = 5) {
