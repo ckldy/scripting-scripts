@@ -655,8 +655,9 @@
           '    </div>',
           '  </div>',
           '  <div style="display:flex;justify-content:flex-end;margin-top:10px;gap:6px;flex-wrap:wrap">',
+          (m.hasArguments || (m.arguments_schema && m.arguments_schema.length > 0) ? '    <button type="button" class="button small primary sw-btn-params-mod" data-mod-id="' + m.id + '" data-mod-name="' + m.name + '" style="background:rgba(59,130,246,0.15);color:#3B82F6;border-color:rgba(59,130,246,0.35)">🎛 编辑参数</button>' : ''),
           (m.source_url ? '    <button type="button" class="button small sw-btn-refresh-mod" data-mod-id="' + m.id + '">🔄 更新</button>' : ''),
-          '    <button type="button" class="button small sw-btn-edit-mod" data-mod-id="' + m.id + '" data-mod-name="' + m.name + '">✏️ 编辑代码</button>',
+          '    <button type="button" class="button small sw-btn-edit-mod" data-mod-id="' + m.id + '" data-mod-name="' + m.name + '">✏️ 查看代码</button>',
           '    <button type="button" class="button small sw-btn-del-mod" data-mod-id="' + m.id + '" style="color:#EF4444;border-color:rgba(239,68,68,0.3)">删除</button>',
           '  </div>',
           '</div>'
@@ -696,6 +697,146 @@
           btn.disabled = false;
           btn.textContent = old;
           loadModules();
+        };
+      });
+
+      // 编辑参数事件 (1:1 复刻 Surge 风格参数表单面板)
+      qq('.sw-btn-params-mod', container).forEach(function (btn) {
+        btn.onclick = async function () {
+          var id = btn.dataset.modId;
+          var name = btn.dataset.modName;
+          try {
+            var res = await fetch('/api/v1/surge/modules/' + encodeURIComponent(id) + '/arguments');
+            var data = await res.json();
+            if (!data.success) {
+              alert('获取模块参数失败: ' + (data.error || '未知错误'));
+              return;
+            }
+
+            var schema = data.schema || [];
+            var customArgs = data.customArguments || {};
+            var desc = data.desc || '';
+
+            if (schema.length === 0) {
+              alert('该模块未声明 #!arguments 参数表');
+              return;
+            }
+
+            var formRows = schema.map(function (item) {
+              var currentVal = customArgs[item.key] !== undefined ? customArgs[item.key] : item.defaultValue;
+              var isSwitch = item.defaultValue === '0' || item.defaultValue === '1' || item.defaultValue === 'true' || item.defaultValue === 'false';
+              
+              var inputControl = '';
+              if (isSwitch) {
+                var isChecked = currentVal === '1' || currentVal === 'true';
+                inputControl = [
+                  '<label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer">',
+                  '  <input type="checkbox" class="sw-arg-input sw-arg-switch" data-key="' + item.key + '" ' + (isChecked ? 'checked' : '') + ' style="opacity:0;width:0;height:0" />',
+                  '  <span style="position:absolute;inset:0;background:' + (isChecked ? '#10B981' : 'rgba(148,163,184,0.3)') + ';border-radius:24px;transition:0.2s">',
+                  '    <span style="position:absolute;left:' + (isChecked ? '22px' : '2px') + ';top:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3)"></span>',
+                  '  </span>',
+                  '</label>'
+                ].join('');
+              } else {
+                inputControl = '<input type="text" class="sw-input sw-arg-input" data-key="' + item.key + '" value="' + (currentVal || '') + '" placeholder="默认: ' + (item.defaultValue || '空') + '" style="font-size:13px;padding:6px 10px;text-align:right;width:200px" />';
+              }
+
+              return [
+                '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid rgba(148,163,184,0.12);background:rgba(255,255,255,0.02)">',
+                '  <div style="font-weight:500;font-size:13px">' + item.key + '</div>',
+                '  <div>' + inputControl + '</div>',
+                '</div>'
+              ].join('');
+            }).join('');
+
+            var descSection = '';
+            if (desc) {
+              descSection = [
+                '<div style="margin-top:14px;padding:12px;background:rgba(0,0,0,0.25);border-radius:8px;font-size:11px;line-height:1.6;opacity:0.85;white-space:pre-wrap;border:1px solid rgba(148,163,184,0.15)">',
+                '  <div style="font-weight:600;margin-bottom:4px;color:#94A3B8">参数说明 (arguments-desc):</div>',
+                desc,
+                '</div>'
+              ].join('');
+            }
+
+            var modalHtml = [
+              '<div style="display:flex;flex-direction:column;gap:4px">',
+              '  <div style="font-size:12px;opacity:0.75;margin-bottom:8px">修改参数后将重新宏展开与脱水，并自动通知 Surge 热重载加载最新配置：</div>',
+              '  <div style="border:1px solid rgba(148,163,184,0.2);border-radius:8px;overflow:hidden">',
+              formRows,
+              '  </div>',
+              descSection,
+              '  <div style="margin-top:12px;display:flex;justify-content:flex-start">',
+              '    <button type="button" class="button small" id="sw-btn-reset-args" style="opacity:0.8">🔄 重置为默认值</button>',
+              '  </div>',
+              '</div>'
+            ].join('');
+
+            openModal('编辑参数 · ' + name, modalHtml, async function () {
+              var newArgs = {};
+              qq('.sw-arg-input').forEach(function (input) {
+                var k = input.dataset.key;
+                if (!k) return;
+                if (input.classList.contains('sw-arg-switch')) {
+                  var origItem = schema.find(function (s) { return s.key === k; });
+                  if (origItem && (origItem.defaultValue === 'true' || origItem.defaultValue === 'false')) {
+                    newArgs[k] = input.checked ? 'true' : 'false';
+                  } else {
+                    newArgs[k] = input.checked ? '1' : '0';
+                  }
+                } else {
+                  newArgs[k] = input.value.trim();
+                }
+              });
+
+              var putRes = await fetch('/api/v1/surge/modules/' + encodeURIComponent(id) + '/arguments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ arguments: newArgs }),
+              });
+              var putData = await putRes.json();
+              if (putData.success) {
+                toast('参数已保存并重新脱水', 'DNS 拦截与七层 Hub 已更新');
+                loadModules();
+                return true;
+              } else {
+                alert('保存参数失败: ' + (putData.error || '未知错误'));
+                return false;
+              }
+            }, '保存并应用');
+
+            // 监听开关点击视觉反馈与重置按钮绑定
+            qq('.sw-arg-switch').forEach(function (chk) {
+              chk.onchange = function () {
+                var track = chk.nextElementSibling;
+                var thumb = track ? track.firstElementChild : null;
+                if (track && thumb) {
+                  track.style.background = chk.checked ? '#10B981' : 'rgba(148,163,184,0.3)';
+                  thumb.style.left = chk.checked ? '22px' : '2px';
+                }
+              };
+            });
+
+            var btnReset = q('#sw-btn-reset-args');
+            if (btnReset) {
+              btnReset.onclick = async function () {
+                if (!confirm('确定将该模块的所有参数重置为作者默认值吗？')) return;
+                var resetRes = await fetch('/api/v1/surge/modules/' + encodeURIComponent(id) + '/arguments/reset', {
+                  method: 'POST',
+                });
+                var resetData = await resetRes.json();
+                if (resetData.success) {
+                  toast('已恢复默认参数', '重新脱水完成');
+                  closeModal();
+                  loadModules();
+                } else {
+                  alert('重置失败: ' + (resetData.error || '未知错误'));
+                }
+              };
+            }
+          } catch (e) {
+            alert('打开参数面板异常: ' + e.message);
+          }
         };
       });
 

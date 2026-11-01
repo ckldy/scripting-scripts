@@ -7,6 +7,11 @@
 
 import { Path, Script } from 'scripting';
 
+export interface ModuleArgumentItem {
+  key: string;
+  defaultValue: string;
+}
+
 export interface AppModule {
   id: string;
   name: string;
@@ -14,6 +19,9 @@ export interface AppModule {
   source_url: string | null;
   enabled: boolean;
   raw_content?: string | null;
+  arguments_schema?: ModuleArgumentItem[];
+  arguments_desc?: string | null;
+  custom_arguments?: Record<string, string>;
   created_at: number;
   updated_at: number;
 }
@@ -30,15 +38,17 @@ export interface DnsRule {
 export interface HttpRule {
   id?: number;
   module_id: string;
-  rule_type: 'rewrite' | 'header' | 'script';
+  rule_type: 'rewrite' | 'header' | 'script' | 'map-local' | 'body-rewrite' | 'rule';
   sub_type: string;
   pattern: string;
   target: string;
+  script_name?: string;
   requires_body: boolean;
   max_size: number;
   binary_body?: boolean;
   engine?: string;
   argument?: string;
+  timeout?: number;
   enabled: boolean;
 }
 
@@ -167,7 +177,22 @@ export class SurgeDatabase {
         await this.db.execute('ALTER TABLE module_http_rules ADD COLUMN argument TEXT;');
       } catch {}
       try {
+        await this.db.execute('ALTER TABLE module_http_rules ADD COLUMN timeout INTEGER;');
+      } catch {}
+      try {
+        await this.db.execute('ALTER TABLE module_http_rules ADD COLUMN script_name TEXT;');
+      } catch {}
+      try {
         await this.db.execute('ALTER TABLE diversion_rules ADD COLUMN source_url TEXT;');
+      } catch {}
+      try {
+        await this.db.execute('ALTER TABLE app_modules ADD COLUMN arguments_schema TEXT;');
+      } catch {}
+      try {
+        await this.db.execute('ALTER TABLE app_modules ADD COLUMN arguments_desc TEXT;');
+      } catch {}
+      try {
+        await this.db.execute('ALTER TABLE app_modules ADD COLUMN custom_arguments TEXT;');
       } catch {}
       try {
         await this.db.execute('ALTER TABLE remote_rule_sets ADD COLUMN name TEXT;');
@@ -392,22 +417,45 @@ export class SurgeDatabase {
   public async getModules(): Promise<AppModule[]> {
     await this.init();
     const rows = await this.getDb().fetchAll<any>('SELECT * FROM app_modules ORDER BY updated_at DESC');
-    return rows.map((r: any) => ({
-      id: r.id,
-      name: r.name,
-      category: r.category,
-      source_url: r.source_url,
-      enabled: Boolean(r.enabled),
-      raw_content: r.raw_content,
-      created_at: r.created_at,
-      updated_at: r.updated_at,
-    }));
+    return rows.map((r: any) => {
+      let schema: ModuleArgumentItem[] | undefined;
+      let customArgs: Record<string, string> | undefined;
+      try {
+        if (r.arguments_schema) schema = JSON.parse(r.arguments_schema);
+      } catch {}
+      try {
+        if (r.custom_arguments) customArgs = JSON.parse(r.custom_arguments);
+      } catch {}
+
+      return {
+        id: r.id,
+        name: r.name,
+        category: r.category,
+        source_url: r.source_url,
+        enabled: Boolean(r.enabled),
+        raw_content: r.raw_content,
+        arguments_schema: schema,
+        arguments_desc: r.arguments_desc,
+        custom_arguments: customArgs,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+      };
+    });
   }
 
   public async getModule(id: string): Promise<AppModule | null> {
     await this.init();
     const r = await this.getDb().fetchOne<any>('SELECT * FROM app_modules WHERE id = ?', [id]);
     if (!r) return null;
+    let schema: ModuleArgumentItem[] | undefined;
+    let customArgs: Record<string, string> | undefined;
+    try {
+      if (r.arguments_schema) schema = JSON.parse(r.arguments_schema);
+    } catch {}
+    try {
+      if (r.custom_arguments) customArgs = JSON.parse(r.custom_arguments);
+    } catch {}
+
     return {
       id: r.id,
       name: r.name,
@@ -415,6 +463,9 @@ export class SurgeDatabase {
       source_url: r.source_url,
       enabled: Boolean(r.enabled),
       raw_content: r.raw_content,
+      arguments_schema: schema,
+      arguments_desc: r.arguments_desc,
+      custom_arguments: customArgs,
       created_at: r.created_at,
       updated_at: r.updated_at,
     };
@@ -423,10 +474,34 @@ export class SurgeDatabase {
   public async saveModule(module: AppModule): Promise<void> {
     await this.init();
     const now = Date.now();
+    const schemaStr = module.arguments_schema ? JSON.stringify(module.arguments_schema) : null;
+    const customArgsStr = module.custom_arguments ? JSON.stringify(module.custom_arguments) : null;
+
     await this.getDb().execute(
-      `INSERT OR REPLACE INTO app_modules (id, name, category, source_url, enabled, raw_content, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM app_modules WHERE id = ?), ?), ?)`,
-      [module.id, module.name, module.category, module.source_url, module.enabled ? 1 : 0, module.raw_content || null, module.id, now, now]
+      `INSERT OR REPLACE INTO app_modules (id, name, category, source_url, enabled, raw_content, arguments_schema, arguments_desc, custom_arguments, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM app_modules WHERE id = ?), ?), ?)`,
+      [
+        module.id,
+        module.name,
+        module.category,
+        module.source_url,
+        module.enabled ? 1 : 0,
+        module.raw_content || null,
+        schemaStr,
+        module.arguments_desc || null,
+        customArgsStr,
+        module.id,
+        now,
+        now,
+      ]
+    );
+  }
+
+  public async saveModuleCustomArguments(id: string, customArguments: Record<string, string>): Promise<void> {
+    await this.init();
+    await this.getDb().execute(
+      'UPDATE app_modules SET custom_arguments = ?, updated_at = ? WHERE id = ?',
+      [JSON.stringify(customArguments), Date.now(), id]
     );
   }
 
@@ -470,19 +545,21 @@ export class SurgeDatabase {
     }
     for (const hr of httpRules) {
       await this.getDb().execute(
-        `INSERT INTO module_http_rules (module_id, rule_type, sub_type, pattern, target, requires_body, max_size, binary_body, engine, argument, enabled)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO module_http_rules (module_id, rule_type, sub_type, pattern, target, script_name, requires_body, max_size, binary_body, engine, argument, timeout, enabled)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           moduleId,
           hr.rule_type,
           hr.sub_type,
           hr.pattern,
           hr.target,
+          hr.script_name || null,
           hr.requires_body ? 1 : 0,
           hr.max_size !== undefined ? hr.max_size : 1048576,
           hr.binary_body ? 1 : 0,
           hr.engine || null,
           hr.argument || null,
+          hr.timeout !== undefined ? hr.timeout : null,
           hr.enabled !== false ? 1 : 0,
         ]
       );
@@ -523,11 +600,13 @@ export class SurgeDatabase {
       sub_type: r.sub_type,
       pattern: r.pattern,
       target: r.target,
+      script_name: r.script_name || undefined,
       requires_body: Boolean(r.requires_body),
       max_size: r.max_size,
       binary_body: Boolean(r.binary_body),
       engine: r.engine || undefined,
       argument: r.argument || undefined,
+      timeout: r.timeout !== null && r.timeout !== undefined ? Number(r.timeout) : undefined,
       enabled: Boolean(r.enabled),
     }));
   }

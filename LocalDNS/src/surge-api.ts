@@ -63,6 +63,30 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
   const db = SurgeDatabase.get();
   const service = SurgeService.get();
 
+  // 1.0 单个模块脱水订阅端点: /surge/modules/:id.sgmodule 或 /api/v1/surge/modules/:id.sgmodule
+  // 严格保留原模块的全部元数据、参数表格声明 (#!arguments)、占位符 ({{{key}}}) 与全部七层功能，仅剥离纯域名 REJECT 规则
+  if (
+    (path.startsWith('/surge/modules/') || path.startsWith('/api/v1/surge/modules/')) &&
+    path.endsWith('.sgmodule')
+  ) {
+    if (method === 'GET') {
+      const prefix = path.startsWith('/surge/modules/') ? '/surge/modules/' : '/api/v1/surge/modules/';
+      const rawId = path.slice(prefix.length).replace(/\.sgmodule$/, '').trim();
+      const modId = decodeURIComponent(rawId);
+      const cleaned = await service.getCleanedModuleContent(modId);
+      if (!cleaned) {
+        return textResponse('# 404 Module Not Found\n', 404, 'text/plain; charset=utf-8');
+      }
+      return textResponse(cleaned, 200, 'text/plain; charset=utf-8', {
+        'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'ETag': `"${Date.now().toString(36)}"`,
+        'Last-Modified': new Date().toUTCString(),
+      });
+    }
+  }
+
   // 1. 统一调度模块端点: /surge/hub.sgmodule 或 /api/v1/surge/hub.sgmodule
   if (path === '/surge/hub.sgmodule' || path === '/api/v1/surge/hub.sgmodule') {
     if (method === 'GET') {
@@ -75,7 +99,13 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
         }
       } catch {}
       const moduleContent = await service.compileUnifiedHubModule(`http://${host}`);
-      return textResponse(moduleContent, 200, 'text/plain; charset=utf-8');
+      return textResponse(moduleContent, 200, 'text/plain; charset=utf-8', {
+        'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'ETag': `"${Date.now().toString(36)}"`,
+        'Last-Modified': new Date().toUTCString(),
+      });
     }
   }
 
@@ -222,6 +252,62 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
       const r = await service.refreshModule(modId);
       if (!r.updated) return jsonResponse({ success: false, id: modId, error: r.error }, 400);
       return jsonResponse({ success: true, id: modId, rules: r.rules });
+    }
+
+    // 模块参数管理: GET /api/v1/surge/modules/:id/arguments
+    // POST /api/v1/surge/modules/:id/arguments
+    // POST /api/v1/surge/modules/:id/arguments/reset
+    if (parts.length >= 2 && parts[1] === 'arguments') {
+      const isReset = parts.length === 3 && parts[2] === 'reset';
+      if (isReset && method === 'POST') {
+        try {
+          const parsed = await service.resetModuleArguments(modId);
+          return jsonResponse({
+            success: true,
+            id: modId,
+            dnsRulesCount: parsed.dnsRules.length,
+            mitmCount: parsed.mitmHosts.length,
+            httpRulesCount: parsed.httpRules.length,
+          });
+        } catch (e: any) {
+          return jsonResponse({ success: false, error: e?.message || String(e) }, 400);
+        }
+      }
+
+      if (method === 'GET') {
+        const mod = await db.getModule(modId);
+        if (!mod) return jsonResponse({ error: 'Module not found' }, 404);
+        const hasSchema = Boolean(mod.arguments_schema && mod.arguments_schema.length > 0);
+        return jsonResponse({
+          success: true,
+          id: modId,
+          name: mod.name,
+          hasArguments: hasSchema,
+          schema: mod.arguments_schema || [],
+          desc: mod.arguments_desc || '',
+          customArguments: mod.custom_arguments || {},
+        });
+      }
+
+      if (method === 'POST') {
+        const body = parseJsonBody(req);
+        const customArgs = body.arguments;
+        if (!customArgs || typeof customArgs !== 'object') {
+          return jsonResponse({ error: 'Missing arguments payload' }, 400);
+        }
+        try {
+          const parsed = await service.applyModuleArguments(modId, customArgs);
+          return jsonResponse({
+            success: true,
+            id: modId,
+            dnsRulesCount: parsed.dnsRules.length,
+            mitmCount: parsed.mitmHosts.length,
+            httpRulesCount: parsed.httpRules.length,
+          });
+        } catch (e: any) {
+          return jsonResponse({ success: false, error: e?.message || String(e) }, 400);
+        }
+      }
     }
 
     if (parts.length === 1) {

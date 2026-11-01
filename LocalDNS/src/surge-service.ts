@@ -8,12 +8,15 @@
  * 4. 内存级快速 DNS 拦截匹配集（零等待阻断）
  */
 
-import { SurgeDatabase, type AppModule, type DnsRule, type HttpRule, type GeneralSetting } from './surge-db';
+import { SurgeDatabase, type AppModule, type DnsRule, type HttpRule, type GeneralSetting, type ModuleArgumentItem } from './surge-db';
 
 export interface ParsedModuleContent {
   name: string;
   desc?: string;
   system?: string;
+  argumentsSchema: ModuleArgumentItem[];
+  argumentsDesc: string;
+  defaultArguments: Record<string, string>;
   dnsRules: DnsRule[];
   mitmHosts: string[];
   httpRules: HttpRule[];
@@ -47,6 +50,62 @@ function isValidSurgeMitmHost(host: string): boolean {
   return true;
 }
 
+export function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * 模块参数宏替换渲染引擎：将模板中的 {{{key}}} 替换为生效值
+ */
+export function renderModuleTemplate(
+  rawContent: string,
+  effectiveArgs: Record<string, string>
+): string {
+  let rendered = rawContent;
+  for (const [key, val] of Object.entries(effectiveArgs)) {
+    if (!key) continue;
+    const regex = new RegExp(`\\{\\{\\{${escapeRegExp(key)}\\}\\}\\}`, 'g');
+    rendered = rendered.replace(regex, val !== undefined ? String(val) : '');
+  }
+  return rendered;
+}
+
+/**
+ * 解析模块的参数元数据 Schema 与描述
+ */
+export function parseModuleArgumentsMeta(rawContent: string): {
+  schema: ModuleArgumentItem[];
+  desc: string;
+  defaultValues: Record<string, string>;
+} {
+  const lines = rawContent.split(/\r?\n/);
+  const schema: ModuleArgumentItem[] = [];
+  const defaultValues: Record<string, string> = {};
+  let desc = '';
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('#!arguments=')) {
+      const rawArgs = trimmed.replace('#!arguments=', '').trim();
+      const pairs = rawArgs.split(',');
+      for (const pair of pairs) {
+        const colonIdx = pair.indexOf(':');
+        const k = (colonIdx !== -1 ? pair.slice(0, colonIdx) : pair).trim();
+        const v = (colonIdx !== -1 ? pair.slice(colonIdx + 1) : '').trim();
+        if (k) {
+          schema.push({ key: k, defaultValue: v });
+          defaultValues[k] = v;
+        }
+      }
+    } else if (trimmed.startsWith('#!arguments-desc=')) {
+      desc = trimmed.replace('#!arguments-desc=', '').trim();
+      desc = desc.replace(/\\n/g, '\n');
+    }
+  }
+
+  return { schema, desc, defaultValues };
+}
+
 function parseSurgeScriptParams(paramsStr: string): {
   type: string;
   pattern: string;
@@ -56,6 +115,7 @@ function parseSurgeScriptParams(paramsStr: string): {
   binaryBody: boolean;
   engine?: string;
   argument?: string;
+  timeout?: number;
 } {
   let type = 'http-response';
   let pattern = '';
@@ -65,6 +125,7 @@ function parseSurgeScriptParams(paramsStr: string): {
   let binaryBody = false;
   let engine: string | undefined;
   let argument: string | undefined;
+  let timeout: number | undefined;
 
   let i = 0;
   const n = paramsStr.length;
@@ -79,60 +140,83 @@ function parseSurgeScriptParams(paramsStr: string): {
     }
     const key = paramsStr.slice(kStart, i).trim().toLowerCase();
 
-    // argument 参数特殊处理：其值是含引号与逗号的 JSON，必须吞掉剩余整行内容
-    if (key === 'argument') {
-      let rest = paramsStr.slice(i).trim();
-      if (rest.startsWith('=')) rest = rest.slice(1).trim();
-      const reqIdx = rest.indexOf('#!REQUIREMENT');
-      if (reqIdx !== -1) rest = rest.slice(0, reqIdx).trim();
-      if (rest.startsWith('"') && rest.endsWith('"') && rest.length >= 2) {
-        rest = rest.slice(1, -1);
-      } else if (rest.startsWith('"')) {
-        rest = rest.slice(1);
-      }
-      argument = rest.trim();
-      i = n;
-      break;
-    }
-
     while (i < n && (paramsStr[i] === ' ' || paramsStr[i] === '\t')) i++;
 
     if (i < n && paramsStr[i] === '=') {
       i++; // skip '='
       while (i < n && (paramsStr[i] === ' ' || paramsStr[i] === '\t')) i++;
 
-      let val = '';
-      if (i < n && (paramsStr[i] === '"' || paramsStr[i] === "'")) {
-        const quote = paramsStr[i];
-        i++; // skip open quote
-        const vStart = i;
-        while (i < n && paramsStr[i] !== quote) {
-          if (paramsStr[i] === '\\' && i + 1 < n) {
-            i += 2;
-          } else {
+      // 特殊处理 argument 参数：内容通常是含引号、逗号的 JSON 字符串 argument="{...}" 或数组
+      if (key === 'argument') {
+        let val = '';
+        if (i < n && (paramsStr[i] === '"' || paramsStr[i] === "'")) {
+          const quote = paramsStr[i];
+          i++; // 跳过起始引号
+          const vStart = i;
+          let braceDepth = 0;
+          let bracketDepth = 0;
+          while (i < n) {
+            const ch = paramsStr[i];
+            if (ch === '\\' && i + 1 < n) {
+              i += 2;
+              continue;
+            }
+            if (ch === '{') braceDepth++;
+            else if (ch === '}') braceDepth = Math.max(0, braceDepth - 1);
+            else if (ch === '[') bracketDepth++;
+            else if (ch === ']') bracketDepth = Math.max(0, bracketDepth - 1);
+            else if (ch === quote && braceDepth === 0 && bracketDepth === 0) {
+              break;
+            }
             i++;
           }
+          val = paramsStr.slice(vStart, i);
+          if (i < n && paramsStr[i] === quote) i++; // 跳过闭合引号
+        } else {
+          const vStart = i;
+          while (i < n && paramsStr[i] !== ',') {
+            i++;
+          }
+          val = paramsStr.slice(vStart, i).trim();
         }
-        val = paramsStr.slice(vStart, i);
-        if (i < n && paramsStr[i] === quote) i++; // skip close quote
+        argument = val;
       } else {
-        const vStart = i;
-        while (i < n && paramsStr[i] !== ',') {
-          i++;
+        let val = '';
+        if (i < n && (paramsStr[i] === '"' || paramsStr[i] === "'")) {
+          const quote = paramsStr[i];
+          i++; // skip open quote
+          const vStart = i;
+          while (i < n && paramsStr[i] !== quote) {
+            if (paramsStr[i] === '\\' && i + 1 < n) {
+              i += 2;
+            } else {
+              i++;
+            }
+          }
+          val = paramsStr.slice(vStart, i);
+          if (i < n && paramsStr[i] === quote) i++; // skip close quote
+        } else {
+          const vStart = i;
+          while (i < n && paramsStr[i] !== ',') {
+            i++;
+          }
+          val = paramsStr.slice(vStart, i).trim();
         }
-        val = paramsStr.slice(vStart, i).trim();
-      }
 
-      if (key === 'type') type = val;
-      else if (key === 'pattern') pattern = val;
-      else if (key === 'script-path') scriptPath = val;
-      else if (key === 'requires-body') requiresBody = val === '1' || val.toLowerCase() === 'true';
-      else if (key === 'binary-body-mode') binaryBody = val === '1' || val.toLowerCase() === 'true';
-      else if (key === 'engine') engine = val;
-      else if (key === 'argument') argument = val;
-      else if (key === 'max-size') {
-        const parsedSize = parseInt(val, 10);
-        if (!isNaN(parsedSize)) maxSize = parsedSize;
+        if (key === 'type') type = val;
+        else if (key === 'pattern') pattern = val;
+        else if (key === 'script-path') scriptPath = val;
+        else if (key === 'requires-body') requiresBody = val === '1' || val.toLowerCase() === 'true';
+        else if (key === 'binary-body-mode') binaryBody = val === '1' || val.toLowerCase() === 'true';
+        else if (key === 'engine') engine = val;
+        else if (key === 'timeout') {
+          const parsedTimeout = parseInt(val, 10);
+          if (!isNaN(parsedTimeout)) timeout = parsedTimeout;
+        }
+        else if (key === 'max-size') {
+          const parsedSize = parseInt(val, 10);
+          if (!isNaN(parsedSize)) maxSize = parsedSize;
+        }
       }
     } else {
       if (key === 'requires-body') requiresBody = true;
@@ -143,7 +227,7 @@ function parseSurgeScriptParams(paramsStr: string): {
     if (i < n && paramsStr[i] === ',') i++;
   }
 
-  return { type, pattern, scriptPath, requiresBody, maxSize, binaryBody, engine, argument };
+  return { type, pattern, scriptPath, requiresBody, maxSize, binaryBody, engine, argument, timeout };
 }
 
 export class SurgeService {
@@ -336,9 +420,21 @@ export class SurgeService {
 
   /**
    * 解析原生 .sgmodule 文本，提取域名到 DNS，七层剥离
+   * 支持传入用户自定义参数字典 userArguments 进行宏渲染
    */
-  public parseModuleText(moduleId: string, text: string): ParsedModuleContent {
-    const lines = text.split(/\r?\n/);
+  public parseModuleText(
+    moduleId: string,
+    rawText: string,
+    userArguments?: Record<string, string>
+  ): ParsedModuleContent {
+    // 1. 提取参数 Schema、描述与默认值
+    const meta = parseModuleArgumentsMeta(rawText);
+    const effectiveArgs = { ...meta.defaultValues, ...(userArguments || {}) };
+
+    // 2. 先行执行全局宏文本替换
+    const renderedText = renderModuleTemplate(rawText, effectiveArgs);
+    const lines = renderedText.split(/\r?\n/);
+
     let currentSection = '';
     let name = moduleId;
     let desc = '';
@@ -348,21 +444,6 @@ export class SurgeService {
     const mitmHosts = new Set<string>();
     const httpRules: HttpRule[] = [];
     const generalSettings: GeneralSetting[] = [];
-
-    // 预解析模块默认参数 (#!arguments=k1:v1,k2:v2)，用于填充脚本 argument 中的 {{{key}}} 占位符
-    const defaultArgs = new Map<string, string>();
-    for (const l of lines) {
-      const trimmed = l.trim();
-      if (trimmed.startsWith('#!arguments=')) {
-        const rawArgs = trimmed.replace('#!arguments=', '').trim();
-        for (const pair of rawArgs.split(',')) {
-          const parts = pair.split(':');
-          const k = parts[0]?.trim();
-          const v = parts.slice(1).join(':').trim();
-          if (k && v !== undefined) defaultArgs.set(k, v);
-        }
-      }
-    }
 
     for (let rawLine of lines) {
       const line = rawLine.trim();
@@ -381,6 +462,7 @@ export class SurgeService {
         system = line.replace('#!system=', '').trim();
         continue;
       }
+      // 社区黑魔法处理：如果宏展开后整行变成注释（例如配置为 # 关停），安全忽略
       if (line.startsWith('#') || line.startsWith(';')) continue;
 
       // 区段头
@@ -389,15 +471,19 @@ export class SurgeService {
         continue;
       }
 
-      // [Rule] 区段：提取 REJECT 规则到 DNS 拦截库
+      // [Rule] 区段：
+      // 1. 只有纯域名的 REJECT 规则（且未标记 extended-matching）才脱水沉淀至 LocalDNS 本地 DNS 拦截库 (0.0.0.0 秒级阻断)
+      // 2. 标记了 extended-matching 的规则属于七层/TLS解密后扩展匹配，必须留在 Surge [Rule] 中，严禁在 DNS 层面一枪打死，否则相关域名的脚本和 Mock 全部落空！
+      // 3. 四层端口规则 (DEST-PORT)、逻辑规则 (AND/OR)、非 REJECT 的分流规则，也完整保留至七层 Hub 调度
       if (currentSection === 'Rule') {
         const parts = line.split(',').map((p) => p.trim());
         if (parts.length >= 2) {
           const type = parts[0].toUpperCase();
           const pattern = parts[1];
           const action = (parts[2] || 'REJECT').toUpperCase();
+          const hasExtendedMatching = parts.some((p) => p.toLowerCase() === 'extended-matching');
 
-          if (['DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'IP-CIDR'].includes(type) && action.startsWith('REJECT')) {
+          if (!hasExtendedMatching && ['DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'IP-CIDR'].includes(type) && action.startsWith('REJECT')) {
             dnsRules.push({
               module_id: moduleId,
               type: type as any,
@@ -408,6 +494,62 @@ export class SurgeService {
             continue;
           }
         }
+
+        // 七层扩展规则 (extended-matching)、四层端口规则 (DEST-PORT)、逻辑规则 (AND/OR)、策略规则保留到 Hub [Rule]
+        httpRules.push({
+          module_id: moduleId,
+          rule_type: 'rule',
+          sub_type: '',
+          pattern: line,
+          target: '',
+          requires_body: false,
+          max_size: 0,
+          enabled: true,
+        });
+        continue;
+      }
+
+      // [Map Local] 区段：静态响应 Mock
+      if (currentSection === 'Map Local') {
+        const firstSpace = line.indexOf(' ');
+        if (firstSpace !== -1) {
+          const pattern = line.slice(0, firstSpace).trim();
+          const target = line.slice(firstSpace + 1).trim();
+          if (pattern && target) {
+            httpRules.push({
+              module_id: moduleId,
+              rule_type: 'map-local',
+              sub_type: '',
+              pattern,
+              target,
+              requires_body: false,
+              max_size: 1048576,
+              enabled: true,
+            });
+          }
+        }
+        continue;
+      }
+
+      // [Body Rewrite] 区段：响应/请求体 JQ 或正则修改
+      if (currentSection === 'Body Rewrite') {
+        const tokens = line.split(/\s+/);
+        if (tokens.length >= 3) {
+          const sub_type = tokens[0];
+          const pattern = tokens[1];
+          const target = line.slice(line.indexOf(pattern) + pattern.length).trim();
+          httpRules.push({
+            module_id: moduleId,
+            rule_type: 'body-rewrite',
+            sub_type,
+            pattern,
+            target,
+            requires_body: true,
+            max_size: 2097152,
+            enabled: true,
+          });
+        }
+        continue;
       }
 
       // [MITM] 区段：提取解密域名
@@ -449,16 +591,11 @@ export class SurgeService {
         const eqIdx = line.indexOf('=');
         if (eqIdx !== -1) {
           const scriptName = line.slice(0, eqIdx).trim();
+          // 如果脚本名在宏展开后被用户设为注释字符或空，则直接跳过
+          if (!scriptName || scriptName.startsWith('#')) continue;
+
           const params = line.slice(eqIdx + 1).trim();
           const sp = parseSurgeScriptParams(params);
-
-          // 自动填充模块参数占位符 {{{key}}}，防止运行时 JSON Parse 异常
-          let resolvedArgument = sp.argument;
-          if (resolvedArgument) {
-            for (const [k, v] of defaultArgs.entries()) {
-              resolvedArgument = resolvedArgument.replace(new RegExp(`\\{\\{\\{${k}\\}\\}\\}`, 'g'), v);
-            }
-          }
 
           httpRules.push({
             module_id: moduleId,
@@ -466,11 +603,13 @@ export class SurgeService {
             sub_type: sp.type || 'http-response',
             pattern: sp.pattern || scriptName,
             target: sp.scriptPath || params,
+            script_name: scriptName,
             requires_body: sp.requiresBody,
             max_size: sp.maxSize,
             binary_body: sp.binaryBody,
             engine: sp.engine,
-            argument: resolvedArgument,
+            argument: sp.argument,
+            timeout: sp.timeout,
             enabled: true,
           });
         }
@@ -501,6 +640,9 @@ export class SurgeService {
       name,
       desc,
       system,
+      argumentsSchema: meta.schema,
+      argumentsDesc: meta.desc,
+      defaultArguments: meta.defaultValues,
       dnsRules,
       mitmHosts: Array.from(mitmHosts),
       httpRules,
@@ -516,10 +658,14 @@ export class SurgeService {
     name: string,
     category: AppModule['category'],
     sourceUrl: string | null,
-    rawContent: string
+    rawContent: string,
+    userArguments?: Record<string, string>
   ): Promise<ParsedModuleContent> {
     await this.init();
-    const parsed = this.parseModuleText(id, rawContent);
+    const existing = await this.db.getModule(id);
+    const effectiveUserArgs = userArguments || existing?.custom_arguments;
+
+    const parsed = this.parseModuleText(id, rawContent, effectiveUserArgs);
     const finalName = name || parsed.name || id;
 
     const moduleObj: AppModule = {
@@ -527,13 +673,50 @@ export class SurgeService {
       name: finalName,
       category,
       source_url: sourceUrl,
-      enabled: true,
+      enabled: existing ? existing.enabled : true,
       raw_content: rawContent,
-      created_at: Date.now(),
+      arguments_schema: parsed.argumentsSchema,
+      arguments_desc: parsed.argumentsDesc,
+      custom_arguments: effectiveUserArgs,
+      created_at: existing ? existing.created_at : Date.now(),
       updated_at: Date.now(),
     };
 
     await this.db.saveModule(moduleObj);
+    await this.db.saveModuleRules(id, parsed.dnsRules, parsed.mitmHosts, parsed.httpRules, parsed.generalSettings);
+    await this.reloadDnsBlockCache();
+    this.scheduleSurgeSync();
+    return parsed;
+  }
+
+  /**
+   * 应用模块自定义参数并重新脱水入库
+   */
+  public async applyModuleArguments(id: string, customArguments: Record<string, string>): Promise<ParsedModuleContent> {
+    await this.init();
+    const mod = await this.db.getModule(id);
+    if (!mod) throw new Error('模块不存在');
+    if (!mod.raw_content) throw new Error('模块无原始模板源码，无法应用参数');
+
+    const parsed = this.parseModuleText(id, mod.raw_content, customArguments);
+    await this.db.saveModuleCustomArguments(id, customArguments);
+    await this.db.saveModuleRules(id, parsed.dnsRules, parsed.mitmHosts, parsed.httpRules, parsed.generalSettings);
+    await this.reloadDnsBlockCache();
+    this.scheduleSurgeSync();
+    return parsed;
+  }
+
+  /**
+   * 重置模块参数为默认值并重新脱水
+   */
+  public async resetModuleArguments(id: string): Promise<ParsedModuleContent> {
+    await this.init();
+    const mod = await this.db.getModule(id);
+    if (!mod) throw new Error('模块不存在');
+    if (!mod.raw_content) throw new Error('模块无原始模板源码');
+
+    const parsed = this.parseModuleText(id, mod.raw_content, {});
+    await this.db.saveModuleCustomArguments(id, {});
     await this.db.saveModuleRules(id, parsed.dnsRules, parsed.mitmHosts, parsed.httpRules, parsed.generalSettings);
     await this.reloadDnsBlockCache();
     this.scheduleSurgeSync();
@@ -557,9 +740,10 @@ export class SurgeService {
     mitmSet.add('www.youtube.com');
     mitmSet.add('m.youtube.com');
 
+    const nowStr = new Date().toISOString();
     const sections: string[] = [
       '#!name=LocalDNS Unified Hub',
-      '#!desc=由 LocalDNS 智能中枢自动脱水与动态聚合编译的纯七层调度模块。域名拦截已全部在 LocalDNS 本地秒级阻断，仅向 Surge 注入必要之 MITM 解密与 URL 重写。',
+      `#!desc=由 LocalDNS 智能中枢自动脱水与动态聚合编译的纯七层调度模块。域名拦截已全部在 LocalDNS 本地秒级阻断，仅向 Surge 注入必要之 MITM 解密与 URL 重写。[Build: ${nowStr}]`,
       '#!category=LocalDNS',
       '',
     ];
@@ -569,6 +753,16 @@ export class SurgeService {
       sections.push('[General]');
       for (const gs of genSettings) {
         sections.push(`${gs.key} = ${gs.operator !== '=' ? gs.operator + ' ' : ''}${gs.value}`);
+      }
+      sections.push('');
+    }
+
+    // [Rule] (四层端口拦截如 DEST-PORT，以及非 REJECT 规则如 DOMAIN,bsbsb.top,DIRECT/PROXY)
+    const hubRules = httpRules.filter((r) => r.rule_type === 'rule');
+    if (hubRules.length > 0) {
+      sections.push('[Rule]');
+      for (const hr of hubRules) {
+        sections.push(hr.pattern);
       }
       sections.push('');
     }
@@ -617,6 +811,26 @@ export class SurgeService {
       sections.push('');
     }
 
+    // [Body Rewrite] (响应体 JQ 或正则过滤)
+    const bodyRewrites = httpRules.filter((r) => r.rule_type === 'body-rewrite');
+    if (bodyRewrites.length > 0) {
+      sections.push('[Body Rewrite]');
+      for (const br of bodyRewrites) {
+        sections.push(`${br.sub_type} ${br.pattern} ${br.target}`);
+      }
+      sections.push('');
+    }
+
+    // [Map Local] (本地静态 Mock 响应)
+    const mapLocals = httpRules.filter((r) => r.rule_type === 'map-local');
+    if (mapLocals.length > 0) {
+      sections.push('[Map Local]');
+      for (const ml of mapLocals) {
+        sections.push(`${ml.pattern} ${ml.target}`);
+      }
+      sections.push('');
+    }
+
     // [Script]
     const scripts = httpRules.filter((r) => r.rule_type === 'script');
     if (scripts.length > 0) {
@@ -629,7 +843,7 @@ export class SurgeService {
           continue;
         }
 
-        const scName = `localdns_hub_sc_${idx++}`;
+        const scName = sc.script_name || `localdns_hub_sc_${idx++}`;
         const parts = [`type=${sc.sub_type}`];
         if (sc.pattern) {
           const cleanPattern = sc.pattern.replace(/^["']|["']$/g, '');
@@ -640,11 +854,6 @@ export class SurgeService {
             parts.push(`pattern=${cleanPattern}`);
           }
         }
-        parts.push(`script-path=${sc.target}`);
-        if (sc.requires_body) parts.push('requires-body=1');
-        if (sc.max_size !== undefined) parts.push(`max-size=${sc.max_size}`);
-        if (sc.binary_body) parts.push('binary-body-mode=1');
-        if (sc.engine) parts.push(`engine=${sc.engine}`);
         if (sc.argument) {
           const rawArg = sc.argument.trim();
           const inner = rawArg.startsWith('"') && rawArg.endsWith('"') && rawArg.length >= 2
@@ -652,6 +861,12 @@ export class SurgeService {
             : rawArg;
           parts.push(`argument="${inner}"`);
         }
+        if (sc.requires_body) parts.push('requires-body=1');
+        if (sc.max_size !== undefined) parts.push(`max-size=${sc.max_size}`);
+        if (sc.binary_body) parts.push('binary-body-mode=1');
+        if (sc.engine) parts.push(`engine=${sc.engine}`);
+        if (sc.timeout !== undefined) parts.push(`timeout=${sc.timeout}`);
+        parts.push(`script-path=${sc.target}`);
         sections.push(`${scName} = ${parts.join(',')}`);
       }
 
@@ -680,6 +895,84 @@ export class SurgeService {
     }
 
     return sections.join('\n');
+  }
+
+  /**
+   * 精准清洗模块：
+   * 1. 仅提取 [Rule] 中纯域名的 REJECT 规则到 LocalDNS 本地 DNS 秒级阻断
+   * 2. 在清洗后的文本中，将这些纯域名规则以注释保留（彻底卸载 Surge 内存负担）
+   * 3. 严格保留原模块的全部元数据（#!name, #!desc, #!arguments, #!arguments-desc 等）、全部占位符（{{{key}}}）、原始脚本名称、全部 Map Local、全部 Body Rewrite、非纯域名四层端口规则及分流规则
+   * 4. 绝不魔改原模块语法，确保 100% 具备原版所有功能，且在 Surge 原生环境下完美弹出「编辑参数」界面
+   */
+  public cleanModuleForSurge(rawContent: string, moduleId: string): {
+    cleanedContent: string;
+    dnsRules: DnsRule[];
+    hasArguments: boolean;
+  } {
+    const lines = rawContent.split(/\r?\n/);
+    const cleanedLines: string[] = [];
+    const dnsRules: DnsRule[] = [];
+    let currentSection = '';
+    let hasArguments = false;
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+
+      if (line.startsWith('#!arguments=')) {
+        hasArguments = true;
+      }
+
+      // 区段头
+      if (line.startsWith('[') && line.endsWith(']')) {
+        currentSection = line.slice(1, -1).trim();
+        cleanedLines.push(rawLine);
+        continue;
+      }
+
+      // [Rule] 区段脱水：仅剔除未带 extended-matching 的纯域名 REJECT 规则到 LocalDNS DNS 库
+      if (currentSection === 'Rule') {
+        const parts = line.split(',').map((p) => p.trim());
+        if (parts.length >= 2) {
+          const type = parts[0].toUpperCase();
+          const pattern = parts[1];
+          const action = (parts[2] || 'REJECT').toUpperCase();
+          const hasExtendedMatching = parts.some((p) => p.toLowerCase() === 'extended-matching');
+
+          if (!hasExtendedMatching && ['DOMAIN', 'DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'IP-CIDR'].includes(type) && action.startsWith('REJECT')) {
+            dnsRules.push({
+              module_id: moduleId,
+              type: type as any,
+              pattern,
+              action: action as any,
+              enabled: true,
+            });
+            cleanedLines.push(`# [LocalDNS DNS 脱水接管] ${line}`);
+            continue;
+          }
+        }
+      }
+
+      // 其余所有行 100% 原样保留
+      cleanedLines.push(rawLine);
+    }
+
+    return {
+      cleanedContent: cleanedLines.join('\n'),
+      dnsRules,
+      hasArguments,
+    };
+  }
+
+  /**
+   * 获取脱水清洗后的单模块内容（保留原模块全部元数据、原脚本名、参数模板、Map Local、Body Rewrite、DEST-PORT等）
+   */
+  public async getCleanedModuleContent(id: string): Promise<string | null> {
+    await this.init();
+    const mod = await this.db.getModule(id);
+    if (!mod || !mod.raw_content) return null;
+
+    const res = this.cleanModuleForSurge(mod.raw_content, id);
+    return res.cleanedContent;
   }
 
   // ==================== Surge HTTP API Client ====================
@@ -783,10 +1076,37 @@ export class SurgeService {
   }
 
   public async reloadSurgeHubModule(): Promise<boolean> {
-    // 关然后开触发热更新
-    await this.callSurgeApi('/v1/modules', 'POST', { 'LocalDNS Unified Hub': false });
-    const res = await this.callSurgeApi('/v1/modules', 'POST', { 'LocalDNS Unified Hub': true });
-    return res.ok;
+    let success = false;
+    try {
+      // 1. 获取 Surge 当前已配置的模块，智能探测 LocalDNS 模块名称
+      const modRes = await this.callSurgeApi('/v1/modules');
+      const targetModules = new Set<string>(['LocalDNS Unified Hub']);
+
+      if (modRes.ok && modRes.data) {
+        const enabledList: string[] = Array.isArray(modRes.data.enabled) ? modRes.data.enabled : [];
+        const availableList: string[] = Array.isArray(modRes.data.available) ? modRes.data.available : [];
+        for (const name of [...enabledList, ...availableList]) {
+          const lower = name.toLowerCase();
+          if (lower.includes('localdns') || lower.includes('hub.sgmodule')) {
+            targetModules.add(name);
+          }
+        }
+      }
+
+      // 2. 对匹配到的模块进行快速开关（toggle off -> on）以强制触发 Surge 重新拉取
+      for (const modName of targetModules) {
+        await this.callSurgeApi('/v1/modules', 'POST', { [modName]: false });
+        const toggleRes = await this.callSurgeApi('/v1/modules', 'POST', { [modName]: true });
+        if (toggleRes.ok) success = true;
+      }
+
+      // 3. 触发 Surge 配置热重载
+      const reloadRes = await this.callSurgeApi('/v1/profiles/reload', 'POST', {});
+      if (reloadRes.ok) success = true;
+    } catch (e) {
+      console.warn('Surge module reload exception:', e);
+    }
+    return success;
   }
 
   public async killActiveRequestsByHost(host: string): Promise<number> {
@@ -1088,11 +1408,13 @@ export class SurgeService {
     if (!mod.source_url) return { updated: false, rules: 0, error: '本地模块无远程更新源' };
     try {
       const { text, finalUrl } = await this.fetchRemoteText(mod.source_url);
-      const parsed = this.parseModuleText(id, text);
+      const parsed = this.parseModuleText(id, text, mod.custom_arguments);
       const moduleObj: AppModule = {
         ...mod,
         source_url: finalUrl || mod.source_url,
         raw_content: text,
+        arguments_schema: parsed.argumentsSchema,
+        arguments_desc: parsed.argumentsDesc,
         updated_at: Date.now(),
       };
       await this.db.saveModule(moduleObj);
