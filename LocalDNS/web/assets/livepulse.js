@@ -185,25 +185,10 @@
   var isFitView = false;
   var isMaximized = false;
   var hideZeroFlow = false;
-  var is3DView = false;
+  var isSphereMode = false;
   try {
-    is3DView = (typeof localStorage !== 'undefined' && localStorage.getItem('localdns_topo_view_mode') === '3d');
+    isSphereMode = (typeof localStorage !== 'undefined' && localStorage.getItem('localdns_topo_view_mode') === 'sphere');
   } catch (_) {}
-
-  var TOPO_3D_PRESETS = {
-    isometric: { rx: 22, ry: -14, rz: 2, scale: 0.88, tx: 0, ty: 0, name: '斜视等轴' },
-    topdown: { rx: 42, ry: 0, rz: 0, scale: 0.85, tx: 0, ty: 12, name: '立体俯瞰' },
-    cinematic: { rx: 12, ry: -22, rz: 1, scale: 0.90, tx: -10, ty: -4, name: '深邃视角' }
-  };
-
-  var current3D = {
-    rx: 22,
-    ry: -14,
-    rz: 2,
-    scale: 0.88,
-    tx: 0,
-    ty: 0
-  };
 
   function injectTopologyEnhanceStyles() {
     if (q('#topo-enhance-style')) return;
@@ -374,68 +359,117 @@
       '.t-node[data-zero-flow="true"].is-hidden-zero {',
       '  display: none !important;',
       '}',
-      '/* 3D 空间立体拓扑样式体系 */',
-      '.topology-glass-card.is-3d-view {',
-      '  perspective: 1600px !important;',
-      '  perspective-origin: 50% 36% !important;',
-      '  overflow: visible !important;',
-      '  background: radial-gradient(circle at 50% 28%, rgba(30, 41, 59, 0.45) 0%, rgba(15, 23, 42, 0.92) 100%) !important;',
-      '}',
-      '.topo-stage-wrap.is-3d {',
-      '  transform-style: preserve-3d !important;',
-      '  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;',
+      '/* 3D 闭环球体拓扑系统样式体系 */',
+      '.topo-sphere-viewport {',
       '  position: relative !important;',
-      '}',
-      '.topo-stage-wrap.is-3d.is-dragging {',
-      '  transition: none !important;',
-      '}',
-      '.topo-stage-wrap.is-3d::before {',
-      '  content: "" !important;',
-      '  position: absolute !important;',
-      '  inset: -60px -80px -40px -80px !important;',
-      '  background-image:',
-      '    linear-gradient(to right, rgba(59, 130, 246, 0.15) 1px, transparent 1px),',
-      '    linear-gradient(to bottom, rgba(59, 130, 246, 0.15) 1px, transparent 1px) !important;',
-      '  background-size: 44px 44px !important;',
-      '  transform: translateZ(-60px) !important;',
-      '  border-radius: 24px !important;',
+      '  width: 100% !important;',
+      '  height: 580px !important;',
+      '  min-height: 480px !important;',
+      '  overflow: hidden !important;',
+      '  border-radius: 16px !important;',
+      '  background: radial-gradient(circle at 50% 50%, rgba(15, 23, 42, 0.45) 0%, rgba(2, 6, 23, 0.95) 100%) !important;',
+      '  box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.7), 0 8px 32px rgba(0, 0, 0, 0.4) !important;',
       '  border: 1px solid rgba(59, 130, 246, 0.25) !important;',
-      '  box-shadow: 0 0 80px rgba(59, 130, 246, 0.12) inset, 0 32px 70px rgba(0, 0, 0, 0.6) !important;',
+      '  cursor: grab !important;',
+      '  user-select: none !important;',
+      '  touch-action: none !important;',
+      '}',
+      '.topo-sphere-viewport:active {',
+      '  cursor: grabbing !important;',
+      '}',
+      '#topo-sphere-canvas {',
+      '  position: absolute !important;',
+      '  inset: 0 !important;',
+      '  width: 100% !important;',
+      '  height: 100% !important;',
       '  pointer-events: none !important;',
       '}',
-      '.topo-stage-wrap.is-3d .topo-grid {',
-      '  transform-style: preserve-3d !important;',
+      '.topo-sphere-nodes {',
+      '  position: absolute !important;',
+      '  inset: 0 !important;',
+      '  pointer-events: none !important;',
       '}',
-      '.topo-stage-wrap.is-3d .topo-col {',
-      '  transform-style: preserve-3d !important;',
+      '.topo-s-node {',
+      '  position: absolute !important;',
+      '  pointer-events: auto !important;',
+      '  transform-origin: center center !important;',
+      '  box-sizing: border-box !important;',
       '}',
-      '.topo-stage-wrap.is-3d .topo-col-title {',
-      '  transform: translateZ(28px) !important;',
-      '  text-shadow: 0 4px 12px rgba(0,0,0,0.6) !important;',
-      '  letter-spacing: 0.04em !important;',
+      '.topo-s-node-inner {',
+      '  display: flex !important;',
+      '  align-items: center !important;',
+      '  gap: 7px !important;',
+      '  padding: 6px 10px !important;',
+      '  border-radius: 9px !important;',
+      '  background: rgba(15, 23, 42, 0.88) !important;',
+      '  backdrop-filter: blur(14px) !important;',
+      '  -webkit-backdrop-filter: blur(14px) !important;',
+      '  border: 1px solid rgba(148, 163, 184, 0.3) !important;',
+      '  box-shadow: 0 10px 24px -4px rgba(0, 0, 0, 0.7), 0 0 12px rgba(59, 130, 246, 0.18) !important;',
+      '  cursor: pointer !important;',
+      '  white-space: nowrap !important;',
+      '  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;',
       '}',
-      '.topo-stage-wrap.is-3d .t-node {',
-      '  transform-style: preserve-3d !important;',
-      '  transform: translateZ(36px) !important;',
-      '  box-shadow: 0 16px 26px -4px rgba(0,0,0,0.48), 0 4px 10px -2px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.2) !important;',
-      '  border-color: rgba(255,255,255,0.18) !important;',
-      '  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s !important;',
+      '.topo-s-node:hover .topo-s-node-inner {',
+      '  transform: scale(1.12) !important;',
+      '  border-color: #38BDF8 !important;',
+      '  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.9), 0 0 24px rgba(56, 189, 248, 0.6) !important;',
+      '  z-index: 99999 !important;',
       '}',
-      '.topo-stage-wrap.is-3d .t-node:hover {',
-      '  transform: translateZ(56px) scale(1.025) !important;',
-      '  box-shadow: 0 24px 38px -4px rgba(0,0,0,0.65), 0 0 24px rgba(59,130,246,0.35) !important;',
+      '.topo-s-node.is-back {',
+      '  pointer-events: none !important;',
       '}',
-      '.topo-stage-wrap.is-3d #topo-svg {',
-      '  transform: translateZ(12px) !important;',
-      '  overflow: visible !important;',
-      '  filter: drop-shadow(0 8px 16px rgba(0,0,0,0.4)) !important;',
+      '.topo-s-icon {',
+      '  width: 22px !important;',
+      '  height: 22px !important;',
+      '  display: flex !important;',
+      '  align-items: center !important;',
+      '  justify-content: center !important;',
+      '  border-radius: 6px !important;',
+      '  font-size: 11px !important;',
+      '  flex-shrink: 0 !important;',
       '}',
-      '.topo-stage-wrap.is-3d .loopback-badge-group {',
-      '  transform: translateZ(64px) !important;',
+      '.topo-s-meta {',
+      '  display: flex !important;',
+      '  flex-direction: column !important;',
+      '  gap: 1px !important;',
       '}',
-      '.topo-stage-wrap.is-3d .topo-edge.is-loopback {',
-      '  stroke-width: 2.2 !important;',
-      '  filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.5)) !important;',
+      '.topo-s-name {',
+      '  font-size: 11px !important;',
+      '  font-weight: 700 !important;',
+      '  color: #F8FAFC !important;',
+      '  line-height: 1.2 !important;',
+      '}',
+      '.topo-s-val {',
+      '  font-size: 10px !important;',
+      '  font-weight: 600 !important;',
+      '  line-height: 1.1 !important;',
+      '}',
+      '.topo-sphere-hud {',
+      '  position: absolute !important;',
+      '  bottom: 12px !important;',
+      '  left: 14px !important;',
+      '  display: flex !important;',
+      '  align-items: center !important;',
+      '  gap: 8px !important;',
+      '  background: rgba(15, 23, 42, 0.8) !important;',
+      '  backdrop-filter: blur(10px) !important;',
+      '  -webkit-backdrop-filter: blur(10px) !important;',
+      '  padding: 5px 12px !important;',
+      '  border-radius: 20px !important;',
+      '  border: 1px solid rgba(59, 130, 246, 0.35) !important;',
+      '  font-size: 11px !important;',
+      '  pointer-events: none !important;',
+      '  user-select: none !important;',
+      '}',
+      '.topo-sphere-tag {',
+      '  font-weight: 700 !important;',
+      '  color: #38BDF8 !important;',
+      '  letter-spacing: 0.02em !important;',
+      '}',
+      '.topo-sphere-tip {',
+      '  color: #94A3B8 !important;',
+      '  font-size: 10.5px !important;',
       '}',
       '.topo-btn-view-group {',
       '  display: inline-flex !important;',
@@ -465,28 +499,10 @@
       '  color: #fff !important;',
       '  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4) !important;',
       '}',
-      '.topo-3d-preset-bar {',
+      '.topo-sphere-bar {',
       '  display: inline-flex !important;',
       '  align-items: center !important;',
       '  gap: 4px !important;',
-      '  background: rgba(15, 23, 42, 0.75) !important;',
-      '  border: 1px solid rgba(59, 130, 246, 0.3) !important;',
-      '  border-radius: 8px !important;',
-      '  padding: 2px 6px !important;',
-      '  font-size: 11px !important;',
-      '  backdrop-filter: blur(12px) !important;',
-      '  -webkit-backdrop-filter: blur(12px) !important;',
-      '}',
-      '.topo-3d-hint {',
-      '  font-size: 11px !important;',
-      '  color: #38BDF8 !important;',
-      '  font-weight: 600 !important;',
-      '  margin-right: 2px !important;',
-      '  user-select: none !important;',
-      '}',
-      '.topo-btn-3d-preset {',
-      '  padding: 3px 8px !important;',
-      '  font-size: 10.5px !important;',
       '}'
     ].join('\n');
     document.head.appendChild(style);
@@ -511,84 +527,573 @@
     }
   }
 
-  function apply3DTransform(card, wrap) {
-    if (!card || !wrap) return;
-    if (!is3DView) {
-      card.classList.remove('is-3d-view');
-      wrap.classList.remove('is-3d');
-      applyFitView(card, wrap);
-      return;
+  // ==================== 3D 闭环球体拓扑系统 (Spherical 3D Closed-Loop Topology) ====================
+
+  var sphereEngineInstance = null;
+
+  function getOrCreateSphereEngine(card, wrap) {
+    if (sphereEngineInstance) return sphereEngineInstance;
+
+    var viewport = q('#topo-sphere-viewport');
+    if (!viewport) {
+      viewport = document.createElement('div');
+      viewport.className = 'topo-sphere-viewport';
+      viewport.id = 'topo-sphere-viewport';
+      viewport.style.display = isSphereMode ? 'block' : 'none';
+      viewport.innerHTML = [
+        '<canvas id="topo-sphere-canvas"></canvas>',
+        '<div class="topo-sphere-nodes" id="topo-sphere-nodes"></div>',
+        '<div class="topo-sphere-hud">',
+        '  <span class="topo-sphere-tag">🌐 3D 闭环全息球体</span>',
+        '  <span class="topo-sphere-tip">360° 任意拖拽自由旋转 · 滚轮缩放 · 点击节点聚焦</span>',
+        '</div>'
+      ].join('');
+      wrap.insertAdjacentElement('beforebegin', viewport);
     }
-    card.classList.add('is-3d-view');
-    wrap.classList.add('is-3d');
 
-    var availableW = card.clientWidth - 40;
-    var baseScale = Math.max(0.42, Math.min(0.96, availableW / 1420));
-    var finalScale = (baseScale * (current3D.scale || 0.88)).toFixed(3);
+    var canvas = q('#topo-sphere-canvas', viewport);
+    var ctx = canvas.getContext('2d');
+    var nodesContainer = q('#topo-sphere-nodes', viewport);
 
-    wrap.style.transformOrigin = 'center center';
-    wrap.style.transform =
-      'translate3d(' + current3D.tx + 'px, ' + current3D.ty + 'px, 0) ' +
-      'rotateX(' + current3D.rx + 'deg) ' +
-      'rotateY(' + current3D.ry + 'deg) ' +
-      'rotateZ(' + current3D.rz + 'deg) ' +
-      'scale3d(' + finalScale + ', ' + finalScale + ', ' + finalScale + ')';
-    wrap.style.marginBottom = '';
-    wrap.style.marginRight = '';
-  }
-
-  var is3DDragBound = false;
-  function setup3DDragInteraction(card, wrap) {
-    if (is3DDragBound || !card || !wrap) return;
-    is3DDragBound = true;
-
+    var rotMatrix = [
+      0.91, 0.08, -0.40,
+      -0.12, 0.99, -0.07,
+      0.39, 0.11, 0.91
+    ];
+    var sphereRadius = 240;
+    var targetRadius = 240;
+    var isAutoSpin = true;
     var isDragging = false;
-    var startX = 0, startY = 0;
-    var startRx = current3D.rx, startRy = current3D.ry;
+    var lastX = 0, lastY = 0;
+    var velX = 0, velY = 0;
+    var flowPhase = 0;
+    var animId = null;
+    var isRunning = false;
+    var sphereNodes = [];
+    var sphereLinks = [];
 
-    card.addEventListener('pointerdown', function (e) {
-      if (!is3DView) return;
-      if (e.target.closest('button, a, input, select, .topo-ctrl-btn, .topo-btn-view, .topo-stage-pill, .t-node')) return;
+    function mat3Mul(a, b) {
+      var r = new Array(9);
+      for (var i = 0; i < 3; i++) {
+        for (var j = 0; j < 3; j++) {
+          r[i * 3 + j] =
+            a[i * 3 + 0] * b[0 * 3 + j] +
+            a[i * 3 + 1] * b[1 * 3 + j] +
+            a[i * 3 + 2] * b[2 * 3 + j];
+        }
+      }
+      return r;
+    }
+
+    function mat3VecMul(m, v) {
+      return [
+        m[0] * v[0] + m[1] * v[1] + m[2] * v[2],
+        m[3] * v[0] + m[4] * v[1] + m[5] * v[2],
+        m[6] * v[0] + m[7] * v[1] + m[8] * v[2]
+      ];
+    }
+
+    function makeRotationMatrix(ax, ay, az, angle) {
+      var c = Math.cos(angle);
+      var s = Math.sin(angle);
+      var t = 1 - c;
+      return [
+        t * ax * ax + c,      t * ax * ay - s * az, t * ax * az + s * ay,
+        t * ax * ay + s * az, t * ay * ay + c,      t * ay * az - s * ax,
+        t * ax * az - s * ay, t * ay * az + s * ax, t * az * az + c
+      ];
+    }
+
+    function normalizeMat3(m) {
+      var x = [m[0], m[3], m[6]];
+      var y = [m[1], m[4], m[7]];
+      function len(v) { return Math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]) || 1; }
+      function norm(v) { var l = len(v); return [v[0]/l, v[1]/l, v[2]/l]; }
+      function dot(a, b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+      function cross(a, b) { return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+      x = norm(x);
+      var dxy = dot(x, y);
+      y = norm([y[0] - dxy * x[0], y[1] - dxy * x[1], y[2] - dxy * x[2]]);
+      var z = norm(cross(x, y));
+      return [x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]];
+    }
+
+    var STAGE_LONGS = [
+      0,
+      55 * Math.PI / 180,
+      115 * Math.PI / 180,
+      175 * Math.PI / 180,
+      235 * Math.PI / 180,
+      295 * Math.PI / 180
+    ];
+
+    function syncNodesFromDOM() {
+      sphereNodes = [];
+      sphereLinks = [];
+      var stageNodeMap = {};
+
+      for (var col = 1; col <= 6; col++) {
+        var colEl = q('.topo-col[data-col="' + col + '"]', wrap);
+        if (!colEl) continue;
+        var nodeEls = qq('.t-node', colEl);
+        if (nodeEls.length === 0) continue;
+        stageNodeMap[col] = [];
+
+        var theta = STAGE_LONGS[col - 1];
+        var count = nodeEls.length;
+
+        for (var idx = 0; idx < count; idx++) {
+          var el = nodeEls[idx];
+          var name = (q('.tn-name', el) && q('.tn-name', el).textContent.trim()) || '节点';
+          var val = (q('.tn-val', el) && q('.tn-val', el).textContent.trim()) || '';
+          var sub = (q('.tn-sub', el) && q('.tn-sub', el).textContent.trim()) || '';
+          var icon = (q('.tn-icon-box', el) && q('.tn-icon-box', el).textContent.trim()) || '⚡️';
+          var valColor = (q('.tn-val', el) && q('.tn-val', el).style.color) || '#38BDF8';
+          var nodeId = el.dataset.nodeId || ('node_' + col + '_' + idx);
+          var isLoop = el.classList.contains('t-loopback-node') || el.dataset.outbound === 'loopback';
+
+          var phi = 0;
+          if (count > 1) {
+            var phiRange = Math.min(0.9, 0.28 * count);
+            phi = -phiRange / 2 + (phiRange / (count - 1)) * idx;
+          }
+
+          var nodeData = {
+            id: nodeId,
+            stage: col,
+            index: idx,
+            name: name,
+            val: val,
+            sub: sub,
+            icon: icon,
+            valColor: valColor,
+            isLoop: isLoop,
+            theta: theta,
+            phi: phi,
+            domEl: null
+          };
+          sphereNodes.push(nodeData);
+          stageNodeMap[col].push(nodeData);
+        }
+      }
+
+      function linkStageGroup(srcs, tgts, color) {
+        if (!srcs || !tgts || srcs.length === 0 || tgts.length === 0) return;
+        for (var s = 0; s < srcs.length; s++) {
+          for (var t = 0; t < tgts.length; t++) {
+            if (srcs.length > 2 && tgts.length > 2 && Math.abs(s - t) > 1) continue;
+            sphereLinks.push({ from: srcs[s], to: tgts[t], color: color, isLoop: false });
+          }
+        }
+      }
+
+      linkStageGroup(stageNodeMap[1], stageNodeMap[2], '#3B82F6');
+      linkStageGroup(stageNodeMap[2], stageNodeMap[3], '#10B981');
+      linkStageGroup(stageNodeMap[3], stageNodeMap[4], '#8B5CF6');
+      linkStageGroup(stageNodeMap[4], stageNodeMap[5], '#06B6D4');
+
+      if (stageNodeMap[5] && stageNodeMap[6]) {
+        var s6Direct = stageNodeMap[6].find(function(n) { return n.id === 'out_direct'; });
+        var s6Proxy = stageNodeMap[6].find(function(n) { return n.id === 'out_proxy'; });
+        var s6Block = stageNodeMap[6].find(function(n) { return n.id === 'out_block'; });
+        stageNodeMap[5].forEach(function(s5Node, i) {
+          if (s6Direct && i === 0) sphereLinks.push({ from: s5Node, to: s6Direct, color: '#10B981', isLoop: false });
+          if (s6Proxy && i > 0) sphereLinks.push({ from: s5Node, to: s6Proxy, color: '#3B82F6', isLoop: false });
+        });
+        if (s6Block && stageNodeMap[3]) {
+          var blockRule = stageNodeMap[3].find(function(n) { return n.name.indexOf('黑洞') >= 0 || n.name.indexOf('拦截') >= 0; }) || stageNodeMap[3][stageNodeMap[3].length - 1];
+          if (blockRule) sphereLinks.push({ from: blockRule, to: s6Block, color: '#EF4444', isLoop: false });
+        }
+      }
+
+      // 闭环回流弧线：Stage 6 -> 跨越球体另一侧 -> Stage 1 & Stage 2
+      if (stageNodeMap[6] && (stageNodeMap[1] || stageNodeMap[2])) {
+        var s6Loop = stageNodeMap[6].find(function(n) { return n.isLoop; }) || stageNodeMap[6][stageNodeMap[6].length - 1];
+        if (s6Loop) {
+          if (stageNodeMap[1] && stageNodeMap[1][0]) {
+            sphereLinks.push({ from: s6Loop, to: stageNodeMap[1][0], color: '#F59E0B', isLoop: true, label: '自愈闭环回流' });
+          }
+          if (stageNodeMap[2] && stageNodeMap[2][0]) {
+            sphereLinks.push({ from: s6Loop, to: stageNodeMap[2][0], color: '#F59E0B', isLoop: true, label: '脱水规则沉淀' });
+          }
+        }
+      }
+
+      renderNodeDOMs();
+    }
+
+    function renderNodeDOMs() {
+      nodesContainer.innerHTML = '';
+      sphereNodes.forEach(function(node) {
+        var el = document.createElement('div');
+        el.className = 'topo-s-node';
+        el.id = 's-node-' + node.id;
+        el.innerHTML = [
+          '<div class="topo-s-node-inner" style="border-left: 3px solid ' + node.valColor + '">',
+          '  <div class="topo-s-icon" style="background:rgba(255,255,255,0.08)">' + node.icon + '</div>',
+          '  <div class="topo-s-meta">',
+          '    <div class="topo-s-name">' + node.name + '</div>',
+          '    <div class="topo-s-val" style="color:' + node.valColor + '">' + (node.val || node.sub) + '</div>',
+          '  </div>',
+          '</div>'
+        ].join('');
+
+        el.onclick = function(e) {
+          e.stopPropagation();
+          focusNode(node);
+        };
+
+        nodesContainer.appendChild(el);
+        node.domEl = el;
+      });
+    }
+
+    function focusNode(targetNode) {
+      isAutoSpin = false;
+      var qSpin = q('#topo-btn-sphere-spin');
+      if (qSpin) qSpin.textContent = '▶︎ 自转';
+
+      var v = [
+        Math.cos(targetNode.phi) * Math.sin(targetNode.theta),
+        -Math.sin(targetNode.phi),
+        Math.cos(targetNode.phi) * Math.cos(targetNode.theta)
+      ];
+
+      var curDir = mat3VecMul(rotMatrix, v);
+      var curX = curDir[0], curY = curDir[1], curZ = curDir[2];
+
+      var axis = [-curY, curX, 0];
+      var lenA = Math.sqrt(axis[0]*axis[0] + axis[1]*axis[1]);
+      if (lenA > 0.001) {
+        axis[0] /= lenA;
+        axis[1] /= lenA;
+        var dot = curZ;
+        var angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+        var delta = makeRotationMatrix(axis[0], axis[1], 0, angle * 0.35);
+        rotMatrix = normalizeMat3(mat3Mul(delta, rotMatrix));
+      }
+    }
+
+    function drawWireframeGlobe(w, h, R) {
+      var cx = w / 2;
+      var cy = h / 2;
+      var fov = 850;
+
+      function project(v) {
+        var scale = fov / (fov - v[2]);
+        return [cx + v[0] * scale, cy + v[1] * scale, v[2]];
+      }
+
+      ctx.save();
+      ctx.lineWidth = 1;
+
+      var lats = [-50, -25, 0, 25, 50];
+      for (var l = 0; l < lats.length; l++) {
+        var phi = lats[l] * Math.PI / 180;
+        var rLat = R * Math.cos(phi);
+        var yLat = -R * Math.sin(phi);
+
+        ctx.beginPath();
+        var steps = 40;
+        for (var step = 0; step <= steps; step++) {
+          var th = (step / steps) * Math.PI * 2;
+          var pt = [rLat * Math.sin(th), yLat, rLat * Math.cos(th)];
+          var rotPt = mat3VecMul(rotMatrix, pt);
+          var p = project(rotPt);
+
+          if (step === 0) {
+            ctx.moveTo(p[0], p[1]);
+          } else {
+            ctx.strokeStyle = rotPt[2] > 0 ? 'rgba(56, 189, 248, 0.22)' : 'rgba(56, 189, 248, 0.07)';
+            ctx.lineTo(p[0], p[1]);
+          }
+        }
+        ctx.stroke();
+      }
+
+      var longs = [0, 60, 120, 180, 240, 300];
+      for (var lo = 0; lo < longs.length; lo++) {
+        var theta = longs[lo] * Math.PI / 180;
+        ctx.beginPath();
+        var lSteps = 40;
+        for (var st = 0; st <= lSteps; st++) {
+          var ph = -Math.PI / 2 + (st / lSteps) * Math.PI;
+          var pPt = [
+            R * Math.cos(ph) * Math.sin(theta),
+            -R * Math.sin(ph),
+            R * Math.cos(ph) * Math.cos(theta)
+          ];
+          var rPt = mat3VecMul(rotMatrix, pPt);
+          var proj = project(rPt);
+
+          ctx.strokeStyle = rPt[2] > 0 ? 'rgba(56, 189, 248, 0.25)' : 'rgba(56, 189, 248, 0.08)';
+          if (st === 0) ctx.moveTo(proj[0], proj[1]);
+          else ctx.lineTo(proj[0], proj[1]);
+        }
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    function drawSphereLinks(w, h, R, nodePosMap) {
+      var cx = w / 2;
+      var cy = h / 2;
+      var fov = 850;
+
+      function project(v) {
+        var scale = fov / (fov - v[2]);
+        return [cx + v[0] * scale, cy + v[1] * scale, v[2]];
+      }
+
+      sphereLinks.forEach(function(link) {
+        var p1 = nodePosMap[link.from.id];
+        var p2 = nodePosMap[link.to.id];
+        if (!p1 || !p2) return;
+
+        var steps = 18;
+        var pts = [];
+        for (var i = 0; i <= steps; i++) {
+          var t = i / steps;
+          var bulge = 1 + 0.12 * Math.sin(Math.PI * t);
+          var vx = (p1[0] * (1 - t) + p2[0] * t) * bulge;
+          var vy = (p1[1] * (1 - t) + p2[1] * t) * bulge;
+          var vz = (p1[2] * (1 - t) + p2[2] * t) * bulge;
+
+          var len = Math.sqrt(vx*vx + vy*vy + vz*vz) || 1;
+          var rCurrent = R * bulge;
+          var normV = [vx / len * rCurrent, vy / len * rCurrent, vz / len * rCurrent];
+          pts.push(project(normV));
+        }
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (var k = 1; k < pts.length; k++) {
+          ctx.lineTo(pts[k][0], pts[k][1]);
+        }
+
+        var avgZ = (p1[2] + p2[2]) / 2;
+        var alpha = avgZ > 0 ? (link.isLoop ? 0.9 : 0.6) : (link.isLoop ? 0.45 : 0.2);
+        ctx.strokeStyle = link.color;
+        ctx.globalAlpha = alpha;
+        ctx.lineWidth = link.isLoop ? 2.4 : 1.6;
+        if (link.isLoop) {
+          ctx.setLineDash([6, 5]);
+          ctx.shadowColor = '#F59E0B';
+          ctx.shadowBlur = 8;
+        } else {
+          ctx.setLineDash([]);
+          ctx.shadowColor = link.color;
+          ctx.shadowBlur = 4;
+        }
+        ctx.stroke();
+        ctx.restore();
+
+        var particleT = (flowPhase + (link.isLoop ? 0.5 : 0)) % 1;
+        var pIdx = Math.floor(particleT * (pts.length - 1));
+        var nextIdx = Math.min(pts.length - 1, pIdx + 1);
+        var subT = (particleT * (pts.length - 1)) - pIdx;
+
+        var px = pts[pIdx][0] * (1 - subT) + pts[nextIdx][0] * subT;
+        var py = pts[pIdx][1] * (1 - subT) + pts[nextIdx][1] * subT;
+        var pz = pts[pIdx][2] * (1 - subT) + pts[nextIdx][2] * subT;
+
+        ctx.save();
+        ctx.beginPath();
+        var pRadius = link.isLoop ? 4 : 3;
+        ctx.arc(px, py, pRadius, 0, Math.PI * 2);
+        ctx.fillStyle = link.isLoop ? '#FDE047' : '#FFFFFF';
+        ctx.shadowColor = link.isLoop ? '#F59E0B' : link.color;
+        ctx.shadowBlur = link.isLoop ? 12 : 8;
+        ctx.globalAlpha = pz > -R * 0.3 ? 1 : 0.35;
+        ctx.fill();
+        ctx.restore();
+      });
+    }
+
+    function updateDOMNodes(w, h, R, nodePosMap) {
+      var cx = w / 2;
+      var cy = h / 2;
+      var fov = 850;
+
+      sphereNodes.forEach(function(node) {
+        var pos = nodePosMap[node.id];
+        if (!pos || !node.domEl) return;
+
+        var rz = pos[2];
+        var scale = fov / (fov - rz);
+        var px = cx + pos[0] * scale;
+        var py = cy + pos[1] * scale;
+
+        var isFront = (rz > -R * 0.25);
+        var opacity = isFront
+          ? (0.55 + 0.45 * ((rz + R) / (2 * R)))
+          : (0.16 + 0.26 * ((rz + R) / (2 * R)));
+
+        node.domEl.classList.toggle('is-back', !isFront);
+        node.domEl.style.transform = 'translate3d(' + Math.round(px) + 'px, ' + Math.round(py) + 'px, 0) translate(-50%, -50%) scale(' + (scale * 0.94).toFixed(3) + ')';
+        node.domEl.style.zIndex = Math.round(rz + 1000);
+        node.domEl.style.opacity = opacity.toFixed(2);
+      });
+    }
+
+    function renderFrame() {
+      if (!isRunning) return;
+
+      var w = viewport.clientWidth || 800;
+      var h = viewport.clientHeight || 560;
+
+      var dpr = window.devicePixelRatio || 1;
+      if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      ctx.clearRect(0, 0, w, h);
+
+      var cx = w / 2;
+      var cy = h / 2;
+
+      baseRadius = Math.max(160, Math.min(270, Math.min(w, h) * 0.44));
+      currentRadius += (targetRadius - currentRadius) * 0.1;
+      var R = currentRadius;
+
+      if (isDragging) {
+      } else {
+        if (Math.abs(velX) > 0.0001 || Math.abs(velY) > 0.0001) {
+          var dist = Math.sqrt(velX * velX + velY * velY);
+          var ax = -velY / dist;
+          var ay = velX / dist;
+          var deltaM = makeRotationMatrix(ax, ay, 0, dist);
+          rotMatrix = normalizeMat3(mat3Mul(deltaM, rotMatrix));
+          velX *= 0.92;
+          velY *= 0.92;
+        } else if (isAutoSpin) {
+          var spinM = makeRotationMatrix(0, 1, 0, 0.0022);
+          rotMatrix = normalizeMat3(mat3Mul(spinM, rotMatrix));
+        }
+      }
+
+      flowPhase = (flowPhase + 0.012) % 1;
+
+      var grad = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R * 1.05);
+      grad.addColorStop(0, 'rgba(56, 189, 248, 0.16)');
+      grad.addColorStop(0.5, 'rgba(30, 58, 138, 0.06)');
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * 1.05, 0, Math.PI * 2);
+      ctx.fill();
+
+      drawWireframeGlobe(w, h, R);
+
+      var nodePosMap = {};
+      sphereNodes.forEach(function(node) {
+        var localPos = [
+          R * Math.cos(node.phi) * Math.sin(node.theta),
+          -R * Math.sin(node.phi),
+          R * Math.cos(node.phi) * Math.cos(node.theta)
+        ];
+        nodePosMap[node.id] = mat3VecMul(rotMatrix, localPos);
+      });
+
+      drawSphereLinks(w, h, R, nodePosMap);
+      updateDOMNodes(w, h, R, nodePosMap);
+
+      animId = requestAnimationFrame(renderFrame);
+    }
+
+    viewport.addEventListener('pointerdown', function(e) {
+      if (e.target.closest('button, .topo-s-node')) return;
       isDragging = true;
-      startX = e.clientX;
-      startY = e.clientY;
-      startRx = current3D.rx;
-      startRy = current3D.ry;
-      wrap.classList.add('is-dragging');
-      card.style.cursor = 'grabbing';
-      if (card.setPointerCapture) {
-        try { card.setPointerCapture(e.pointerId); } catch (_) {}
+      lastX = e.clientX;
+      lastY = e.clientY;
+      velX = 0;
+      velY = 0;
+      if (viewport.setPointerCapture) {
+        try { viewport.setPointerCapture(e.pointerId); } catch (_) {}
       }
     });
 
-    window.addEventListener('pointermove', function (e) {
-      if (!isDragging || !is3DView) return;
-      var dx = e.clientX - startX;
-      var dy = e.clientY - startY;
+    window.addEventListener('pointermove', function(e) {
+      if (!isDragging) return;
+      var dx = e.clientX - lastX;
+      var dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
 
-      var newRy = startRy + dx * 0.22;
-      var newRx = startRx - dy * 0.18;
+      velX = dx * 0.005;
+      velY = dy * 0.005;
 
-      current3D.ry = Math.max(-55, Math.min(55, Math.round(newRy)));
-      current3D.rx = Math.max(0, Math.min(70, Math.round(newRx)));
-
-      qq('.topo-btn-3d-preset').forEach(function (btn) { btn.classList.remove('active'); });
-
-      apply3DTransform(card, wrap);
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > 0.5) {
+        var ax = -dy / dist;
+        var ay = dx / dist;
+        var angle = dist * 0.0055;
+        var delta = makeRotationMatrix(ax, ay, 0, angle);
+        rotMatrix = normalizeMat3(mat3Mul(delta, rotMatrix));
+      }
     });
 
     function stopDrag(e) {
       if (!isDragging) return;
       isDragging = false;
-      wrap.classList.remove('is-dragging');
-      card.style.cursor = '';
-      if (card.releasePointerCapture && e && e.pointerId) {
-        try { card.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (viewport.releasePointerCapture && e && e.pointerId) {
+        try { viewport.releasePointerCapture(e.pointerId); } catch (_) {}
+      }
+    }
+    window.addEventListener('pointerup', stopDrag);
+    window.addEventListener('pointercancel', stopDrag);
+
+    viewport.addEventListener('wheel', function(e) {
+      e.preventDefault();
+      var delta = -Math.sign(e.deltaY) * 20;
+      targetRadius = Math.max(160, Math.min(380, targetRadius + delta));
+    }, { passive: false });
+
+    function start() {
+      if (isRunning) return;
+      isRunning = true;
+      syncNodesFromDOM();
+      animId = requestAnimationFrame(renderFrame);
+    }
+
+    function stop() {
+      isRunning = false;
+      if (animId) {
+        cancelAnimationFrame(animId);
+        animId = null;
       }
     }
 
-    window.addEventListener('pointerup', stopDrag);
-    window.addEventListener('pointercancel', stopDrag);
+    function resetOrientation() {
+      rotMatrix = [
+        0.91, 0.08, -0.40,
+        -0.12, 0.99, -0.07,
+        0.39, 0.11, 0.91
+      ];
+      targetRadius = baseRadius;
+      velX = 0;
+      velY = 0;
+    }
+
+    function toggleAutoSpin() {
+      isAutoSpin = !isAutoSpin;
+      return isAutoSpin;
+    }
+
+    sphereEngineInstance = {
+      viewport: viewport,
+      start: start,
+      stop: stop,
+      syncNodesFromDOM: syncNodesFromDOM,
+      resetOrientation: resetOrientation,
+      toggleAutoSpin: toggleAutoSpin
+    };
+
+    return sphereEngineInstance;
   }
 
   function setupTopologyControls(card, wrap) {
@@ -598,20 +1103,17 @@
     var controls = document.createElement('div');
     controls.className = 'topo-controls';
     controls.innerHTML = [
-      '<div class="topo-btn-view-group" title="切换平面 / 3D 立体视图">',
-      '  <button type="button" class="topo-btn-view ' + (!is3DView ? 'active' : '') + '" id="topo-btn-view-2d" title="经典平面视图 (2D)">',
-      '    <span>🗺 平面</span>',
+      '<div class="topo-btn-view-group" title="切换平面 / 3D 球体闭环视图">',
+      '  <button type="button" class="topo-btn-view ' + (!isSphereMode ? 'active' : '') + '" id="topo-btn-view-2d" title="经典平面视图 (2D 拓扑)">',
+      '    <span>🗺 平面视图</span>',
       '  </button>',
-      '  <button type="button" class="topo-btn-view ' + (is3DView ? 'active' : '') + '" id="topo-btn-view-3d" title="空间立体视图 (3D 透视 · 按住空白拖拽自由旋转)">',
-      '    <span>🧊 3D 立体</span>',
+      '  <button type="button" class="topo-btn-view ' + (isSphereMode ? 'active' : '') + '" id="topo-btn-view-3d" title="3D 闭环全息球体 (360° 任意拖拽自由旋转)">',
+      '    <span>🌐 3D 球体</span>',
       '  </button>',
       '</div>',
-      '<div class="topo-3d-preset-bar" id="topo-3d-preset-bar" style="' + (is3DView ? 'display:inline-flex' : 'display:none') + '">',
-      '  <span class="topo-3d-hint">🧊 空间立体</span>',
-      '  <button type="button" class="topo-ctrl-btn topo-btn-3d-preset active" data-preset="isometric">斜视等轴</button>',
-      '  <button type="button" class="topo-ctrl-btn topo-btn-3d-preset" data-preset="topdown">俯瞰立体</button>',
-      '  <button type="button" class="topo-ctrl-btn topo-btn-3d-preset" data-preset="cinematic">深邃视角</button>',
-      '  <button type="button" class="topo-ctrl-btn" id="topo-btn-3d-reset" title="复位默认 3D 视角">🔄 复位</button>',
+      '<div class="topo-sphere-bar" id="topo-sphere-bar" style="' + (isSphereMode ? 'display:inline-flex' : 'display:none') + '">',
+      '  <button type="button" class="topo-ctrl-btn" id="topo-btn-sphere-spin" title="开启/暂停球体自转">⏸ 自转</button>',
+      '  <button type="button" class="topo-ctrl-btn" id="topo-btn-sphere-reset" title="复位正面视角">🔄 复位</button>',
       '</div>',
       '<button type="button" class="topo-ctrl-btn" id="topo-btn-fit" title="自适应一屏全貌展示全部 6 个阶段">',
       '  <span>🔎 全貌</span>',
@@ -625,28 +1127,39 @@
     ].join('');
     heading.appendChild(controls);
 
-    // 绑定 2D / 3D 视图切换
     var btnView2D = q('#topo-btn-view-2d');
     var btnView3D = q('#topo-btn-view-3d');
-    var presetBar = q('#topo-3d-preset-bar');
+    var sphereBar = q('#topo-sphere-bar');
+    var nav = q('.topo-stages-nav', card);
+    var engine = getOrCreateSphereEngine(card, wrap);
 
-    function switchViewMode(to3D) {
-      is3DView = to3D;
+    function switchViewMode(toSphere) {
+      isSphereMode = toSphere;
       try {
         if (typeof localStorage !== 'undefined') {
-          localStorage.setItem('localdns_topo_view_mode', is3DView ? '3d' : '2d');
+          localStorage.setItem('localdns_topo_view_mode', isSphereMode ? 'sphere' : 'plane');
         }
       } catch (_) {}
-      if (btnView2D) btnView2D.classList.toggle('active', !is3DView);
-      if (btnView3D) btnView3D.classList.toggle('active', is3DView);
-      if (presetBar) presetBar.style.display = is3DView ? 'inline-flex' : 'none';
-      if (is3DView) {
-        toast('进入 3D 空间立体视图', '可按住空白处拖拽自由旋转视角');
+
+      if (btnView2D) btnView2D.classList.toggle('active', !isSphereMode);
+      if (btnView3D) btnView3D.classList.toggle('active', isSphereMode);
+      if (sphereBar) sphereBar.style.display = isSphereMode ? 'inline-flex' : 'none';
+
+      if (isSphereMode) {
+        wrap.style.display = 'none';
+        if (nav) nav.style.display = 'none';
+        engine.viewport.style.display = 'block';
+        engine.start();
+        toast('进入 3D 闭环球体拓扑', '支持任意角度 360° 拖拽自由旋转');
       } else {
-        toast('切回平面视图', '已恢复 2D 经典渲染布局');
+        engine.stop();
+        engine.viewport.style.display = 'none';
+        wrap.style.display = 'block';
+        if (nav) nav.style.display = 'flex';
+        applyFitView(card, wrap);
+        toast('切回平面视图', '已恢复 2D 经典拓扑布局');
+        window.dispatchEvent(new CustomEvent('localdns:layoutchange'));
       }
-      apply3DTransform(card, wrap);
-      window.dispatchEvent(new CustomEvent('localdns:layoutchange'));
     }
 
     if (btnView2D) {
@@ -656,43 +1169,22 @@
       btnView3D.onclick = function () { switchViewMode(true); };
     }
 
-    // 绑定 3D 预设视角切换
-    qq('.topo-btn-3d-preset', controls).forEach(function (btn) {
-      btn.onclick = function () {
-        var key = btn.dataset.preset;
-        var p = TOPO_3D_PRESETS[key];
-        if (!p) return;
-        current3D.rx = p.rx;
-        current3D.ry = p.ry;
-        current3D.rz = p.rz;
-        current3D.scale = p.scale;
-        current3D.tx = p.tx;
-        current3D.ty = p.ty;
-        qq('.topo-btn-3d-preset', controls).forEach(function (b) { b.classList.toggle('active', b === btn); });
-        apply3DTransform(card, wrap);
+    var btnSphereSpin = q('#topo-btn-sphere-spin');
+    if (btnSphereSpin) {
+      btnSphereSpin.onclick = function () {
+        var running = engine.toggleAutoSpin();
+        btnSphereSpin.textContent = running ? '⏸ 自转' : '▶︎ 自转';
       };
-    });
+    }
 
-    // 绑定 3D 复位按钮
-    var btnReset3D = q('#topo-btn-3d-reset');
-    if (btnReset3D) {
-      btnReset3D.onclick = function () {
-        var p = TOPO_3D_PRESETS.isometric;
-        current3D.rx = p.rx;
-        current3D.ry = p.ry;
-        current3D.rz = p.rz;
-        current3D.scale = p.scale;
-        current3D.tx = p.tx;
-        current3D.ty = p.ty;
-        qq('.topo-btn-3d-preset', controls).forEach(function (b) {
-          b.classList.toggle('active', b.dataset.preset === 'isometric');
-        });
-        apply3DTransform(card, wrap);
+    var btnSphereReset = q('#topo-btn-sphere-reset');
+    if (btnSphereReset) {
+      btnSphereReset.onclick = function () {
+        engine.resetOrientation();
       };
     }
 
     // 阶段导航胶囊条
-    var nav = q('.topo-stages-nav', card);
     if (!nav) {
       nav = document.createElement('div');
       nav.className = 'topo-stages-nav';
@@ -715,7 +1207,6 @@
       qq('.topo-stage-pill', nav).forEach(function (pill) {
         pill.onclick = function () {
           if (isFitView) {
-            // 若在全貌模式下，先切回 1:1 细节再滚动
             isFitView = false;
             applyFitView(card, wrap);
             var btnFit = q('#topo-btn-fit');
@@ -785,11 +1276,15 @@
     }
 
     window.addEventListener('resize', function () {
-      if (is3DView) apply3DTransform(card, wrap);
-      else if (isFitView) applyFitView(card, wrap);
+      if (isFitView) applyFitView(card, wrap);
     }, { passive: true });
 
-    setup3DDragInteraction(card, wrap);
+    if (isSphereMode) {
+      wrap.style.display = 'none';
+      if (nav) nav.style.display = 'none';
+      engine.viewport.style.display = 'block';
+      engine.start();
+    }
   }
 
   var cachedTopologyData = null;
@@ -806,7 +1301,6 @@
     // 注入增强 CSS 与控制工具条
     injectTopologyEnhanceStyles();
     setupTopologyControls(card, wrap);
-    apply3DTransform(card, wrap);
 
     // 1. 动态注入阶段 06：出站执行 (Surge 节点与阻断) 及 回环清洗自愈节点
     var col6 = q('.topo-col[data-col="6"]');
@@ -917,9 +1411,15 @@
 
         // 3. 动态绘制延伸至阶段 06 出站及闭环反哺回环的贝塞尔流光连线
         renderStage6AndLoopback(wrap, svg);
+        if (sphereEngineInstance && isSphereMode) {
+          sphereEngineInstance.syncNodesFromDOM();
+        }
       })
       .catch(function () {
         renderStage6AndLoopback(wrap, svg);
+        if (sphereEngineInstance && isSphereMode) {
+          sphereEngineInstance.syncNodesFromDOM();
+        }
       });
   }
 
