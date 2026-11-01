@@ -369,6 +369,12 @@
       '.topology-glass-card.is-sphere-mode #topo-stage-wrap {',
       '  display: none !important;',
       '}',
+      '.topology-glass-card.is-sphere-mode .workspace-topology-tools {',
+      '  display: none !important;',
+      '}',
+      '.topology-glass-card.is-sphere-mode .topo-stages-nav {',
+      '  display: none !important;',
+      '}',
       '.topo-sphere-viewport {',
       '  position: relative !important;',
       '  grid-column: 1 / -1 !important;',
@@ -585,8 +591,9 @@
       -0.12, 0.99, -0.07,
       0.39, 0.11, 0.91
     ];
-    var sphereRadius = 240;
-    var targetRadius = 240;
+    var baseRadius = 230;
+    var currentRadius = 230;
+    var targetRadius = 230;
     var isAutoSpin = true;
     var isDragging = false;
     var lastX = 0, lastY = 0;
@@ -865,6 +872,21 @@
         nodesContainer.appendChild(el);
         node.domEl = el;
       });
+
+      // 立即执行一次静态空间位置映射，保证 DOM 在插入第一刻就已经居中就位
+      var initW = viewport.clientWidth || 800;
+      var initH = viewport.clientHeight || 560;
+      var initR = currentRadius || 230;
+      var initPosMap = {};
+      sphereNodes.forEach(function(node) {
+        var localPos = [
+          initR * Math.cos(node.phi) * Math.sin(node.theta),
+          -initR * Math.sin(node.phi),
+          initR * Math.cos(node.phi) * Math.cos(node.theta)
+        ];
+        initPosMap[node.id] = mat3VecMul(rotMatrix, localPos);
+      });
+      updateDOMNodes(initW, initH, initR, initPosMap);
     }
 
     function focusNode(targetNode) {
@@ -905,6 +927,16 @@
 
       ctx.save();
 
+      // 0. 绘制深邃全息科技球体底座（产生立体遮挡与深邃星球质感）
+      var ballGrad = ctx.createRadialGradient(cx - R * 0.2, cy - R * 0.2, R * 0.05, cx, cy, R);
+      ballGrad.addColorStop(0, 'rgba(15, 23, 42, 0.88)');
+      ballGrad.addColorStop(0.65, 'rgba(8, 14, 30, 0.94)');
+      ballGrad.addColorStop(1, 'rgba(2, 6, 23, 0.98)');
+      ctx.fillStyle = ballGrad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.fill();
+
       // 1. 绘制 5 圈纬线（赤道加粗发光）
       var lats = [-50, -25, 0, 25, 50];
       for (var l = 0; l < lats.length; l++) {
@@ -923,8 +955,8 @@
           else ctx.lineTo(p[0], p[1]);
         }
         var isEquator = (lats[l] === 0);
-        ctx.strokeStyle = isEquator ? 'rgba(56, 189, 248, 0.45)' : 'rgba(56, 189, 248, 0.20)';
-        ctx.lineWidth = isEquator ? 1.8 : 1.0;
+        ctx.strokeStyle = isEquator ? 'rgba(56, 189, 248, 0.65)' : 'rgba(56, 189, 248, 0.25)';
+        ctx.lineWidth = isEquator ? 2.0 : 1.0;
         ctx.stroke();
       }
 
@@ -946,16 +978,18 @@
           if (st === 0) ctx.moveTo(proj[0], proj[1]);
           else ctx.lineTo(proj[0], proj[1]);
         }
-        ctx.strokeStyle = 'rgba(56, 189, 248, 0.20)';
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
         ctx.lineWidth = 1.0;
         ctx.stroke();
       }
 
-      // 3. 绘制外围大气层微光外环
+      // 3. 绘制外围发光大气层光环（Holographic Rim Glow）
       ctx.beginPath();
       ctx.arc(cx, cy, R, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
-      ctx.lineWidth = 1.8;
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.7)';
+      ctx.lineWidth = 2.2;
+      ctx.shadowColor = '#38BDF8';
+      ctx.shadowBlur = 18;
       ctx.stroke();
 
       ctx.restore();
@@ -1066,68 +1100,83 @@
     function renderFrame() {
       if (!isRunning) return;
 
-      var w = viewport.clientWidth || 800;
-      var h = viewport.clientHeight || 560;
+      try {
+        var w = viewport.clientWidth || 800;
+        var h = viewport.clientHeight || 560;
 
-      var dpr = window.devicePixelRatio || 1;
-      if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
-        canvas.width = Math.round(w * dpr);
-        canvas.height = Math.round(h * dpr);
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      }
-
-      ctx.clearRect(0, 0, w, h);
-
-      var cx = w / 2;
-      var cy = h / 2;
-
-      baseRadius = Math.max(160, Math.min(270, Math.min(w, h) * 0.44));
-      currentRadius += (targetRadius - currentRadius) * 0.1;
-      var R = currentRadius;
-
-      if (isDragging) {
-      } else {
-        if (Math.abs(velX) > 0.0001 || Math.abs(velY) > 0.0001) {
-          var dist = Math.sqrt(velX * velX + velY * velY);
-          var ax = -velY / dist;
-          var ay = velX / dist;
-          var deltaM = makeRotationMatrix(ax, ay, 0, dist);
-          rotMatrix = normalizeMat3(mat3Mul(deltaM, rotMatrix));
-          velX *= 0.92;
-          velY *= 0.92;
-        } else if (isAutoSpin) {
-          var spinM = makeRotationMatrix(0, 1, 0, 0.0022);
-          rotMatrix = normalizeMat3(mat3Mul(spinM, rotMatrix));
+        var dpr = window.devicePixelRatio || 1;
+        if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+          canvas.width = Math.round(w * dpr);
+          canvas.height = Math.round(h * dpr);
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
+
+        ctx.clearRect(0, 0, w, h);
+
+        var cx = w / 2;
+        var cy = h / 2;
+
+        baseRadius = Math.max(160, Math.min(270, Math.min(w, h) * 0.44));
+        if (typeof currentRadius !== 'number' || isNaN(currentRadius) || currentRadius <= 50) {
+          currentRadius = baseRadius || 230;
+        }
+        currentRadius += (targetRadius - currentRadius) * 0.1;
+        var R = Math.max(120, currentRadius);
+
+        if (isDragging) {
+        } else {
+          if (Math.abs(velX) > 0.0001 || Math.abs(velY) > 0.0001) {
+            var dist = Math.sqrt(velX * velX + velY * velY);
+            var ax = -velY / dist;
+            var ay = velX / dist;
+            var deltaM = makeRotationMatrix(ax, ay, 0, dist);
+            rotMatrix = normalizeMat3(mat3Mul(deltaM, rotMatrix));
+            velX *= 0.92;
+            velY *= 0.92;
+          } else if (isAutoSpin) {
+            var spinM = makeRotationMatrix(0, 1, 0, 0.0022);
+            rotMatrix = normalizeMat3(mat3Mul(spinM, rotMatrix));
+          }
+        }
+
+        flowPhase = (flowPhase + 0.012) % 1;
+
+        // 1. 绘制球心科技光晕
+        var grad = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R * 1.05);
+        grad.addColorStop(0, 'rgba(56, 189, 248, 0.18)');
+        grad.addColorStop(0.5, 'rgba(30, 58, 138, 0.08)');
+        grad.addColorStop(1, 'transparent');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, R * 1.05, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 2. 绘制经纬光网与外轮廓光环
+        drawWireframeGlobe(w, h, R);
+
+        // 3. 计算节点旋转后空间位置
+        var nodePosMap = {};
+        sphereNodes.forEach(function(node) {
+          var localPos = [
+            R * Math.cos(node.phi) * Math.sin(node.theta),
+            -R * Math.sin(node.phi),
+            R * Math.cos(node.phi) * Math.cos(node.theta)
+          ];
+          nodePosMap[node.id] = mat3VecMul(rotMatrix, localPos);
+        });
+
+        // 4. 绘制立体飞线与闭环流光粒子
+        drawSphereLinks(w, h, R, nodePosMap);
+
+        // 5. 更新 DOM 节点屏幕坐标
+        updateDOMNodes(w, h, R, nodePosMap);
+      } catch (err) {
+        console.error('Sphere renderFrame error:', err);
       }
 
-      flowPhase = (flowPhase + 0.012) % 1;
-
-      var grad = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R * 1.05);
-      grad.addColorStop(0, 'rgba(56, 189, 248, 0.16)');
-      grad.addColorStop(0.5, 'rgba(30, 58, 138, 0.06)');
-      grad.addColorStop(1, 'transparent');
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R * 1.05, 0, Math.PI * 2);
-      ctx.fill();
-
-      drawWireframeGlobe(w, h, R);
-
-      var nodePosMap = {};
-      sphereNodes.forEach(function(node) {
-        var localPos = [
-          R * Math.cos(node.phi) * Math.sin(node.theta),
-          -R * Math.sin(node.phi),
-          R * Math.cos(node.phi) * Math.cos(node.theta)
-        ];
-        nodePosMap[node.id] = mat3VecMul(rotMatrix, localPos);
-      });
-
-      drawSphereLinks(w, h, R, nodePosMap);
-      updateDOMNodes(w, h, R, nodePosMap);
-
-      animId = requestAnimationFrame(renderFrame);
+      if (isRunning) {
+        animId = requestAnimationFrame(renderFrame);
+      }
     }
 
     viewport.addEventListener('pointerdown', function(e) {
