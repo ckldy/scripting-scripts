@@ -549,7 +549,7 @@ export class LocalDnsServer {
 
       return jsonResponse({
         status: 'online',
-        version: 'FJHAI',
+        version: 'FJMOS',
         upstream_stats: upstreamStats,
         rules: {
           geosite_cn: fileCounts.geosite_cn || 0,
@@ -561,6 +561,11 @@ export class LocalDnsServer {
         adguard_rules: adCount,
         stats: detailedStats,
       });
+    }
+
+    // FJMOS 分流刷新变化报告端点
+    if (cleanPath === '/api/v1/route-refresh/changes' && method === 'GET') {
+      return jsonResponse({ success: true, summary: null });
     }
 
     // 2. /api/v1/upstream/config
@@ -1129,7 +1134,7 @@ $httpClient.get({
           return jsonResponse({ error: 'Only http(s) URLs without credentials are allowed' }, 400);
         }
         try {
-          const res = await fetch(target.href, { headers: { 'User-Agent': 'LocalDNS/FJHAI' } });
+          const res = await fetch(target.href, { headers: { 'User-Agent': 'LocalDNS/FJMOS' } });
           if (!res.ok) {
             return jsonResponse({ error: `HTTP ${res.status}` }, 502);
           }

@@ -4242,7 +4242,10 @@ function initialize$k() {
     });
     const service = $2(".console-service-summary", main);
     if (service) {
-      $$2(".console-kpi", main).forEach((kpi) => service.append(kpi));
+      const row = document.createElement("div");
+      row.className = "console-kpi-row";
+      $$2(".console-kpi", main).forEach((kpi) => row.append(kpi));
+      service.append(row);
       (_a2 = $2(".view-title-row>div:first-child>.mono", main)) == null ? void 0 : _a2.remove();
     }
     const topo = $2(".topology-glass-card");
@@ -5617,11 +5620,11 @@ function split(lst, le = false) {
 const toBig = (h, l) => BigInt(h >>> 0) << _32n | BigInt(l >>> 0);
 const fromNumH = (n) => n / 2 ** 32 | 0;
 const fromNumL = (n) => n >>> 0;
-function setU64FromNum(view, byteOffset, n, isLE2) {
+function setU64FromNum(view2, byteOffset, n, isLE2) {
   const h = fromNumH(n);
   const l = fromNumL(n);
-  view.setUint32(byteOffset, isLE2 ? l : h, isLE2);
-  view.setUint32(byteOffset + 4, isLE2 ? h : l, isLE2);
+  view2.setUint32(byteOffset, isLE2 ? l : h, isLE2);
+  view2.setUint32(byteOffset + 4, isLE2 ? h : l, isLE2);
 }
 const shrSH = (h, _l, s) => h >>> s;
 const shrSL = (h, l, s) => h << 32 - s | l >>> s;
@@ -5924,7 +5927,7 @@ class HashMD {
   update(data) {
     aexists(this);
     abytes(data);
-    const { view, buffer, blockLen } = this;
+    const { view: view2, buffer, blockLen } = this;
     const len = data.length;
     let processed = false;
     for (let pos = 0; pos < len; ) {
@@ -5940,7 +5943,7 @@ class HashMD {
       this.pos += take;
       pos += take;
       if (this.pos === blockLen) {
-        this.process(view, 0);
+        this.process(view2, 0);
         this.pos = 0;
         processed = true;
       }
@@ -5954,18 +5957,18 @@ class HashMD {
     aexists(this);
     aoutput(out, this);
     this.finished = true;
-    const { buffer, view, blockLen, isLE: isLE2 } = this;
+    const { buffer, view: view2, blockLen, isLE: isLE2 } = this;
     let { pos } = this;
     buffer[pos++] = 128;
     buffer.fill(0, pos);
     if (this.padOffset > blockLen - pos) {
-      this.process(view, 0);
+      this.process(view2, 0);
       buffer.fill(0);
     }
-    setU64FromNum(view, blockLen - 8, this.length * 8, isLE2);
-    this.process(view, 0);
+    setU64FromNum(view2, blockLen - 8, this.length * 8, isLE2);
+    this.process(view2, 0);
     this.roundClean();
-    const oview = out === buffer ? view : createView(out);
+    const oview = out === buffer ? view2 : createView(out);
     const len = this.outputLen;
     const outLen = len / 4;
     const state2 = this.get();
@@ -6161,9 +6164,9 @@ class SHA2_32B extends HashMD {
     (to || (to = new this.constructor())).set(...this.get());
     return this._cloneIntoMeta(to);
   }
-  process(view, offset) {
+  process(view2, offset) {
     for (let i = 0; i < 16; i++, offset += 4)
-      SHA256_W[i] = view.getUint32(offset, false);
+      SHA256_W[i] = view2.getUint32(offset, false);
     for (let i = 16; i < 64; i++) {
       const W15 = SHA256_W[i - 15];
       const W2 = SHA256_W[i - 2];
@@ -6370,10 +6373,10 @@ class SHA2_64B extends HashMD {
     (to || (to = new this.constructor())).set(...this.get());
     return this._cloneIntoMeta(to);
   }
-  process(view, offset) {
+  process(view2, offset) {
     for (let i = 0; i < 16; i++, offset += 4) {
-      SHA512_W_H[i] = view.getUint32(offset);
-      SHA512_W_L[i] = view.getUint32(offset += 4);
+      SHA512_W_H[i] = view2.getUint32(offset);
+      SHA512_W_L[i] = view2.getUint32(offset += 4);
     }
     for (let i = 16; i < 80; i++) {
       const W15h = SHA512_W_H[i - 15] | 0;
@@ -6576,6 +6579,7 @@ class UIUpdateClient {
   }
   async discover() {
     var _a2;
+    this.capabilities = void 0;
     const result = await this.request("/upgrade/ui");
     if ((result == null ? void 0 : result.protocol) !== "localdns-ui-updater/v1" || result.repository !== "https://github.com/yyhoworks/LocalDNS") {
       throw new Error("服务器未提供兼容的 LocalDNS UI 升级接口。");
@@ -6988,7 +6992,7 @@ function initialize$b() {
     const label = (item) => kind === "client" ? aliases[item.key] || item.key : kind === "set" ? overviewInsightsService.label(item.key) : item.key;
     return `<div class="table-wrap"><table class="workspace-rank-table"><thead><tr><th scope="col">${{ domain: "域名", client: "客户端", set: "分流结果" }[kind]}</th><th scope="col">请求数</th><th scope="col">平均延时</th></tr></thead><tbody>${items.slice(0, limit).map((item) => `<tr><td><button type="button" class="workspace-text-button" data-rank-kind="${kind}" data-rank-key="${esc2(item.key)}" title="${esc2(item.key)}">${esc2(label(item))}</button>${kind === "client" && aliases[item.key] ? `<span class="workspace-subline mono">${esc2(item.key)}</span>` : ""}</td><td>${number(item.count)}</td>${latencyCell(kind, item)}</tr>`).join("") || '<tr><td colspan="3" class="table-empty">暂无记录</td></tr>'}</tbody></table></div>`;
   }
-  function rankings({ domains, clients, sets, total, aliases }) {
+  function rankings2({ domains, clients, sets, total, aliases }) {
     const limit = matchMedia("(max-width:600px)").matches ? 5 : 8;
     return `<div class="workspace-rank-grid">${[["domain", "TOP 域名", domains], ["client", "TOP 客户端", clients], ["set", "分流结果", sets]].map(([kind, name, items]) => `<section class="glass-card workspace-rank-card"><header class="gc-head"><div><h2 class="gc-title">${name}</h2><p class="workspace-subline">显示前 ${Math.min(limit, items.length)} · ${percent(items.slice(0, limit).reduce((n, r) => n + Number(r.count || 0), 0), total)}</p></div><button type="button" class="workspace-text-button" data-rank-all="${kind}">更多</button></header>${rankTable(kind, items, aliases, limit)}</section>`).join("")}</div>`;
   }
@@ -7260,7 +7264,7 @@ function initialize$b() {
   }
   workspaceService = { setup: (options) => {
     ctx = options;
-  }, logTools, bindLogs, rankings, bindRanks, upstreams, diversion, bindDiversion, ruleDetails, trackRuleDraft, clearRuleDraft, modalChanging: () => modalController == null ? void 0 : modalController.abort(), finish, topology };
+  }, logTools, bindLogs, rankings: rankings2, bindRanks, upstreams, diversion, bindDiversion, ruleDetails, trackRuleDraft, clearRuleDraft, modalChanging: () => modalController == null ? void 0 : modalController.abort(), finish, topology };
 }
 function modalOpen(title, subtitle, html2, onSave, showActions = true, options = {}) {
   var _a2;
@@ -7383,26 +7387,36 @@ function createUIUpdatePanel(container) {
     document.dispatchEvent(new CustomEvent("localdns-update-status", { detail: value }));
   }
   function paint() {
-    var _a2, _b2, _c2;
+    var _a2, _b2, _c2, _d, _e;
+    const sameCore = Boolean(latest == null ? void 0 : latest.backend) && (latest == null ? void 0 : latest.backend) === ((_b2 = (_a2 = currentUI()) == null ? void 0 : _a2.backendVersion) == null ? void 0 : _b2.toUpperCase());
     for (const mode of modes) {
       const row = get(`[data-mode="${mode}"]`), start = row.querySelector("button");
       const eligibility = target(mode), supported = mode === "core" ? Boolean(client == null ? void 0 : client.coreUpload) : mode === "ui" || (client == null ? void 0 : client.unified);
+      const fullReinstall = mode === "full" && sameCore && Boolean(eligibility.tag);
+      row.hidden = mode === "ui" && Boolean(latest) && eligibility.reason === "暂无比当前 UI 更新的正式版。" && !running();
       start.disabled = !available || !supported || (mode === "core" ? !selectedCore : !eligibility.tag) || busy || running() || uncertain;
-      start.textContent = mode === "core" && uploading ? "正在上传…" : running() && task.mode === mode ? "更新中…" : mode === "core" ? "上传并准备更新" : "升级" + names[mode];
-      row.querySelector("[data-target]").textContent = mode === "ui" ? `${((_a2 = currentUI()) == null ? void 0 : _a2.uiVersion) || "—"} → ${(latest == null ? void 0 : latest.version) || "待检查"}` : mode === "core" ? `当前内核：${((_b2 = currentUI()) == null ? void 0 : _b2.backendVersion) || "—"}${running() && task.source === "upload" && task.targetBackend ? " → " + task.targetBackend : ""}` : latest ? `${latest.version} / ${latest.backend}` : "检查更新后显示目标版本";
-      row.querySelector("[data-reason]").textContent = !supported ? "请先更新升级服务，以支持" + (mode === "core" ? "上传内核 ZIP。" : "内核升级。") : mode === "core" ? `上传原作者的内核 ZIP，自动选择 ${client.coreUpload.architecture}；保留当前 UI 和设置。下载并校验备份后才会切换，DNS 会短暂重启。` : eligibility.reason;
+      start.classList.toggle("primary", mode === "full" && !start.disabled);
+      start.textContent = mode === "core" && uploading ? "正在上传…" : running() && task.mode === mode ? "更新中…" : busy && available ? "提交中…" : mode === "core" ? "上传并准备更新" : mode === "full" && fullReinstall ? "重装UI + 内核" : "升级" + names[mode];
+      row.querySelector("[data-target]").textContent = mode === "ui" ? `${((_c2 = currentUI()) == null ? void 0 : _c2.uiVersion) || "—"} → ${(latest == null ? void 0 : latest.version) || "待检查"}` : mode === "core" ? `当前内核：${((_d = currentUI()) == null ? void 0 : _d.backendVersion) || "—"}${running() && task.source === "upload" && task.targetBackend ? " → " + task.targetBackend : ""}` : latest ? `${latest.version} / ${latest.backend}` : "检查更新后显示目标版本";
+      const reasonText = !available ? busy ? "正在确认服务器支持的升级功能…" : notEnabled ? "请先在服务器安装或更新独立升级服务，仅替换 UI 文件不会启用此功能。" : "连接升级服务后才能操作，请重试连接。" : !supported ? "请先更新升级服务，以支持" + (mode === "core" ? "上传内核 ZIP。" : "内核升级。") : mode === "core" ? `先选择原作者的内核 ZIP，再上传；自动选择 ${client.coreUpload.architecture}，保留当前 UI 和设置。下载并校验备份后才会切换，DNS 会短暂重启。` : fullReinstall ? "内核已是最新，重装覆盖相同版本；先下载备份，切换时 DNS 会短暂重启。" : eligibility.reason;
+      const reason = row.querySelector("[data-reason]");
+      reason.id = "version-reason-" + mode;
+      reason.textContent = reasonText;
+      start.setAttribute("aria-describedby", reason.id);
+      row.querySelector("h4").innerHTML = mode === "full" && fullReinstall ? 'UI + 内核 <span class="version-tag">内核已是最新</span>' : names[mode];
     }
     coreFile.disabled = !available || !(client == null ? void 0 : client.coreUpload) || busy || running() || uncertain;
+    coreFile.setAttribute("aria-describedby", "version-reason-core");
     get("[data-core-name]").textContent = selectedCore ? `${selectedCore.name} · ${(selectedCore.size / 1048576).toFixed(1)} MB` : "尚未选择文件";
     rollback.hidden = !available || !task.canRollback;
     rollback.disabled = busy || running() || uncertain;
     rollback.textContent = task.rollbackKind === "full" ? "恢复上一整套版本" : "恢复上一版 UI";
     refresh.hidden = task.state !== "succeeded" || task.installedVersion === (installed == null ? void 0 : installed.uiVersion);
     retry.disabled = busy || reading;
-    retry.textContent = available ? "刷新状态" : "重试连接";
+    retry.textContent = available ? "刷新连接与状态" : "重试连接";
     get("[data-help]").hidden = available && Boolean(client == null ? void 0 : client.coreUpload);
-    get("[data-connection]").textContent = available ? (client == null ? void 0 : client.coreUpload) ? "已连接。UI 使用 GitHub 发行版，内核可上传 ZIP；上传完成后，关闭弹窗任务仍会继续。" : (client == null ? void 0 : client.unified) ? "已连接。当前服务支持 UI 与整套升级；更新升级服务后可上传内核 ZIP。" : "已连接旧版升级服务，目前支持 UI 单独升级。" : busy ? "正在连接服务器升级入口…" : notEnabled ? "此服务器尚未启用网页升级，请先完成一次安装。" : "升级服务连接失败，请重试。";
-    get(".version-update-progress").hidden = !uploading && (!running() || task.state === "awaiting_backup");
+    get("[data-connection]").textContent = available ? (client == null ? void 0 : client.coreUpload) ? "已连接。UI 使用 GitHub 发行版，内核可上传 ZIP；上传完成后，关闭弹窗任务仍会继续。" : (client == null ? void 0 : client.unified) ? "已连接。当前服务支持 UI 与整套升级；更新升级服务后可上传内核 ZIP。" : "已连接旧版升级服务，目前支持 UI 单独升级。" : busy ? "正在连接服务器升级入口…" : notEnabled ? "当前地址没有网页升级接口。请按安装说明启用独立升级服务，已有服务请核对 uiUpdaterBase 地址。" : "升级服务连接失败，请重试。";
+    get(".version-update-progress").hidden = !uploading && !running() && !(busy && available) || task.state === "awaiting_backup";
     get(".version-update-result").hidden = !uploading && !task.message;
     get(".version-update-result").textContent = uploading ? uploadMessage : task.message || "";
     get(".version-backup").hidden = task.state !== "awaiting_backup" || !task.backup;
@@ -7410,7 +7424,7 @@ function createUIUpdatePanel(container) {
     get("[data-backup-hash]").textContent = task.backup ? "SHA-256：" + task.backup.sha256 : "";
     get("[data-backup-result]").textContent = backupResult;
     download.disabled = file.disabled = cancel.disabled = busy || uncertain;
-    proceed.disabled = busy || uncertain || !verifiedHash || verifiedHash !== ((_c2 = task.backup) == null ? void 0 : _c2.sha256) || !task.backupDownloaded;
+    proceed.disabled = busy || uncertain || !verifiedHash || verifiedHash !== ((_e = task.backup) == null ? void 0 : _e.sha256) || !task.backupDownloaded;
     proceed.textContent = task.action === "rollback" ? "校验通过，继续恢复" : "校验通过，继续升级";
     get("[data-error]").hidden = !error;
     get("[data-error]").textContent = error;
@@ -7435,11 +7449,7 @@ function createUIUpdatePanel(container) {
     schedule();
   }
   async function connect() {
-    if (busy) return;
-    if (client && available) {
-      await readStatus();
-      return;
-    }
+    if (busy || reading) return;
     busy = true;
     error = "";
     paint();
@@ -7449,6 +7459,7 @@ function createUIUpdatePanel(container) {
       await client.discover();
       accept(await client.status());
       available = true;
+      notEnabled = false;
     } catch (failure) {
       available = false;
       notEnabled = failure instanceof ApiError && failure.status === 404;
@@ -7604,10 +7615,16 @@ function createUIUpdatePanel(container) {
     paint();
   } };
 }
+function releaseRetryAt(headers, now = Date.now()) {
+  const retry = headers.get("retry-after");
+  const delay = retry && /^\d+$/.test(retry) ? now + Number(retry) * 1e3 : Date.parse(retry || "");
+  const reset = Number(headers.get("x-ratelimit-reset")) * 1e3;
+  return Math.max(now + 6e4, Number.isFinite(delay) ? delay : 0, Number.isFinite(reset) ? reset : 0);
+}
 const versionService = (() => {
   "use strict";
   const REPO = "https://github.com/yyhoworks/LocalDNS";
-  const ENDPOINT = "https://api.github.com/repos/yyhoworks/LocalDNS/releases/latest";
+  const ENDPOINT2 = "https://api.github.com/repos/yyhoworks/LocalDNS/releases/latest";
   const TTL = 6 * 60 * 60 * 1e3;
   function versionParts(value) {
     const match = String(value || "").match(/(?:^|ui-v|^v)(\d{4}\.\d+\.\d+\.\d+)(?=$|[-+])/i);
@@ -7664,6 +7681,18 @@ const versionService = (() => {
       const cacheKey = "localdns-release-check-v1:" + location.origin + ":" + String(((_a2 = window.LOCALDNS_UI_CONFIG) == null ? void 0 : _a2.apiBase) || "");
       let runningBackend = null;
       let installed = null, latest = null, checkedAt = 0, lastAttemptAt = 0, error = "", metadataError = "", checking = false, pending2;
+      const cooldownKey = "localdns-github-release-retry-at";
+      let retryAt = 0, retryTimer;
+      function readCooldown() {
+        try {
+          retryAt = Math.max(retryAt, Number(preferences.getItem(cooldownKey)) || 0);
+        } catch {
+        }
+      }
+      function waitForRetry() {
+        clearTimeout(retryTimer);
+        if (retryAt > Date.now()) retryTimer = setTimeout(() => paint(), Math.min(2147483647, retryAt - Date.now() + 50));
+      }
       const updateSection = document.createElement("section");
       dialog2.querySelector(".version-actions").before(updateSection);
       const updater = createUIUpdatePanel(updateSection);
@@ -7671,19 +7700,20 @@ const versionService = (() => {
       const date = (value) => value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "尚未检查";
       function paint() {
         var _a3;
+        const limited = retryAt > Date.now();
         const status = installed && latest ? assess({ ...installed, backendVersion: runningBackend || installed.backendVersion }, latest) : null;
-        const text2 = checking ? "检查中" : error ? "检查失败" : !installed ? "版本未读取" : !latest ? "尚未检查" : status.available ? "有新版本" : status.comparison === null ? "版本待核对" : status.local ? "本地测试版" : status.comparison < 0 ? "当前版本较新" : "已是最新";
-        button.dataset.status = error ? "error" : (status == null ? void 0 : status.available) ? "update" : "normal";
+        const text2 = checking ? "检查中" : limited ? "请求受限" : error ? "检查失败" : !installed ? "版本未读取" : !latest ? "尚未检查" : status.available ? "有新版本" : status.comparison === null ? "版本待核对" : status.local ? "本地测试版" : status.comparison < 0 ? "当前版本较新" : "已是最新";
+        button.dataset.status = error || limited ? "error" : (status == null ? void 0 : status.available) ? "update" : "normal";
         const displayVersion = String((installed == null ? void 0 : installed.uiVersion) || "").replace(/-local.*$/, "");
         button.querySelector("[data-version-number]").textContent = displayVersion ? "UI " + displayVersion : "版本";
         button.querySelector("[data-version-status]").textContent = text2;
         button.title = `版本与更新：${(installed == null ? void 0 : installed.uiVersion) || "未读取"}，${text2}`;
         button.setAttribute("aria-label", button.title);
-        manual.disabled = checking;
-        manual.textContent = checking ? "正在检查…" : "检查更新";
+        manual.disabled = checking || limited;
+        manual.textContent = checking ? "正在检查…" : limited ? "等待 GitHub 限流恢复" : "检查更新";
         const fact = (name, value) => `<div><dt>${name}</dt><dd>${escape(value)}</dd></div>`;
         const backend2 = runningBackend || ((_a3 = document.querySelector("#brand-version-tag")) == null ? void 0 : _a3.dataset.backendVersion) || (installed == null ? void 0 : installed.backendVersion);
-        setHTML(content, `<dl class="version-facts">${fact("当前 UI", (installed == null ? void 0 : installed.uiVersion) || "未能读取")}${fact("DNS 核心", backend2 || "尚未读取")}${fact("GitHub 最新正式版", latest ? latest.version + (latest.backend ? " / " + latest.backend : "") : "尚未读取")}${fact("上次成功检查", date(checkedAt))}</dl><p class="version-result">${escape(checking ? "正在获取 GitHub 最新正式版…" : error ? "更新检查失败，当前版本信息仍可查看。" : (status == null ? void 0 : status.available) ? "GitHub 已发布新版本，可查看更新说明与安装包。" : (status == null ? void 0 : status.local) ? "当前为本地测试版，基于正式版 " + status.baseline + "；" + (status.comparison === null ? "请在 GitHub 核对版本。" : "基准之后暂无新正式版。") : (status == null ? void 0 : status.comparison) === 0 ? "当前 UI 已是最新正式版。" : (status == null ? void 0 : status.comparison) < 0 ? "当前 UI 版本高于 GitHub 最新正式版。" : "点击“检查更新”获取 GitHub 最新正式版。")}</p>${(latest == null ? void 0 : latest.packages.length) ? `<p class="version-note">发布包：${escape(latest.packages.join("、"))}。UI 升级包仅更新界面；内核单独更新可上传原作者 ZIP，整套升级使用 GitHub 完整包。</p>` : ""}${metadataError ? `<p class="version-error" role="alert">${escape(metadataError)}</p>` : ""}${error ? `<p class="version-error" role="alert">${escape(error)} 可点击“检查更新”重试，或打开 GitHub 发布页。</p>` : ""}<p class="version-note">自动检查间隔为 6 小时；手动检查立即重新请求。</p>`);
+        setHTML(content, `<dl class="version-facts">${fact("当前 UI", (installed == null ? void 0 : installed.uiVersion) || "未能读取")}${fact("DNS 核心", backend2 || "尚未读取")}${fact("GitHub 最新正式版", latest ? latest.version + (latest.backend ? " / " + latest.backend : "") : "尚未读取")}${fact("上次成功检查", date(checkedAt))}${limited ? fact("允许再次检查", date(retryAt)) : ""}</dl><p class="version-result">${escape(checking ? "正在获取 GitHub 最新正式版…" : limited || error ? "更新检查暂不可用，保留上次成功检查的结果。" : (status == null ? void 0 : status.available) ? "GitHub 已发布新版本，可查看更新说明与安装包。" : (status == null ? void 0 : status.local) ? "当前为本地测试版，基于正式版 " + status.baseline + "；" + (status.comparison === null ? "请在 GitHub 核对版本。" : "基准之后暂无新正式版。") : (status == null ? void 0 : status.comparison) === 0 ? "当前 UI 已是最新正式版。" : (status == null ? void 0 : status.comparison) < 0 ? "当前 UI 版本高于 GitHub 最新正式版。" : "点击“检查更新”获取 GitHub 最新正式版。")}</p>${(latest == null ? void 0 : latest.packages.length) ? `<p class="version-note">发布包：${escape(latest.packages.join("、"))}。UI 升级包仅更新界面；内核单独更新可上传原作者 ZIP，整套升级使用 GitHub 完整包。</p>` : ""}${metadataError ? `<p class="version-error" role="alert">${escape(metadataError)}</p>` : ""}${limited ? `<p class="version-error" role="alert">GitHub 请求受限，请在 ${escape(date(retryAt))} 后重新检查，也可直接打开 GitHub 发布页。</p>` : error ? `<p class="version-error" role="alert">${escape(error)} 可点击“检查更新”重试，或打开 GitHub 发布页。</p>` : ""}<p class="version-note">自动检查间隔为 6 小时；手动检查会重新请求，限流期间暂停请求。</p>`);
         dialog2.querySelector("#version-release-link").href = (latest == null ? void 0 : latest.url) || REPO + "/releases";
         updater.setRelease(installed, latest);
       }
@@ -7691,7 +7721,19 @@ const versionService = (() => {
         const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 1e4);
         try {
           const response = await assetHttp.fetch(url, { signal: controller.signal, cache: "no-store", credentials: "omit", headers: { Accept: "application/json" } });
-          if (!response.ok) throw new Error(response.status === 403 || response.status === 429 ? "GitHub 请求受限，请稍后重试。" : "请求失败（HTTP " + response.status + "）。");
+          if (!response.ok) {
+            const denied = String(url) === ENDPOINT2 && response.status === 403 ? await response.clone().json().catch(() => null) : null;
+            if (String(url) === ENDPOINT2 && (response.status === 429 || response.status === 403 && (response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after") || /rate limit|abuse detection/i.test((denied == null ? void 0 : denied.message) || "")))) {
+              retryAt = releaseRetryAt(response.headers);
+              try {
+                preferences.setItem(cooldownKey, retryAt);
+              } catch {
+              }
+              waitForRetry();
+              throw new Error("GitHub 请求受限，请稍后重试。");
+            }
+            throw new Error("请求失败（HTTP " + response.status + "）。");
+          }
           return await response.json();
         } finally {
           clearTimeout(timeout);
@@ -7709,6 +7751,12 @@ const versionService = (() => {
       }
       function check(force = false) {
         if (pending2) return pending2;
+        readCooldown();
+        if (retryAt > Date.now()) {
+          waitForRetry();
+          paint();
+          return Promise.resolve();
+        }
         if (!force && error && Date.now() - lastAttemptAt < 15 * 60 * 1e3) return Promise.resolve();
         if (!force && latest && Date.now() - checkedAt >= 0 && Date.now() - checkedAt < TTL) {
           paint();
@@ -7721,7 +7769,7 @@ const versionService = (() => {
         pending2 = (async () => {
           try {
             if (!installed) await loadInstalled();
-            latest = releaseInfo(await fetchJSON(ENDPOINT));
+            latest = releaseInfo(await fetchJSON(ENDPOINT2));
             checkedAt = Date.now();
             try {
               preferences.setItem(cacheKey, JSON.stringify({ checkedAt, release: {
@@ -7801,8 +7849,8 @@ function initialize$9() {
   function apply3(root, definition, controls) {
     const layout = preferences$1[definition.key] || (mobile.matches ? "cards" : definition.fallback);
     root.dataset.collectionLayout = layout;
-    root.querySelectorAll("[data-collection-view]").forEach((view) => {
-      view.hidden = view.dataset.collectionView !== layout;
+    root.querySelectorAll("[data-collection-view]").forEach((view2) => {
+      view2.hidden = view2.dataset.collectionView !== layout;
     });
     controls.querySelectorAll("button").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.layout === layout));
@@ -7927,7 +7975,7 @@ const clientsService = (() => {
     }
     return next;
   }
-  function topology(clients, names, total, compact = String) {
+  function topology(clients, names, total, compact2 = String) {
     const observed = (Array.isArray(clients) ? clients : []).filter((c) => typeof c.key === "string" && Number.isFinite(+c.count) && +c.count > 0);
     const observedTotal = observed.reduce((sum, c) => sum + +c.count, 0);
     const denominator = Math.max(1, observedTotal || +total || 0);
@@ -7936,13 +7984,13 @@ const clientsService = (() => {
       ip: client.key,
       muted: false,
       name: names[client.key] || client.key,
-      sub: client.key + " · " + compact(client.count) + " 次",
+      sub: client.key + " · " + compact2(client.count) + " 次",
       val: Math.round(+client.count / denominator * 100) + "%",
       valColor: i === 0 ? "#93C5FD" : "var(--text-1)",
       icon: "monitor"
     }));
     const rest = observed.slice(4), count = rest.reduce((sum, c) => sum + +c.count, 0);
-    if (rest.length) result.push({ id: "c5", ip: "", muted: false, name: "其余 " + rest.length + " 个来源", sub: "查询来源汇总 · " + compact(count) + " 次", val: Math.round(count / denominator * 100) + "%", valColor: "var(--text-2)", icon: "dots" });
+    if (rest.length) result.push({ id: "c5", ip: "", muted: false, name: "其余 " + rest.length + " 个来源", sub: "查询来源汇总 · " + compact2(count) + " 次", val: Math.round(count / denominator * 100) + "%", valColor: "var(--text-2)", icon: "dots" });
     if (!result.length) result.push({ id: "c_empty", ip: "", muted: true, name: "暂无客户端请求", sub: "当前保留记录中没有查询来源", val: "暂无记录", valColor: "var(--text-3)", icon: "monitor" });
     return result;
   }
@@ -8296,7 +8344,8 @@ class BackendClient {
         cancel: "cancel",
         reset: "reset",
         "scheduler/config": "schedule",
-        "stats/source_file_counts": "counts"
+        "stats/source_file_counts": "counts",
+        changes: "changes"
       };
       const action = route.slice("/plugins/requery/".length), target = actions[action];
       if (!target) throw new Error("内核不支持此刷新任务操作。");
@@ -8431,9 +8480,9 @@ function overviewMetricCard(label, value, iconName, tone = "primary") {
 function card(title, body2, { iconName = "overview", subtitle = "", actions = "", className = "" } = {}) {
   return `<section class="card ${className}"><div class="card-header"><div class="card-title"><span class="icon">${icon$1(iconName)}</span><div><h2>${esc$1(title)}</h2>${subtitle ? `<p>${esc$1(subtitle)}</p>` : ""}</div></div><div class="card-actions">${actions}</div></div><div class="card-body">${body2}</div></section>`;
 }
-const empty = (text2 = "暂无数据") => `<div class="empty-state"><div><div class="empty-icon">${icon$1("info")}</div><strong>${esc$1(text2)}</strong></div></div>`;
+const empty$1 = (text2 = "暂无数据") => `<div class="empty-state"><div><div class="empty-icon">${icon$1("info")}</div><strong>${esc$1(text2)}</strong></div></div>`;
 function rankRows(items, formatter = (x) => x.key, limit = 10) {
-  if (!(items == null ? void 0 : items.length)) return empty();
+  if (!(items == null ? void 0 : items.length)) return empty$1();
   const list = Number.isFinite(limit) ? items.slice(0, Math.max(0, limit)) : items.slice();
   const max = Math.max(1, ...list.map((x) => +x.count || 0));
   return `<div class="rank-list">${list.map((x, i) => {
@@ -8601,7 +8650,7 @@ function domainDetailRowsHtml(items, page2, pageSize = OVERVIEW_DETAIL_PAGE_SIZE
 function openSlowDetailModal(groups2) {
   let current = 0;
   const render = () => {
-    const body2 = (groups2 == null ? void 0 : groups2.length) ? `<div class="overview-detail-table-wrap"><table class="overview-detail-table overview-detail-slow-table"><thead><tr><th>#</th><th>域名</th><th>类型</th><th>客户端</th><th>耗时</th></tr></thead><tbody>${slowDetailRowsHtml(groups2, current)}</tbody></table></div>${detailPagerHtml(current, groups2.length)}` : empty("暂无最慢查询数据");
+    const body2 = (groups2 == null ? void 0 : groups2.length) ? `<div class="overview-detail-table-wrap"><table class="overview-detail-table overview-detail-slow-table"><thead><tr><th>#</th><th>域名</th><th>类型</th><th>客户端</th><th>耗时</th></tr></thead><tbody>${slowDetailRowsHtml(groups2, current)}</tbody></table></div>${detailPagerHtml(current, groups2.length)}` : empty$1("暂无最慢查询数据");
     setHTML($("#modal-content"), body2);
     $$("#modal-content [data-detail-page]").forEach((btn) => btn.onclick = () => {
       const next = +btn.dataset.detailPage;
@@ -8619,7 +8668,7 @@ function openSlowDetailModal(groups2) {
 function openDomainDetailModal(items) {
   let current = 0;
   const render = () => {
-    const body2 = (items == null ? void 0 : items.length) ? `<div class="overview-detail-table-wrap"><table class="overview-detail-table overview-detail-domain-table"><thead><tr><th>#</th><th>域名</th><th>查询次数</th></tr></thead><tbody>${domainDetailRowsHtml(items, current)}</tbody></table></div>${detailPagerHtml(current, items.length)}` : empty("暂无域名排行数据");
+    const body2 = (items == null ? void 0 : items.length) ? `<div class="overview-detail-table-wrap"><table class="overview-detail-table overview-detail-domain-table"><thead><tr><th>#</th><th>域名</th><th>查询次数</th></tr></thead><tbody>${domainDetailRowsHtml(items, current)}</tbody></table></div>${detailPagerHtml(current, items.length)}` : empty$1("暂无域名排行数据");
     setHTML($("#modal-content"), body2);
     $$("#modal-content [data-detail-page]").forEach((btn) => btn.onclick = () => {
       const next = +btn.dataset.detailPage;
@@ -8680,8 +8729,8 @@ const routeDefs = [
     label: "代理",
     icon: "system",
     navSvg: '<rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="17" r="1"/>',
-    subtitle: "管理 Mihomo / sing-box 配置，支持 HTTP 获取与保存应用",
-    keywords: ["代理", "代理配置", "proxy", "proxy-config"]
+    subtitle: "查看代理用量与排行，管理 Mihomo / sing-box 配置",
+    keywords: ["代理", "代理配置", "代理流量", "流量统计", "proxy", "proxy-config"]
   },
   {
     id: "management",
@@ -8927,6 +8976,15 @@ function drawTopoCurves(edges) {
   applyTraceState(focusedId() || ((_a2 = wrap.querySelector(".t-node:hover")) == null ? void 0 : _a2.dataset.nodeId));
   topologyFlowService == null ? void 0 : topologyFlowService.start(wrap, svg2, edges);
 }
+let requested = null;
+function requestProxyPane(pane) {
+  requested = pane === "config" ? "config" : "traffic";
+}
+function takeProxyPane() {
+  const pane = requested || "traffic";
+  requested = null;
+  return pane;
+}
 const CACHE_FIELDS = ["max_entries", "stale_ttl", "save_interval"];
 const FALLBACK = { max_entries: [128, 1e7], stale_ttl: [0, 2592e3], save_interval: [60, 604800] };
 const CACHE_UNITS = {
@@ -9086,9 +9144,70 @@ function buildCacheLimits(settings, values) {
   return payload;
 }
 const cacheName = (t) => ({ cache_main: "全部缓存", cache_domestic: "国内缓存", cache_foreign: "国外缓存", cache_foreign_ecs: "国外 ECS 缓存" })[t] || t;
+const refreshCats = [
+  ["to_proxy", "直连 → 代理", "两次查询都显示应走代理，已改为代理"],
+  ["to_direct", "代理 → 直连", "两次查询都显示应走直连，已改为直连"],
+  ["other", "其他变化", "涉及「无记录」的改变"],
+  ["new", "新学到", "原来没有结论，这次学到了"],
+  ["disputed", "有分歧", "两次结果不一致，保持原结论"],
+  ["unchanged", "没有变化", "结论和原来一样"]
+];
+const refreshClass = (code) => ({ realip: "直连", fakeip: "代理", nodata: "无记录" })[code] || "没有结果";
+function openRefreshChanges() {
+  api.request("/plugins/requery/changes").then((result) => {
+    const summary = result && result.summary;
+    if (!summary) {
+      modalOpen("上次刷新的变化", "分流缓存刷新的结果", empty$1("还没有运行记录"), null, false);
+      return;
+    }
+    const items = result.items || {};
+    const when = result.start_time ? `${fmtDate(result.start_time)} — ${fmtDate(result.end_time)}` : "—";
+    const stopped = result.stopped ? '<p class="form-note">这次任务中途停止：还没复核的域名保持原来的结论（列在「有分歧」里）。</p>' : "";
+    const noEvidence = +summary.no_evidence ? `<p class="form-note">另有 ${num(summary.no_evidence)} 次查询没有可学的结果（名单已决定或上游没回答）。</p>` : "";
+    const cats = refreshCats.map(([key, label]) => {
+      const count = +summary[key] || 0;
+      return `<button type="button" class="rq-cat" data-rq-cat="${key}" ${count > 0 ? "" : "disabled"}><span>${label}</span><strong>${num(count)}</strong></button>`;
+    }).join("");
+    const html2 = `<div class="stack"><p class="form-note">运行时间：${esc$1(when)}，处理域名 ${num(result.names || 0)} 个。结论要改时约 ${num(result.confirm_wait_seconds || 120)} 秒后复核一次，两次一致才改。</p>${stopped}${noEvidence}<div class="rq-cats">${cats}</div><div id="rq-cat-list"></div></div>`;
+    modalOpen("上次刷新的变化", "点一个分类查看具体域名", html2, null, false);
+    const list = $("#rq-cat-list");
+    const paint = (key) => {
+      $$(".rq-cat").forEach((button) => button.classList.toggle("active", button.dataset.rqCat === key));
+      const rows = items[key] || [];
+      if (!rows.length) {
+        setHTML(list, empty$1("这一类没有域名"));
+        return;
+      }
+      const head = key === "disputed" ? "<th>域名</th><th>类型</th><th>原来</th><th>第一次</th><th>第二次</th>" : key === "new" ? "<th>域名</th><th>类型</th><th>学到</th>" : "<th>域名</th><th>类型</th><th>原来</th><th>现在</th>";
+      const body2 = rows.map((row) => {
+        if (key === "disputed") {
+          const second = row.second === null || row.second === void 0 ? result.stopped ? "未复核" : "没有结果" : refreshClass(row.second);
+          return `<tr><td>${esc$1(row.name)}</td><td>${esc$1(row.type)}</td><td>${refreshClass(row.old)}</td><td>${refreshClass(row.first)}</td><td>${second}</td></tr>`;
+        }
+        if (key === "new") return `<tr><td>${esc$1(row.name)}</td><td>${esc$1(row.type)}</td><td>${refreshClass(row.new)}</td></tr>`;
+        return `<tr><td>${esc$1(row.name)}</td><td>${esc$1(row.type)}</td><td>${refreshClass(row.old)}</td><td>${refreshClass(row.new)}</td></tr>`;
+      }).join("");
+      const more = (+summary[key] || 0) > rows.length ? `<p class="form-note">共 ${num(summary[key])} 条，只列出前 ${num(rows.length)} 条。</p>` : "";
+      setHTML(list, `<div class="table-wrap"><table class="overview-detail-table"><thead><tr>${head}</tr></thead><tbody>${body2}</tbody></table></div>${more}`);
+    };
+    $$(".rq-cat").forEach((button) => {
+      button.onclick = () => {
+        if (!button.disabled) paint(button.dataset.rqCat);
+      };
+    });
+    const first = refreshCats.find(([key]) => (+summary[key] || 0) > 0 && key !== "unchanged");
+    paint(first ? first[0] : "unchanged");
+  }).catch((error) => {
+    if (error && (error.status === 404 || error.status === 405)) {
+      toast("当前内核没有变化报告（需要 FJMOS 及以上）", "error");
+      return;
+    }
+    toast("读取变化报告失败", "error", error && error.message);
+  });
+}
 function requeryHtml(s, c) {
   var _a2, _b2, _c2, _d, _e;
-  if (!s) return { actions: "", body: empty("Requery 插件不可用") };
+  if (!s) return { actions: "", body: empty$1("Requery 插件不可用") };
   const taskState = String(s.task_state || s.status || "idle").toLowerCase();
   const running = s.running === true || ["running", "processing", "cancelling"].includes(taskState);
   const stateText = { idle: "空闲", running: "运行中", processing: "运行中", cancelling: "正在取消", failed: "运行失败", error: "运行失败" }[taskState] || (running ? "运行中" : "空闲");
@@ -9099,7 +9218,7 @@ function requeryHtml(s, c) {
   const lastCount = s.last_run_domain_count;
   const tile = (k, v) => `<div class="mg-tile"><span>${k}</span><strong>${v}</strong></div>`;
   const statusRow = `<div class="rq-status"><span class="mg-chip"><span class="mg-lab">当前状态</span><span class="badge ${stateClass}">${stateText}</span></span><span class="mg-chip"><span class="mg-lab">定时任务</span><span class="badge ${((_c2 = c == null ? void 0 : c.scheduler) == null ? void 0 : _c2.enabled) ? "success" : ""}">${((_d = c == null ? void 0 : c.scheduler) == null ? void 0 : _d.enabled) ? "已启用" : "未启用"}</span></span></div>`;
-  const actions = `<button class="button small" id="requery-scheduler" title="定时任务设置"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h9M18 8h2M4 16h4M13 16h7"/><circle cx="15.5" cy="8" r="2"/><circle cx="10.5" cy="16" r="2"/></svg>定时设置</button>${running ? '<button class="button small danger" id="requery-cancel">取消任务</button>' : '<button class="button small primary" id="requery-trigger" title="开始全新任务"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 4.5 19 12 7 19.5Z"/></svg>全新任务</button>'}`;
+  const actions = `<button class="button small" id="requery-changes" title="查看上次刷新的变化"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h10M4 12h7M4 18h13"/><circle cx="18" cy="7" r="2"/></svg>变化报告</button><button class="button small" id="requery-scheduler" title="定时任务设置"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h9M18 8h2M4 16h4M13 16h7"/><circle cx="15.5" cy="8" r="2"/><circle cx="10.5" cy="16" r="2"/></svg>定时设置</button>${running ? '<button class="button small danger" id="requery-cancel">取消任务</button>' : '<button class="button small primary" id="requery-trigger" title="开始全新任务"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 4.5 19 12 7 19.5Z"/></svg>全新任务</button>'}`;
   const body2 = statusRow + `<div class="mg-tiles">${tile("进度", hasProgress ? `${num(pr.processed ?? 0)} / ${num(pr.total ?? 0)}` : "—")}${tile("上次处理域名", lastCount === void 0 || lastCount === null ? "—" : num(lastCount) + " 条")}${tile("上次运行", fmtDate(lastRun))}${tile("下次执行", fmtDate(s.next_run_time))}${tile("间隔", ((_e = c == null ? void 0 : c.scheduler) == null ? void 0 : _e.interval_minutes) ? num(c.scheduler.interval_minutes) + " 分钟" : "—")}</div>`;
   return { actions, body: body2 };
 }
@@ -9159,10 +9278,10 @@ function countsHtml(c) {
   var _a2;
   if (c && c.ok === false) {
     const detail = ((_a2 = c.error) == null ? void 0 : _a2.message) ? `<div class="muted" style="margin-top:8px">${esc$1(c.error.message)}</div>` : "";
-    return empty("统计读取失败") + detail;
+    return empty$1("统计读取失败") + detail;
   }
   if (c && c.ok === true) c = c.data;
-  if (!c) return empty("暂无统计");
+  if (!c) return empty$1("暂无统计");
   let raw = c;
   if (raw && typeof raw === "object" && !Array.isArray(raw) && Object.prototype.hasOwnProperty.call(raw, "data")) raw = raw.data;
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
@@ -9171,7 +9290,7 @@ function countsHtml(c) {
     else if (Array.isArray(raw.source_file_counts)) raw = raw.source_file_counts;
   }
   const entries2 = Array.isArray(raw) ? raw : raw && typeof raw === "object" ? Object.entries(raw).map(([name, value]) => value && typeof value === "object" ? { name, ...value } : { name, count: value }) : [];
-  if (!entries2.length) return empty("暂无统计");
+  if (!entries2.length) return empty$1("暂无统计");
   return `<div class="table-wrap"><table><thead><tr><th>列表</th><th>条目数</th></tr></thead><tbody>${entries2.map((x) => `<tr><td>${esc$1(x.alias || x.name || x.file || x.path || "未知")}</td><td>${num(x.count ?? x.rule_count ?? x.entries ?? x.value ?? 0)}</td></tr>`).join("")}</tbody></table></div>`;
 }
 async function multiPluginAction(paths, msg) {
@@ -9203,7 +9322,7 @@ const switchProfiles = [
   { tag: "switch12", name: "指定 Client RealIP", desc: "指定客户端不允许科学" }
 ];
 async function renderManagement(container, context) {
-  var _a2;
+  var _a2, _b2;
   const renderScope = context.scope, page2 = container;
   const renderSeq = state.renderSeq;
   const isCurrent = () => state.route === "management" && state.renderSeq === renderSeq;
@@ -9245,6 +9364,7 @@ async function renderManagement(container, context) {
       </div>
     </div>`);
   (_a2 = $("#management-restart-button")) == null ? void 0 : _a2.addEventListener("click", restartService);
+  (_b2 = page2.querySelector('[data-route="proxy-config"]')) == null ? void 0 : _b2.addEventListener("click", () => requestProxyPane("config"));
   proxyPanelService == null ? void 0 : proxyPanelService.sync();
   const serviceBadge = page2.querySelector(".service-card-badge");
   const switchPromise = Promise.all(tags.map((t) => safe(() => api.request(`/plugins/${t}/show`), "error"))).then((results) => Object.fromEntries(tags.map((t, i) => [t, String(results[i]).trim()])));
@@ -9289,7 +9409,7 @@ async function renderManagement(container, context) {
     });
   });
   Promise.all([switchPromise, metricsPromise, cacheSettingsPromise]).then(([status, metricsRaw, cacheSettingsResult]) => {
-    var _a3, _b2;
+    var _a3, _b3;
     if (!isCurrent()) return;
     const cacheLimits = cacheSettingsResult.ok ? cacheSettingsResult.data : null;
     const metrics = parseProm(metricsRaw), caches = parseCaches(metrics);
@@ -9332,12 +9452,12 @@ async function renderManagement(container, context) {
         toast("查看缓存内容失败", "error", e.message);
       }
     });
-    (_b2 = $("#cache-settings")) == null ? void 0 : _b2.addEventListener("click", () => openCacheSettings(cacheLimits));
+    (_b3 = $("#cache-settings")) == null ? void 0 : _b3.addEventListener("click", () => openCacheSettings(cacheLimits));
   }).catch((e) => {
     if (isCurrent() && $("#management-cache-slot")) setHTML($("#management-cache-slot"), card("缓存管理", `<div class="error-panel">加载失败：${esc$1(e.message)}</div>`, { iconName: "data", className: "data-cache-panel" }));
   });
   Promise.all([reqStatusPromise, reqCfgPromise]).then(([reqStatus, reqCfg]) => {
-    var _a3, _b2, _c2;
+    var _a3, _b3, _c2, _d;
     if (!isCurrent()) return;
     const slot = $("#management-requery-slot");
     if (!slot) return;
@@ -9353,7 +9473,7 @@ async function renderManagement(container, context) {
         renderRoute(true);
       }
     });
-    (_b2 = $("#requery-cancel")) == null ? void 0 : _b2.addEventListener("click", async () => {
+    (_b3 = $("#requery-cancel")) == null ? void 0 : _b3.addEventListener("click", async () => {
       try {
         await api.request("/plugins/requery/cancel", { method: "POST" });
         toast("已请求取消");
@@ -9363,10 +9483,11 @@ async function renderManagement(container, context) {
         renderRoute(true);
       }
     });
-    (_c2 = $("#requery-scheduler")) == null ? void 0 : _c2.addEventListener("click", () => openRequeryScheduler(reqCfg));
+    (_c2 = $("#requery-changes")) == null ? void 0 : _c2.addEventListener("click", () => openRefreshChanges());
+    (_d = $("#requery-scheduler")) == null ? void 0 : _d.addEventListener("click", () => openRequeryScheduler(reqCfg));
   });
   countsPromise.then((counts) => {
-    var _a3, _b2;
+    var _a3, _b3;
     if (!isCurrent()) return;
     const slot = $("#management-counts-slot");
     if (!slot) return;
@@ -9377,7 +9498,7 @@ async function renderManagement(container, context) {
       countsCard.style.minHeight = "";
     }
     (_a3 = $("#save-shunt")) == null ? void 0 : _a3.addEventListener("click", () => multiPluginAction(["domain_stats/save", "realip/save", "fakeip/save", "nodata/save"], "分流规则已保存"));
-    (_b2 = $("#clear-shunt")) == null ? void 0 : _b2.addEventListener("click", () => clearShuntData());
+    (_b3 = $("#clear-shunt")) == null ? void 0 : _b3.addEventListener("click", () => clearShuntData());
   });
 }
 async function restartService() {
@@ -9394,6 +9515,220 @@ async function restartService() {
   if (scope.signal.aborted) return;
   toast(((identityService == null ? void 0 : identityService.getName()) || "LocalDNS") + " 正在重启");
   scope.timeout(() => renderRoute(true), 4e3);
+}
+const DAY = 864e5;
+const validDate = (value) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value + "T00:00:00Z")) && (/* @__PURE__ */ new Date(value + "T00:00:00Z")).toISOString().slice(0, 10) === value;
+function bytesPair(value) {
+  if (!value || typeof value !== "object" || !["down", "up"].every((key) => typeof value[key] === "number" && Number.isSafeInteger(value[key]) && value[key] >= 0)) return null;
+  return { down: value.down, up: value.up };
+}
+const byteTotal = (value) => ((value == null ? void 0 : value.down) || 0) + ((value == null ? void 0 : value.up) || 0);
+function sumBytes(values) {
+  return values.reduce((sum, value) => ({ down: sum.down + ((value == null ? void 0 : value.down) || 0), up: sum.up + ((value == null ? void 0 : value.up) || 0) }), { down: 0, up: 0 });
+}
+function serverDate(data, now = Date.now()) {
+  return new Date(now + ((data == null ? void 0 : data.offset) || 0) * 6e4).toISOString().slice(0, 10);
+}
+function parseSummary(raw) {
+  if (!raw || typeof raw !== "object" || typeof raw.updated !== "string" || !Number.isFinite(Date.parse(raw.updated))) return null;
+  const today = bytesPair(raw.today);
+  if (!today) return null;
+  const offset = Number(raw.utc_offset_minutes);
+  const suffix = /([+-])(\d{2}):(\d{2})$/.exec(raw.updated);
+  const inferred = suffix ? (Number(suffix[2]) * 60 + Number(suffix[3])) * (suffix[1] === "-" ? -1 : 1) : 0;
+  return {
+    ...today,
+    total: byteTotal(today),
+    updated: String(raw.updated),
+    date: validDate(raw.date) ? raw.date : String(raw.updated).slice(0, 10),
+    since: validDate(raw.since) ? raw.since : "",
+    source: raw.source === "sing-box" ? "sing-box" : "Mihomo",
+    offset: Number.isFinite(offset) && Math.abs(offset) <= 840 ? offset : inferred,
+    publishInterval: Math.max(5, Math.min(300, Number(raw.publish_interval_seconds) || 30)),
+    yesterday: bytesPair(raw.yesterday),
+    week: bytesPair(raw.week),
+    month: bytesPair(raw.month),
+    lifetime: bytesPair(raw.total),
+    version: Number(raw.version) || 1
+  };
+}
+function freshness(data, now = Date.now()) {
+  if (!data) return "empty";
+  if (data.date !== serverDate(data, now)) return "expired";
+  const age = now - Date.parse(data.updated);
+  return age > Math.max(12e4, data.publishInterval * 4e3) || age < -3e5 ? "stale" : "ready";
+}
+function dimensionMap(raw, limit) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const entries2 = Object.entries(raw).slice(0, 2050).filter(([, v]) => bytesPair(v));
+  const sum = sumBytes(entries2.map(([, v]) => v));
+  if (sum.down > limit.down || sum.up > limit.up) return {};
+  return Object.fromEntries(entries2.map(([key, v]) => [key.slice(0, 256), bytesPair(v)]));
+}
+function parseDetail(raw) {
+  const summary = parseSummary(raw);
+  if (!summary || !Array.isArray(raw.daily)) return null;
+  const days = /* @__PURE__ */ new Map();
+  for (const entry of raw.daily.slice(-401)) {
+    const amount2 = bytesPair(entry);
+    if (!amount2 || !validDate(entry.date)) continue;
+    const hourEntries = Object.entries(entry.hourly || {}).filter(([key, value]) => /^\d{2}$/.test(key) && Number(key) < 24 && bytesPair(value));
+    days.set(entry.date, {
+      ...amount2,
+      date: entry.date,
+      coverage: ["full", "partial", "unknown"].includes(entry.coverage) ? entry.coverage : "unknown",
+      first: typeof entry.first === "string" ? entry.first : "",
+      last: typeof entry.last === "string" ? entry.last : "",
+      gaps: Number(entry.gaps) || 0,
+      hourly: Object.fromEntries(hourEntries),
+      devices: dimensionMap(entry.devices, amount2),
+      providers: dimensionMap(entry.providers, amount2),
+      nodes: dimensionMap(entry.nodes, amount2)
+    });
+  }
+  return { ...summary, days, aliases: raw.aliases && typeof raw.aliases === "object" ? raw.aliases : {}, dimensionsSince: String(raw.dimensions_since || "") };
+}
+function rangeRows(data, range = "week", now = Date.now()) {
+  const today = serverDate(data, now), end = (/* @__PURE__ */ new Date(today + "T00:00:00Z")).getTime() - (range === "yesterday" ? DAY : 0);
+  const count = range === "today" || range === "yesterday" ? 1 : range === "month" ? Number(today.slice(-2)) : range === "30days" ? 30 : 7;
+  return Array.from({ length: count }, (_, i) => {
+    const date = new Date(end - (count - 1 - i) * DAY).toISOString().slice(0, 10);
+    return (data == null ? void 0 : data.days.get(date)) || { date, missing: true };
+  });
+}
+const unknownLabels = { devices: "未识别设备", providers: "未识别订阅", nodes: "未识别节点" };
+function rankings(data, rows, dimension = "devices", top = 20) {
+  const entries2 = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    if (row.missing) continue;
+    const classified = Object.entries(row[dimension] || {});
+    for (const [key, value] of classified) entries2.set(key, sumBytes([entries2.get(key), value]));
+    const sum = sumBytes(classified.map(([, v]) => v));
+    const remaining = { down: Math.max(0, row.down - sum.down), up: Math.max(0, row.up - sum.up) };
+    if (byteTotal(remaining)) entries2.set("__history__", sumBytes([entries2.get("__history__"), remaining]));
+  }
+  const output = [...entries2].map(([key, value]) => {
+    const alias = data.aliases[key];
+    const name = key === "__history__" ? "历史未分类" : key === "__unknown__" ? unknownLabels[dimension] : key === "__other__" ? "其他" : dimension === "devices" && typeof alias === "string" && alias.trim() ? alias : key;
+    return { ...value, key, name, meta: dimension === "devices" && name !== key && !key.startsWith("__") ? key : "", total: byteTotal(value) };
+  }).filter((row) => row.total > 0).sort((a, b) => b.total - a.total || a.key.localeCompare(b.key));
+  if (output.length > top) {
+    const remainder = sumBytes(output.splice(top - 1));
+    output.push({ ...remainder, key: "__remainder__", name: "其他", meta: "其余记录合计", total: byteTotal(remainder) });
+  }
+  return output;
+}
+const pad2 = (value) => String(value).padStart(2, "0");
+const monthKey = (date) => String(date).slice(0, 7);
+function shiftMonth(key, delta) {
+  const [year, month] = key.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1 + delta, 1));
+  return `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}`;
+}
+const monthLabel = (key) => `${key.slice(0, 4)} 年 ${Number(key.slice(5, 7))} 月`;
+const weekdayName = (date) => "周" + "日一二三四五六"[(/* @__PURE__ */ new Date(date + "T00:00:00Z")).getUTCDay()];
+function monthBounds(data, today = serverDate(data)) {
+  var _a2, _b2;
+  const dates = [...((_b2 = (_a2 = data == null ? void 0 : data.days) == null ? void 0 : _a2.keys) == null ? void 0 : _b2.call(_a2)) || []].filter(validDate).sort();
+  const first = dates.length && dates[0] < today ? dates[0] : today;
+  return { min: monthKey(first), max: monthKey(today) };
+}
+function monthDays(data, key, today = serverDate(data)) {
+  var _a2, _b2;
+  const [year, month] = key.split("-").map(Number);
+  const lead = (new Date(Date.UTC(year, month - 1, 1)).getUTCDay() + 6) % 7;
+  const count = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const cell = (date, day, row) => ({
+    date,
+    day,
+    blank: !date,
+    missing: !row,
+    today: Boolean(date) && date === today,
+    down: (row == null ? void 0 : row.down) || 0,
+    up: (row == null ? void 0 : row.up) || 0,
+    total: byteTotal(row)
+  });
+  const cells = Array.from({ length: lead }, () => cell("", 0, null));
+  for (let day = 1; day <= count; day++) {
+    const date = `${year}-${pad2(month)}-${pad2(day)}`;
+    cells.push(cell(date, day, (_b2 = (_a2 = data == null ? void 0 : data.days) == null ? void 0 : _a2.get) == null ? void 0 : _b2.call(_a2, date)));
+  }
+  return cells;
+}
+function monthRows(data, key, today = serverDate(data)) {
+  return monthDays(data, key, today).filter((cell) => !cell.blank && cell.date <= today).map((cell) => {
+    var _a2, _b2;
+    return ((_b2 = (_a2 = data == null ? void 0 : data.days) == null ? void 0 : _a2.get) == null ? void 0 : _b2.call(_a2, cell.date)) || { date: cell.date, missing: true };
+  });
+}
+function hourlySeries(day) {
+  const hours = (day == null ? void 0 : day.hourly) || {};
+  return Array.from({ length: 24 }, (_, index) => {
+    const hour = pad2(index), value = bytesPair(hours[hour]);
+    return { hour, missing: !value, down: (value == null ? void 0 : value.down) || 0, up: (value == null ? void 0 : value.up) || 0, total: byteTotal(value) };
+  });
+}
+function trafficCSV(rows, today) {
+  const lines = [["日期", "下载字节", "上传字节", "合计字节", "采集状态"], ...rows.map((row) => [row.date, row.missing ? "" : row.down, row.missing ? "" : row.up, row.missing ? "" : byteTotal(row), row.missing ? "未采集" : row.date === today ? "今日未结束" : row.coverage === "unknown" ? "覆盖未知" : row.coverage === "partial" ? "部分采集" : "已采集"])];
+  return "\uFEFF" + lines.map((line) => line.join(",")).join("\r\n") + "\r\n";
+}
+const formatBytes = (value) => fmtBytesBrief(value);
+const ENDPOINT = "custom/traffic.json";
+function parseProxyTraffic(raw) {
+  return parseSummary(raw);
+}
+function splitBytes(value) {
+  const text2 = fmtBytesBrief(value);
+  const match = /^([\d.]+)\s*(\S+)$/.exec(text2);
+  return match ? { number: match[1], unit: ` ${match[2]}` } : { number: "—", unit: "" };
+}
+function proxyCardView(data, now = Date.now()) {
+  if (!data) return { value: "—", note: "未接入采集", state: "empty", title: "未接入代理流量采集" };
+  const status = freshness(data, now);
+  if (status === "expired") return { value: "—", note: "采集已过期", state: status, title: `最后记录日期：${data.date} · 更新于 ${data.updated}` };
+  const total = splitBytes(data.total);
+  const down = splitBytes(data.down);
+  const up = splitBytes(data.up);
+  return {
+    value: `${total.number}${total.unit}`,
+    note: status === "stale" ? "采集中断 · 最后记录" : `今日 ↓${down.number}${down.unit} ↑${up.number}${up.unit}`,
+    state: status,
+    title: `今日走代理（采样估算）：下载 ${down.number}${down.unit}，上传 ${up.number}${up.unit}（不含直连）· 采集于 ${data.updated} · 点击进入代理页`
+  };
+}
+async function loadProxyTraffic(fetchImpl = globalThis.fetch) {
+  try {
+    const url = new URL(`${ENDPOINT}?_=${Date.now()}`, document.baseURI);
+    const response = await fetchImpl(url, { cache: "no-store" });
+    if (!response.ok) return null;
+    return parseProxyTraffic(await response.json());
+  } catch {
+    return null;
+  }
+}
+function hydrateProxyCard(root, data) {
+  var _a2;
+  const card2 = (_a2 = root == null ? void 0 : root.querySelector) == null ? void 0 : _a2.call(root, "[data-proxy-traffic]");
+  if (!card2) return;
+  const view2 = proxyCardView(data);
+  const value = card2.querySelector("[data-proxy-value]");
+  const note = card2.querySelector("[data-proxy-note]");
+  card2.dataset.state = view2.state;
+  card2.title = view2.title;
+  if (value) {
+    if (data && view2.value !== "—") {
+      const match = /^([\d.]+)(\s*\S+)?$/.exec(view2.value) || ["", view2.value, ""];
+      const size = Math.min(38, 260 / Math.max(1, match[1].length));
+      value.classList.add("has-display-number");
+      value.style.setProperty("--numeral-size", `${size.toFixed(2)}px`);
+      value.innerHTML = `<span class="display-number">${esc$1(match[1])}</span>` + (match[2] ? `<span class="display-unit">${esc$1(match[2])}</span>` : "");
+    } else {
+      value.classList.remove("has-display-number");
+      value.style.removeProperty("--numeral-size");
+      value.textContent = view2.value;
+    }
+  }
+  if (note) note.textContent = view2.note;
 }
 const cpuSample = { total: null, at: null };
 async function renderOverview(container, context) {
@@ -9784,6 +10119,15 @@ async function renderOverview(container, context) {
             <svg class="sk-chart" viewBox="0 0 100 34" fill="none" aria-hidden="true"></svg>
           </div>
           <div class="sk-note">去重域名数</div>
+        </div>
+      </div>
+
+      <!-- 第七张：代理流量（走代理的下载 / 上传，数据来自 ui/custom/traffic.json） -->
+      <div class="col-2">
+        <div class="glass-card spark-kpi-card" data-proxy-traffic data-state="empty" role="button" tabindex="0" aria-label="查看代理流量统计">
+          <div class="sk-top"><span class="sk-title">代理流量</span><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11 3h2v9l3-3 1.4 1.4L12 15.8l-5.4-5.4L8 9l3 3V3ZM4 18h16v3H4v-3Z"/></svg></div>
+          <div class="sk-bottom"><div class="sk-val tabular" data-proxy-value>—</div></div>
+          <div class="sk-note" data-proxy-note>未接入采集</div>
         </div>
       </div>
 
@@ -10238,6 +10582,21 @@ async function renderOverview(container, context) {
     navigate("logs");
   });
   workspaceService.topology(page2, redraw, sets);
+  const proxyCard = page2.querySelector("[data-proxy-traffic]");
+  const openProxyTraffic = () => {
+    requestProxyPane("traffic");
+    navigate("proxy-config");
+  };
+  proxyCard.addEventListener("click", openProxyTraffic);
+  proxyCard.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openProxyTraffic();
+    }
+  });
+  loadProxyTraffic().then((data) => {
+    if (page2.isConnected) hydrateProxyCard(page2, data);
+  });
 }
 const overviewRoute = { mount(container, context) {
   return renderOverview(container, context);
@@ -10503,8 +10862,8 @@ function logBadge(set) {
   else if (/FAKE/i.test(s)) cls = "cyan";
   return `<span class="badge ${cls}" title="${esc$1(s)}">${esc$1(overviewInsightsService.label(s))}</span>`;
 }
-function logRow(view) {
-  return `<tr data-log='${esc$1(JSON.stringify(view.record))}'><td title="${esc$1(view.time)}"><span class="log-time-full">${view.time}</span><span class="log-time-mobile">${esc$1(view.mobileTime)}</span></td><td class="td-domain" data-qtype="${esc$1(view.type)}" data-qtype-short="${esc$1(view.shortType)}" data-blocked="${view.blocked ? 1 : 0}"><strong class="copyable" role="button" tabindex="0" data-copy="${esc$1(view.domain)}" title="点击复制域名">${esc$1(view.domain)}</strong><div style="color:var(--muted);font-size:11px;max-width:360px;overflow:hidden;text-overflow:ellipsis">${esc$1(view.answer)}</div></td><td>${esc$1(view.queryType)}</td><td>${logBadge(view.set)}</td><td>${ms(view.duration)}</td><td><span class="copyable value-chip" role="button" tabindex="0" data-copy="${esc$1(view.client)}" title="点击复制客户端 IP">${esc$1(view.clientLabel)}</span></td><td><span class="badge ${view.success ? "success" : "danger"}">${esc$1(view.code)}</span></td><td><button class="icon-button row-action log-detail" type="button" aria-label="查看查询详情" title="查看详情"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.6"/></svg></button></td></tr>`;
+function logRow(view2) {
+  return `<tr data-log='${esc$1(JSON.stringify(view2.record))}'><td title="${esc$1(view2.time)}"><span class="log-time-full">${view2.time}</span><span class="log-time-mobile">${esc$1(view2.mobileTime)}</span></td><td class="td-domain" data-qtype="${esc$1(view2.type)}" data-qtype-short="${esc$1(view2.shortType)}" data-blocked="${view2.blocked ? 1 : 0}"><strong class="copyable" role="button" tabindex="0" data-copy="${esc$1(view2.domain)}" title="点击复制域名">${esc$1(view2.domain)}</strong><div style="color:var(--muted);font-size:11px;max-width:360px;overflow:hidden;text-overflow:ellipsis">${esc$1(view2.answer)}</div></td><td>${esc$1(view2.queryType)}</td><td>${logBadge(view2.set)}</td><td>${ms(view2.duration)}</td><td><span class="copyable value-chip" role="button" tabindex="0" data-copy="${esc$1(view2.client)}" title="点击复制客户端 IP">${esc$1(view2.clientLabel)}</span></td><td><span class="badge ${view2.success ? "success" : "danger"}">${esc$1(view2.code)}</span></td><td><button class="icon-button row-action log-detail" type="button" aria-label="查看查询详情" title="查看详情"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.6"/></svg></button></td></tr>`;
 }
 async function renderLogs(container, context) {
   var _a2, _b2, _c2, _d, _e;
@@ -10922,7 +11281,7 @@ function initialize$5() {
     group: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 6h6M4 12h6M4 18h6M13 12h7"/><path d="M13 12V6h7"/></svg>',
     del: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14"/></svg>'
   };
-  var root = null, ta = null, saveBtn = null, rows = [], sel = [], q = "", view = "list";
+  var root = null, ta = null, saveBtn = null, rows = [], sel = [], q = "", view2 = "list";
   var editing = null, isNew = false, dirty = false, seq = 0, armedEnter = false;
   var hist = [], histAt = -1, histLock = false, savedText = "";
   var dragIds = [];
@@ -12069,7 +12428,7 @@ function initialize$5() {
         return;
       }
       if (sheetEl && sheetEl.classList.contains("show")) return;
-      if (view === "raw" && e.target === ta) return;
+      if (view2 === "raw" && e.target === ta) return;
       if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
       if (k === "z" && !e.shiftKey) {
         e.preventDefault();
@@ -12229,7 +12588,7 @@ function initialize$5() {
   function build(editor, textarea, save) {
     ta = textarea;
     saveBtn = save;
-    view = "list";
+    view2 = "list";
     var host = document.createElement("div");
     host.className = "rv";
     host.id = "rv-root";
@@ -12303,7 +12662,7 @@ function initialize$5() {
     };
     root.querySelector("#rv-mode").onclick = function() {
       var raw = !root.classList.contains("raw");
-      view = raw ? "raw" : "list";
+      view2 = raw ? "raw" : "list";
       root.classList.toggle("raw", raw);
       textarea.style.display = raw ? "" : "none";
       if (!raw) {
@@ -12466,7 +12825,7 @@ function initialize$5() {
     });
     var rawTimer = null;
     textarea.addEventListener("input", function() {
-      if (view !== "raw") return;
+      if (view2 !== "raw") return;
       setDirty(textarea.value !== savedText);
       rawTimer == null ? void 0 : rawTimer();
       rawTimer = lifecycle.timeout(function() {
@@ -13044,8 +13403,8 @@ async function runRuleUpdate(body2, collection, operation, task) {
     return await task();
   } finally {
     pending.delete(collection);
-    const view = views.get(collection);
-    if ((view == null ? void 0 : view.body) !== body2 && (view == null ? void 0 : view.body.isConnected) && view.body.dataset.ruleCollection === collection) await view.refresh();
+    const view2 = views.get(collection);
+    if ((view2 == null ? void 0 : view2.body) !== body2 && (view2 == null ? void 0 : view2.body.isConnected) && view2.body.dataset.ruleCollection === collection) await view2.refresh();
     else syncRuleUpdateState(body2, collection);
   }
 }
@@ -14334,7 +14693,7 @@ function confirmDiscard(action) {
     action();
   };
 }
-async function mount(parent, context) {
+async function mount$1(parent, context) {
   const { notify, navigate: navigate2, scope } = context;
   if (fallbackDispose) {
     const run = fallbackDispose;
@@ -14557,11 +14916,11 @@ ${draft.preserved ? "已保留目标核心的控制地址和密钥。\n" : ""}${
     const changes = tools.differences(base, editor.text());
     const element = dialog(forSave ? activeFile ? "确认保存并应用" : "确认保存备用配置" : "查看本次修改", `<div class="pc-compare-meta"><code>${esc(path)}</code><span>+${changes.added.length} / −${changes.removed.length} 行</span></div>${forSave && activeFile && core === "sing-box" ? '<p class="pc-note">sing-box 将重建运行实例，现有连接可能断开。应用后新连接使用新规则。</p>' : ""}<div class="pc-diff-tabs" role="group" aria-label="对比版本"><button aria-pressed="true" data-pc-side="original">原配置</button><button aria-pressed="false" data-pc-side="modified">当前修改</button></div><div class="pc-diff-grid" data-side="original"><section><h3>原配置</h3><div id="pc-original"></div></section><section><h3>当前修改</h3><div id="pc-modified"></div></section></div>`, `<button class="button" data-pc-close>返回编辑</button>${forSave ? `<button class="button primary" id="pc-confirm-save">${activeFile ? "保存并应用" : "保存文件"}</button>` : ""}`, true);
     const views2 = [tools.makeEditor({ parent: element.querySelector("#pc-original"), doc: base, type: core, readOnly: true, changedLines: changes.removed, side: "removed" }), tools.makeEditor({ parent: element.querySelector("#pc-modified"), doc: editor.text(), type: core, readOnly: true, changedLines: changes.added, side: "added" })];
-    element.addEventListener("close", () => views2.forEach((view) => view.destroy()), { once: true });
+    element.addEventListener("close", () => views2.forEach((view2) => view2.destroy()), { once: true });
     element.querySelectorAll("[data-pc-side]").forEach((button) => button.onclick = () => {
       element.querySelectorAll("[data-pc-side]").forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
       element.querySelector(".pc-diff-grid").dataset.side = button.dataset.pcSide;
-      views2.forEach((view) => view.view.requestMeasure());
+      views2.forEach((view2) => view2.view.requestMeasure());
     });
     if (forSave) element.querySelector("#pc-confirm-save").onclick = async () => {
       element.close();
@@ -14865,7 +15224,7 @@ ${draft.preserved ? "已保留目标核心的控制地址和密钥。\n" : ""}${
     return dispose;
   }
 }
-function requestLeave() {
+function requestLeave$1() {
   if (active == null ? void 0 : active.isBusy()) {
     active.notify("配置操作尚未完成，请等待结果。", "info");
     return false;
@@ -14880,6 +15239,241 @@ function requestLeave() {
     };
     element.addEventListener("close", () => resolve(discarded), { once: true });
   });
+}
+const view = { month: "", selected: "", dimension: "devices" };
+const dimensions = { devices: "设备", providers: "订阅", nodes: "节点" };
+const weekdays = ["一", "二", "三", "四", "五", "六", "日"];
+const amount = (value) => {
+  const parts2 = formatBytes(value).split(" ");
+  return `${esc$1(parts2[0])}<small>${esc$1(parts2[1] || "")}</small>`;
+};
+const compact = (value) => {
+  const [number, unit = ""] = formatBytes(value).split(" ");
+  return `${number}${unit.slice(0, 1)}`;
+};
+const dayLabel = (date) => `${date.slice(5, 7)}/${date.slice(8, 10)}`;
+const empty = (title, message, action = "") => `<div class="pt-empty"><strong>${esc$1(title)}</strong><p>${esc$1(message)}</p>${action}</div>`;
+async function mountTraffic(parent, context, onStatus = () => {
+}) {
+  let data = null, failure = "", loading = true, busy = false, settled = false;
+  const scope = context.scope;
+  const pickDay = (month, today) => {
+    const dates = [...data.days.keys()].filter((date) => date.startsWith(month) && date <= today).sort();
+    return dates.length ? dates[dates.length - 1] : "";
+  };
+  function kpis(today) {
+    const current = data.days.get(today);
+    const week = rangeRows(data, "week"), valid = week.filter((row) => !row.missing), sum = sumBytes(valid);
+    const lifetime = data.lifetime;
+    return `<div class="pt-kpis">
+      <div class="pt-kpi"><span class="k">今日 · ${esc$1(dayLabel(today))}</span><strong class="v">${current ? amount(byteTotal(current)) : "—"}</strong><span class="s">${current ? `↓ ${esc$1(formatBytes(current.down))} · ↑ ${esc$1(formatBytes(current.up))}` : "今天还没有采集记录"}</span></div>
+      <div class="pt-kpi"><span class="k">近 7 天 · ${valid.length} 个采集日</span><strong class="v">${valid.length ? amount(byteTotal(sum)) : "—"}</strong><span class="s">${valid.length ? `${esc$1(dayLabel(valid[0].date))} — ${esc$1(dayLabel(valid[valid.length - 1].date))}` : "尚未满一个采集周期"}</span></div>
+      <div class="pt-kpi"><span class="k">累计 · 自 ${esc$1(data.since ? dayLabel(data.since) : "—")}</span><strong class="v">${lifetime ? amount(byteTotal(lifetime)) : "—"}</strong><span class="s">每日保留 400 天 · 分类保留 90 天</span></div>
+    </div>`;
+  }
+  function calendar(cells, today) {
+    const grid = cells.map((cell) => {
+      if (cell.blank) return '<span class="pt-cal-day blank" aria-hidden="true"></span>';
+      if (cell.missing) return `<span class="pt-cal-day na${cell.today ? " today" : ""}" aria-disabled="true"><span class="d">${cell.day}</span></span>`;
+      const selected = cell.date === view.selected;
+      return `<button type="button" class="pt-cal-day has${cell.today ? " today" : ""}${selected ? " sel" : ""}" id="pt-day-${cell.date}" data-day="${cell.date}" aria-pressed="${selected}" aria-label="${esc$1(`${dayLabel(cell.date)} ${weekdayName(cell.date)} · ${formatBytes(cell.total)}`)}"><span class="d">${cell.day}</span><span class="v">${esc$1(compact(cell.total))}</span></button>`;
+    }).join("");
+    const used = cells.filter((cell) => !cell.blank && !cell.missing && cell.date <= today);
+    const sum = sumBytes(used), average = used.length ? Math.round(byteTotal(sum) / used.length) : 0;
+    return `<div class="pt-cal-grid" role="group" aria-label="${esc$1(monthLabel(view.month))}每日代理用量">${weekdays.map((name) => `<span class="pt-cal-dw" aria-hidden="true">${name}</span>`).join("")}${grid}</div>
+      <div class="pt-cal-summary">
+        <div><span>当月合计</span><b>${used.length ? amount(byteTotal(sum)) : "—"}</b></div>
+        <div><span>采集天数</span><b>${used.length} 天</b></div>
+        <div><span>日均</span><b>${used.length ? amount(average) : "—"}</b></div>
+      </div>`;
+  }
+  function detail(today) {
+    const day = data.days.get(view.selected);
+    if (!day) return empty("这一天没有采集记录", "未采集的日期留空，不记为零流量。");
+    const total = byteTotal(day), hours = hourlySeries(day), hasHours = hours.some((hour) => !hour.missing);
+    const peak = Math.max(0, ...hours.map((hour) => hour.total));
+    const tag = day.date === today ? "今日 · 未结束" : day.coverage === "partial" ? "部分采集" : day.coverage === "unknown" ? "覆盖未知" : "已采集";
+    const clock = (value) => {
+      const match = /(\d{2}:\d{2})/.exec(value || "");
+      return match ? match[1] : "—";
+    };
+    const coverage = day.coverage === "full" ? "完整" : day.coverage === "partial" ? "部分采集" : "未知";
+    const bars = hasHours ? `<div class="pt-hour-bars" role="img" aria-label="每小时代理用量合计，包含上传与下载">${hours.map((hour) => `<i class="${hour.missing ? "z" : ""}" style="height:${Math.max(hour.missing ? 2 : 3, Math.round(hour.total / Math.max(1, peak) * 100))}%" title="${hour.hour}:00${hour.missing ? " · 未采集" : ` · ↓ ${formatBytes(hour.down)} · ↑ ${formatBytes(hour.up)}`}"></i>`).join("")}</div><div class="pt-hour-axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>` : '<p class="pt-note">这一天没有分时记录；用量仍保留在当日合计中。</p>';
+    return `<div class="pt-day-date"><b>${esc$1(dayLabel(day.date))} ${esc$1(weekdayName(day.date))}</b><span class="pt-day-tag${day.date === today ? "" : " na"}">${esc$1(tag)}</span></div>
+      <div class="pt-day-total">${amount(total)}</div>
+      <div class="pt-day-split"><span>下载 <b>${esc$1(formatBytes(day.down))}</b></span><span>上传 <b>${esc$1(formatBytes(day.up))}</b></span></div>
+      ${bars}
+      <div class="pt-day-meta"><span>采集时段 <b>${esc$1(clock(day.first))} — ${esc$1(clock(day.last))}</b></span><span>覆盖 <b>${esc$1(coverage)}</b></span><span>断点 <b>${day.gaps}</b></span>${hasHours ? `<span>峰值 <b>${esc$1(hours.reduce((a, b) => b.total > a.total ? b : a).hour)}:00 · ${esc$1(formatBytes(peak))}</b></span>` : ""}</div>`;
+  }
+  function rankPanel() {
+    const head = `<div class="pt-rank-head"><h3 id="pt-rank-title">流量排行</h3><div class="pt-dim-tabs" role="group" aria-label="排行维度">${Object.entries(dimensions).map(([key, label]) => `<button type="button" id="pt-dimension-${key}" data-dimension="${key}" aria-pressed="${view.dimension === key}">${label}</button>`).join("")}</div><span>按合计从高到低</span></div>`;
+    const day = data.days.get(view.selected);
+    if (!day) return `<section class="pt-card pt-rank-panel" aria-labelledby="pt-rank-title">${head}${empty("没有可排行的记录", "选择有采集的日期后再看排行。")}</section>`;
+    const total = byteTotal(day), entries2 = rankings(data, [day], view.dimension, 50);
+    const body2 = entries2.length ? `<div class="pt-mini-list">${entries2.map((entry, index) => {
+      const percent = total ? entry.total / total * 100 : 0;
+      return `<div class="pt-mini-row"><span class="pt-mini-index">${String(index + 1).padStart(2, "0")}</span><div class="pt-mini-main"><div class="pt-mini-top"><span class="mn">${esc$1(entry.name)}</span><span class="mv">${esc$1(formatBytes(entry.total))}</span></div><div class="pt-mini-bar"><i style="width:${Math.max(2, percent).toFixed(1)}%"></i></div></div><span class="mp">${percent.toFixed(1)}%</span></div>`;
+    }).join("")}</div>` : empty("这一天没有分类记录", "旧用量可能尚未按设备、订阅或节点分类。");
+    const since = String(data.dimensionsSince || "").slice(0, 16).replace("T", " ");
+    const history2 = entries2.some((entry) => entry.key === "__history__") ? `<p class="pt-rank-hint">历史未分类是已计入当天合计、但缺少当前维度明细的用量。${since ? `分类采集始于 ${esc$1(since)}；` : ""}可能来自升级前存量、超过 90 天已清理的明细，或明细缺失，无法还原到具体${dimensions[view.dimension]}。</p>` : "";
+    return `<section class="pt-card pt-rank-panel" aria-labelledby="pt-rank-title">${head}${body2}${history2}<div class="pt-rank-foot"><span>${entries2.length ? `${entries2.length} 项${entries2.some((entry) => entry.key === "__remainder__") ? " · 其余已合并为“其他”" : ""}` : "—"}</span><button type="button" class="pt-export" id="pt-export">导出当月每日用量 CSV</button></div></section>`;
+  }
+  function paint() {
+    var _a2;
+    if (scope.signal.aborted) return;
+    const focused = parent.contains(document.activeElement) ? document.activeElement.id : null;
+    const status = freshness(data);
+    const statusText = failure ? data ? "读取失败 · 保留最后记录" : "统计暂不可用" : loading && !data ? "正在读取统计…" : !data ? "未接入明细采集" : status === "ready" ? `${data.source} · 采集中` : status === "expired" ? "采集已过期" : "采集中断 · 最后记录";
+    onStatus(statusText);
+    if (!data) {
+      setHTML(parent, `<section class="glass-card proxy-traffic-surface">${empty(loading ? "正在读取代理用量" : failure || "尚未接入明细采集", loading ? "请稍候。" : "采集服务提供数据后，这里会显示每日用量、分时分布和维度排行。", '<button type="button" class="button small" id="pt-retry">重新读取</button>')}</section>`);
+      return;
+    }
+    const today = serverDate(data), bounds = monthBounds(data, today);
+    if (!view.month || view.month < bounds.min || view.month > bounds.max) view.month = monthKey(today) < bounds.min ? bounds.min : monthKey(today);
+    if (!view.selected || !view.selected.startsWith(view.month) || !data.days.has(view.selected)) {
+      view.selected = pickDay(view.month, today);
+      if (!settled && !view.selected && view.month === monthKey(today)) {
+        const latest = [...data.days.keys()].filter((date) => date <= today).sort().pop();
+        if (latest) {
+          view.month = monthKey(latest);
+          view.selected = latest;
+        }
+      }
+    }
+    settled = true;
+    const warning = failure ? "读取暂时失败，以下保留最后一次成功读取的记录。" : status !== "ready" ? `采集暂停更新，最后更新于 ${data.updated.replace("T", " ").slice(0, 19)}。` : "";
+    const cells = monthDays(data, view.month, today);
+    setHTML(parent, `<section class="glass-card proxy-traffic-surface"><div class="pt-analytics" id="pt-analytics">
+      ${kpis(today)}
+      ${warning ? `<p class="pt-alert" role="status">${esc$1(warning)}</p>` : ""}
+      <div class="pt-flow">
+        <section class="pt-card pt-calendar" aria-labelledby="pt-cal-title">
+          <div class="pt-card-head"><h3 id="pt-cal-title">采集日历</h3><span>点击查看当天</span></div>
+          <div class="pt-cal-nav"><button type="button" id="pt-cal-prev" data-cal-nav="-1" aria-label="上一个月"${view.month <= bounds.min ? " disabled" : ""}>‹</button><b>${esc$1(monthLabel(view.month))}</b><button type="button" id="pt-cal-next" data-cal-nav="1" aria-label="下一个月"${view.month >= bounds.max ? " disabled" : ""}>›</button></div>
+          ${calendar(cells, today)}
+          <div class="pt-cal-legend"><span><i class="has"></i>有采集</span><span><i class="none"></i>无数据</span><span><i class="today"></i>今天</span></div>
+          <div class="pt-cal-foot"><span>采样估算 · 更新于 ${esc$1(data.updated.slice(11, 19))}</span><button type="button" class="pt-export" id="pt-refresh">刷新统计</button></div>
+        </section>
+        <section class="pt-card pt-day" aria-labelledby="pt-day-title">
+          <div class="pt-card-head"><h3 id="pt-day-title">日期详情</h3><span>部分历史的采集覆盖未知</span></div>
+          ${detail(today)}
+        </section>
+      </div>
+      ${rankPanel()}
+      <p class="pt-note">各维度使用同一份用量，不重复相加。未知设备显示 IP，不按 IPv6 网段合并；未采集的日期留空，不记为零流量。</p>
+    </div></section><p class="proxy-traffic-note">${data.since ? `自 ${esc$1(data.since)} 记录` : ""}${data.lifetime ? ` · 累计 ${esc$1(formatBytes(byteTotal(data.lifetime)))}` : ""} · 每日记录保留 400 天，分类记录保留 90 天。</p>`);
+    if (focused) (_a2 = parent.querySelector("#" + focused)) == null ? void 0 : _a2.focus({ preventScroll: true });
+  }
+  async function refresh() {
+    if (busy || scope.signal.aborted) return;
+    busy = true;
+    try {
+      const response = await fetch(new URL("custom/traffic-detail.json", document.baseURI), { cache: "no-store", signal: scope.signal });
+      if (!response.ok) throw new Error(response.status === 404 ? "尚未接入明细采集" : "暂时无法读取统计");
+      const next = parseDetail(await response.json());
+      if (!next) throw new Error("统计数据格式无效");
+      data = next;
+      failure = "";
+    } catch (error) {
+      if (scope.signal.aborted) return;
+      failure = error.message || "暂时无法读取统计";
+    } finally {
+      busy = false;
+      loading = false;
+      if (!scope.signal.aborted) paint();
+    }
+  }
+  scope.listen(parent, "click", (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    if (button.id === "pt-retry" || button.id === "pt-refresh") {
+      refresh();
+      return;
+    }
+    if (button.dataset.calNav && data) {
+      const today = serverDate(data), bounds = monthBounds(data, today), next = shiftMonth(view.month, Number(button.dataset.calNav));
+      if (next < bounds.min || next > bounds.max) return;
+      view.month = next;
+      view.selected = pickDay(next, today);
+      paint();
+      return;
+    }
+    if (button.dataset.day) {
+      view.selected = button.dataset.day;
+      paint();
+      return;
+    }
+    if (button.dataset.dimension) {
+      view.dimension = button.dataset.dimension;
+      paint();
+      return;
+    }
+    if (button.id === "pt-export" && data) {
+      const today = serverDate(data);
+      const url = URL.createObjectURL(new Blob([trafficCSV(monthRows(data, view.month, today), today)], { type: "text/csv;charset=utf-8" })), link = document.createElement("a");
+      link.href = url;
+      link.download = `LocalDNS-代理流量-${view.month}.csv`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1e3);
+      return;
+    }
+  });
+  scope.interval(() => {
+    if (document.visibilityState === "visible") refresh();
+  }, 3e4);
+  paint();
+  await refresh();
+}
+let activePane = null;
+const requestLeave = () => activePane === "config" ? requestLeave$1() : true;
+async function mount(parent, context) {
+  setHTML(parent, `<section class="pp-root" aria-labelledby="proxy-title"><header class="pp-heading"><div><h1 id="proxy-title">代理</h1><p>查看代理用量，管理核心配置。</p></div><span class="pp-core-status" id="proxy-stat-status" role="status">正在读取统计…</span></header><div class="pp-navigation" role="tablist" aria-label="代理工作区"><button type="button" class="pp-tab" id="proxy-pane-traffic" role="tab" aria-selected="true" aria-controls="proxy-pane-content" data-proxy-pane="traffic">流量统计</button><button type="button" class="pp-tab" id="proxy-pane-config" role="tab" aria-selected="false" aria-controls="proxy-pane-content" tabindex="-1" data-proxy-pane="config">配置管理</button><span class="pp-navigation-note" id="proxy-pane-note">仅统计走代理的上传与下载</span></div><section id="proxy-pane-content" role="tabpanel" aria-labelledby="proxy-pane-traffic"></section></section>`);
+  const root = parent.querySelector(".pp-root"), content = root.querySelector("#proxy-pane-content");
+  let pane = null, child = null, sequence = 0;
+  context.scope.add(() => {
+    sequence++;
+    child == null ? void 0 : child.dispose();
+    activePane = null;
+  });
+  async function showPane(next) {
+    if (next === pane) return;
+    const version = ++sequence;
+    if (pane === "config" && !await requestLeave$1()) return;
+    if (context.signal.aborted || sequence !== version) return;
+    child == null ? void 0 : child.dispose();
+    content.replaceChildren();
+    pane = next;
+    activePane = next;
+    child = new CleanupScope();
+    root.querySelectorAll("[data-proxy-pane]").forEach((button) => {
+      const selected = button.dataset.proxyPane === next;
+      button.setAttribute("aria-selected", String(selected));
+      button.tabIndex = selected ? 0 : -1;
+    });
+    content.classList.toggle("proxy-config-pane", next === "config");
+    content.setAttribute("aria-labelledby", "proxy-pane-" + next);
+    root.querySelector("#proxy-pane-note").textContent = next === "config" ? "读取配置 → 检查改动 → 保存并应用" : "仅统计走代理的上传与下载";
+    const subcontext = { ...context, signal: child.signal, scope: child };
+    if (next === "config") await mount$1(content, subcontext);
+    else await mountTraffic(content, subcontext, (status) => {
+      root.querySelector("#proxy-stat-status").textContent = status;
+    });
+  }
+  root.querySelectorAll("[data-proxy-pane]").forEach((button) => button.addEventListener("click", () => {
+    showPane(button.dataset.proxyPane);
+  }));
+  root.querySelector(".pp-navigation").addEventListener("keydown", (event) => {
+    if (!event.target.matches("[data-proxy-pane]") || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === "Home" ? "traffic" : event.key === "End" ? "config" : pane === "traffic" ? "config" : "traffic";
+    showPane(next).then(() => {
+      if (pane === next) root.querySelector("#proxy-pane-" + next).focus();
+    });
+  });
+  await showPane(takeProxyPane());
 }
 const proxyConfigRoute = { mount, canLeave: requestLeave };
 let heartbeatTimer = null, probing = false;

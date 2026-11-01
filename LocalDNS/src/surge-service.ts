@@ -692,7 +692,7 @@ export class SurgeService {
     const baseUrl = config.api_url.replace(/\/+$/, '');
     const url = `${baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
     const headers: Record<string, string> = {
-      'User-Agent': 'LocalDNS/FJHAI',
+      'User-Agent': 'LocalDNS/FJMOS',
       'Accept': 'application/json',
     };
     if (config.api_key) {
@@ -865,7 +865,7 @@ export class SurgeService {
       const timer = setTimeout(() => ctrl.abort(), 8000);
       try {
         const resp = await fetch(u, {
-          headers: { 'User-Agent': 'LocalDNS/FJHAI (Surge-Hub)' },
+          headers: { 'User-Agent': 'LocalDNS/FJMOS (Surge-Hub)' },
           signal: ctrl.signal,
         });
         clearTimeout(timer);
@@ -908,7 +908,7 @@ export class SurgeService {
 
     try {
       const headers: Record<string, string> = {
-        'User-Agent': 'LocalDNS/FJHAI',
+        'User-Agent': 'LocalDNS/FJMOS',
         'Accept': 'application/json',
       };
       if (apiKey) headers['X-Key'] = apiKey;
