@@ -236,7 +236,7 @@
       '  position: relative !important;',
       '  min-width: 1420px !important;',
       '  width: 1420px !important;',
-      '  padding: 30px 10px 42px 10px !important;',
+      '  padding: 60px 16px 60px 16px !important;',
       '  box-sizing: border-box !important;',
       '  transform-origin: top left !important;',
       '  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;',
@@ -332,28 +332,50 @@
       '  background: rgba(245, 158, 11, 0.12) !important;',
       '}',
       '@keyframes topoDashLoop {',
-      '  from { stroke-dashoffset: 0; }',
-      '  to { stroke-dashoffset: -24px; }',
+      '  to { stroke-dashoffset: -56; }',
       '}',
-      '.topo-particle.is-loopback {',
+      '@keyframes topoPulseGlow {',
+      '  0%, 100% { stroke-opacity: 0.25; filter: drop-shadow(0 0 2px currentColor); }',
+      '  50% { stroke-opacity: 0.65; filter: drop-shadow(0 0 7px currentColor); }',
+      '}',
+      '#topo-s6-loopback-layer .topo-particle {',
       '  fill: none !important;',
-      '  stroke-width: 2.2 !important;',
-      '  stroke-dasharray: 6 18 !important;',
-      '  animation: topoDashLoop 1.6s linear infinite !important;',
+      '  stroke-linecap: round !important;',
+      '  stroke-dasharray: 8 18 !important;',
+      '  stroke-width: 2.8px !important;',
+      '  animation: topoDashLoop 1.4s linear infinite !important;',
+      '  filter: drop-shadow(0 0 4px currentColor) drop-shadow(0 0 8px currentColor) !important;',
+      '  opacity: 1 !important;',
+      '  display: block !important;',
+      '  visibility: visible !important;',
       '}',
-      '.topo-edge.is-loopback {',
-      '  stroke-dasharray: 4 6 !important;',
-      '  stroke-opacity: 0.55 !important;',
-      '  stroke-width: 1.8 !important;',
+      '#topo-s6-loopback-layer .topo-particle.is-loopback {',
+      '  stroke-dasharray: 10 22 !important;',
+      '  stroke-width: 3.4px !important;',
+      '  animation: topoDashLoop 1.1s linear infinite !important;',
+      '  filter: drop-shadow(0 0 5px currentColor) drop-shadow(0 0 10px currentColor) !important;',
+      '  opacity: 1 !important;',
       '}',
-      '.topo-stage-wrap.is-compact .loopback-badge-group {',
-      '  opacity: 0.35 !important;',
+      '#topo-s6-loopback-layer .topo-edge.is-loopback {',
+      '  stroke-dasharray: 5 6 !important;',
+      '  stroke-opacity: 0.75 !important;',
+      '  stroke-width: 2.2px !important;',
+      '  filter: drop-shadow(0 0 4px currentColor) !important;',
+      '}',
+      '#topo-s6-loopback-layer .topo-glow.is-loopback {',
+      '  stroke-width: 6px !important;',
+      '  stroke-opacity: 0.3 !important;',
+      '  animation: topoPulseGlow 2s ease-in-out infinite !important;',
+      '}',
+      '.loopback-badge-group {',
+      '  pointer-events: none !important;',
+      '  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.75)) !important;',
       '}',
       '.loopback-ribbon-text {',
       '  font-family: var(--font-sans, system-ui);',
-      '  font-size: 10.5px !important;',
-      '  font-weight: 600 !important;',
-      '  letter-spacing: 0.03em !important;',
+      '  font-size: 11px !important;',
+      '  font-weight: 700 !important;',
+      '  letter-spacing: 0.04em !important;',
       '  user-select: none !important;',
       '  pointer-events: none !important;',
       '}',
@@ -370,14 +392,16 @@
       var availableW = card.clientWidth - 40;
       var naturalW = 1420;
       var ratio = Math.max(0.25, Math.min(1, availableW / naturalW));
-      var naturalH = wrap.offsetHeight || 520;
+      var naturalH = wrap.offsetHeight || 560;
       wrap.style.transform = 'scale(' + ratio + ')';
       wrap.style.transformOrigin = 'top left';
+      wrap.style.marginTop = '16px';
       wrap.style.marginBottom = -Math.round((1 - ratio) * naturalH) + 'px';
       wrap.style.marginRight = -Math.round((1 - ratio) * naturalW) + 'px';
     } else {
       wrap.style.transform = '';
       wrap.style.transformOrigin = '';
+      wrap.style.marginTop = '';
       wrap.style.marginBottom = '';
       wrap.style.marginRight = '';
     }
@@ -649,18 +673,18 @@
         var dx = (x2 - x1) * 0.54;
         d = 'M ' + x1.toFixed(1) + ' ' + y1.toFixed(1) + ' C ' + (x1 + dx).toFixed(1) + ' ' + y1.toFixed(1) + ', ' + (x2 - dx).toFixed(1) + ' ' + y2.toFixed(1) + ', ' + x2.toFixed(1) + ' ' + y2.toFixed(1);
       } else if (loopDirection === 'top') {
-        var topY = 16;
+        var topY = 28;
         d = 'M ' + x1.toFixed(1) + ' ' + y1.toFixed(1) + ' C ' + (x1 - 180).toFixed(1) + ' ' + topY + ', ' + (x2 + 180).toFixed(1) + ' ' + topY + ', ' + x2.toFixed(1) + ' ' + y2.toFixed(1);
       } else {
-        var botY = Math.max(wrapRect.height - 18, y1 + 35);
+        var botY = Math.max(wrapRect.height - 28, y1 + 35);
         d = 'M ' + x1.toFixed(1) + ' ' + y1.toFixed(1) + ' C ' + (x1 - 200).toFixed(1) + ' ' + botY + ', ' + (x2 + 200).toFixed(1) + ' ' + botY + ', ' + x2.toFixed(1) + ' ' + y2.toFixed(1);
       }
 
-      var loopCls = isLoop ? ' is-loopback' : '';
+      var loopCls = isLoop ? ' is-loopback' : ' is-s6-flow';
       html += '<path class="topo-halo' + loopCls + '" d="' + d + '" stroke="' + color + '" />';
       html += '<path class="topo-glow' + loopCls + '" d="' + d + '" stroke="' + color + '" />';
       html += '<path class="topo-particle' + loopCls + '" d="' + d + '" stroke="' + color + '" />';
-      html += '<path class="topo-edge' + loopCls + '" d="' + d + '" stroke="' + color + '" stroke-opacity="' + (isLoop ? '0.75' : '0.45') + '" fill="none" stroke-width="' + (isLoop ? '1.8' : '1.5') + '" />';
+      html += '<path class="topo-edge' + loopCls + '" d="' + d + '" stroke="' + color + '" stroke-opacity="' + (isLoop ? '0.75' : '0.45') + '" fill="none" stroke-width="' + (isLoop ? '2.0' : '1.5') + '" />';
       html += '<circle class="topo-dot-halo" cx="' + x1.toFixed(1) + '" cy="' + y1.toFixed(1) + '" r="3.6" fill="' + color + '" />';
       html += '<circle class="topo-dot" cx="' + x1.toFixed(1) + '" cy="' + y1.toFixed(1) + '" r="2.2" fill="' + color + '" />';
       html += '<circle class="topo-dot-halo" cx="' + x2.toFixed(1) + '" cy="' + y2.toFixed(1) + '" r="3.6" fill="' + color + '" />';
@@ -668,13 +692,13 @@
 
       if (label) {
         var lx = (x1 + x2) / 2;
-        var ly = loopDirection === 'top' ? 16 : (wrapRect.height - 18);
-        var pillW = 220, pillH = 22;
+        var ly = loopDirection === 'top' ? 28 : (wrapRect.height - 28);
+        var pillW = 240, pillH = 24;
         var pillX = lx - pillW / 2;
         var pillY = ly - pillH / 2;
         html += '<g class="loopback-badge-group">' +
-          '<rect x="' + pillX.toFixed(1) + '" y="' + pillY.toFixed(1) + '" width="' + pillW + '" height="' + pillH + '" rx="' + (pillH / 2) + '" fill="rgba(15,23,42,0.92)" stroke="' + (labelColor || color) + '" stroke-width="1.2" />' +
-          '<text x="' + lx.toFixed(1) + '" y="' + (pillY + 14.5).toFixed(1) + '" text-anchor="middle" fill="' + (labelColor || color) + '" class="loopback-ribbon-text">' + label + '</text>' +
+          '<rect x="' + pillX.toFixed(1) + '" y="' + pillY.toFixed(1) + '" width="' + pillW + '" height="' + pillH + '" rx="' + (pillH / 2) + '" fill="rgba(15,23,42,0.96)" stroke="' + (labelColor || color) + '" stroke-width="1.4" />' +
+          '<text x="' + lx.toFixed(1) + '" y="' + (pillY + 16).toFixed(1) + '" text-anchor="middle" fill="' + (labelColor || color) + '" class="loopback-ribbon-text">' + label + '</text>' +
           '</g>';
       }
     }

@@ -921,7 +921,7 @@ function panelIconCandidates(value, dark) {
 let proxyPanelService;
 function initialize$o() {
   "use strict";
-  const STORAGE_KEY = "localdns-proxy-panel-v1";
+  const STORAGE_KEY2 = "localdns-proxy-panel-v1";
   const identity = identityService;
   const defaultURL = new URL("/ui/", location.origin);
   defaultURL.port = "9090";
@@ -982,7 +982,7 @@ function initialize$o() {
   }
   let config = { ...DEFAULT };
   try {
-    const saved = preferences.getItem(STORAGE_KEY);
+    const saved = preferences.getItem(STORAGE_KEY2);
     if (saved) config = configFrom(JSON.parse(saved));
   } catch {
   }
@@ -1007,7 +1007,7 @@ function initialize$o() {
     };
     let legacy = null;
     try {
-      const raw = JSON.parse(preferences.getItem(STORAGE_KEY) || "null");
+      const raw = JSON.parse(preferences.getItem(STORAGE_KEY2) || "null");
       if (raw) legacy = configFrom(raw);
     } catch {
     }
@@ -1016,7 +1016,7 @@ function initialize$o() {
       enable(false);
       retry.hidden = true;
       try {
-        const result = await identity.loadSection("proxy", legacy, STORAGE_KEY);
+        const result = await identity.loadSection("proxy", legacy, STORAGE_KEY2);
         revision = result.revision;
         try {
           config = configFrom(result.value || DEFAULT);
@@ -3499,9 +3499,6 @@ function insertHTML(element, position, value) {
       throw new Error("Invalid insertion position");
   }
 }
-function escapeHTML(value = "") {
-  return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
-}
 function sampleValue(raw) {
   if (raw === "+Inf" || raw === "Inf") return Infinity;
   if (raw === "-Inf") return -Infinity;
@@ -4547,7 +4544,7 @@ function initialize$k() {
 let skinService;
 function initialize$j() {
   "use strict";
-  const STORAGE_KEY = "localdns-skin-v1";
+  const STORAGE_KEY2 = "localdns-skin-v1";
   const CLAUDE_PRESET_LABELS = {
     parchment: "经典羊皮纸",
     terracotta: "暖陶宣纸",
@@ -4571,7 +4568,7 @@ function initialize$j() {
   function readPrefs() {
     const base = defaults();
     try {
-      const raw = JSON.parse(preferences.getItem(STORAGE_KEY) || "null");
+      const raw = JSON.parse(preferences.getItem(STORAGE_KEY2) || "null");
       if (!raw || typeof raw !== "object") return base;
       const active2 = raw.active === "glass" ? "glass" : "claude";
       const claude = { ...base.claude, ...raw.claude || {} };
@@ -4593,7 +4590,7 @@ function initialize$j() {
   const normalizeTheme = (value) => value === "light-glass" ? "light-glass" : "cosmos-glass";
   function savePrefs() {
     try {
-      preferences.setItem(STORAGE_KEY, JSON.stringify(prefs));
+      preferences.setItem(STORAGE_KEY2, JSON.stringify(prefs));
     } catch {
     }
   }
@@ -4607,7 +4604,7 @@ function initialize$j() {
   applyRootAttributes();
   try {
     const existingTheme = preferences.getItem("localdnsTheme");
-    const hasSkinPrefs = !!preferences.getItem(STORAGE_KEY);
+    const hasSkinPrefs = !!preferences.getItem(STORAGE_KEY2);
     const activeTheme = prefs.active === "claude" ? prefs.claude.theme : prefs.glass.theme;
     const initialTheme = hasSkinPrefs ? normalizeTheme(activeTheme) : normalizeTheme(existingTheme || activeTheme);
     document.documentElement.dataset.theme = initialTheme;
@@ -7352,7 +7349,7 @@ function confirmDialog({ title = "请确认", message = "", confirmText = "确�
 function createUIUpdatePanel(container) {
   const modes = ["ui", "core", "full"], names = { ui: "UI", core: "内核", full: "UI + 内核" };
   setHTML(container, `<h3>在线升级</h3><p class="version-note" data-connection>正在连接服务器升级入口…</p>
-    <div class="version-upgrade-choices">${modes.map((mode) => `<div class="version-upgrade-row" data-mode="${mode}"><div><h4>${names[mode]}</h4><p class="version-note" data-target></p><p class="version-note" data-reason></p>${mode === "core" ? '<p class="version-note" data-core-name role="status">尚未选择文件</p>' : ""}</div><div class="version-upgrade-controls">${mode === "core" ? '<label class="button version-file-label">选择内核 ZIP<input type="file" accept=".zip,application/zip" aria-label="选择原作者内核 ZIP" data-core-file disabled></label>' : ""}<button class="button${mode === "full" ? " primary" : ""}" type="button" data-start="${mode}" disabled>${mode === "core" ? "上传并准备更新" : "升级" + names[mode]}</button></div></div>`).join("")}</div>
+    <div class="version-upgrade-choices">${modes.map((mode) => `<div class="version-upgrade-row" data-mode="${mode}"><div><h4>${names[mode]}<span class="version-pill" data-pill hidden></span></h4><p class="version-note" data-target></p><p class="version-note" data-reason></p>${mode === "core" ? '<p class="version-note" data-core-name role="status">尚未选择文件</p>' : ""}</div><div class="version-upgrade-controls">${mode === "core" ? '<label class="button version-file-label" data-core-picker><span data-core-picker-text>选择内核 ZIP</span><input type="file" accept=".zip,application/zip" aria-label="选择原作者内核 ZIP" data-core-file disabled></label>' : ""}<button class="button" type="button" data-start="${mode}" disabled>${mode === "core" ? "上传并准备更新" : "升级" + names[mode]}</button></div></div>`).join("")}</div>
     <div class="version-update-progress" hidden><progress aria-label="升级正在进行"></progress></div>
     <p class="version-update-result" role="status" aria-live="polite" hidden></p>
     <section class="version-backup" aria-label="下载并校验本机备份" hidden><h4>先保存完整备份</h4>
@@ -7389,21 +7386,35 @@ function createUIUpdatePanel(container) {
   function paint() {
     var _a2, _b2, _c2, _d, _e;
     const sameCore = Boolean(latest == null ? void 0 : latest.backend) && (latest == null ? void 0 : latest.backend) === ((_b2 = (_a2 = currentUI()) == null ? void 0 : _a2.backendVersion) == null ? void 0 : _b2.toUpperCase());
+    const idle = available && !busy && !running() && !uncertain;
+    const blue = !idle ? "" : selectedCore && (client == null ? void 0 : client.coreUpload) ? "core" : target("full").tag ? "full" : target("ui").tag ? "ui" : "";
     for (const mode of modes) {
-      const row = get(`[data-mode="${mode}"]`), start = row.querySelector("button");
+      const row = get(`[data-mode="${mode}"]`), start = row.querySelector("[data-start]");
       const eligibility = target(mode), supported = mode === "core" ? Boolean(client == null ? void 0 : client.coreUpload) : mode === "ui" || (client == null ? void 0 : client.unified);
       const fullReinstall = mode === "full" && sameCore && Boolean(eligibility.tag);
+      const busyRow = running() && task.mode === mode;
       row.hidden = mode === "ui" && Boolean(latest) && eligibility.reason === "暂无比当前 UI 更新的正式版。" && !running();
       start.disabled = !available || !supported || (mode === "core" ? !selectedCore : !eligibility.tag) || busy || running() || uncertain;
-      start.classList.toggle("primary", mode === "full" && !start.disabled);
-      start.textContent = mode === "core" && uploading ? "正在上传…" : running() && task.mode === mode ? "更新中…" : busy && available ? "提交中…" : mode === "core" ? "上传并准备更新" : mode === "full" && fullReinstall ? "重装UI + 内核" : "升级" + names[mode];
+      start.classList.toggle("primary", mode !== "core" && blue === mode);
+      start.classList.toggle("busy", busyRow);
+      if (busyRow) start.setAttribute("aria-busy", "true");
+      else start.removeAttribute("aria-busy");
+      start.textContent = mode === "core" && uploading ? "正在上传…" : busyRow ? "更新中…" : busy && available ? "提交中…" : mode === "core" ? "上传并准备更新" : mode === "full" && fullReinstall ? "重装UI + 内核" : "升级" + names[mode];
+      const pill = row.querySelector("[data-pill]");
+      const pillText = busyRow ? "进行中" : mode === "core" ? selectedCore ? "已选择 ZIP" : "" : mode === "full" ? fullReinstall ? "内核已是最新" : eligibility.tag ? "完整包可用" : "" : eligibility.tag ? "有新版本" : "";
+      pill.textContent = pillText;
+      pill.hidden = !pillText;
+      pill.dataset.tone = busyRow ? "live" : "update";
+      if (mode === "core") {
+        row.querySelector("[data-core-picker]").classList.toggle("primary", blue === "core");
+        row.querySelector("[data-core-picker-text]").textContent = selectedCore ? "更换内核 ZIP" : "选择内核 ZIP";
+      }
       row.querySelector("[data-target]").textContent = mode === "ui" ? `${((_c2 = currentUI()) == null ? void 0 : _c2.uiVersion) || "—"} → ${(latest == null ? void 0 : latest.version) || "待检查"}` : mode === "core" ? `当前内核：${((_d = currentUI()) == null ? void 0 : _d.backendVersion) || "—"}${running() && task.source === "upload" && task.targetBackend ? " → " + task.targetBackend : ""}` : latest ? `${latest.version} / ${latest.backend}` : "检查更新后显示目标版本";
       const reasonText = !available ? busy ? "正在确认服务器支持的升级功能…" : notEnabled ? "请先在服务器安装或更新独立升级服务，仅替换 UI 文件不会启用此功能。" : "连接升级服务后才能操作，请重试连接。" : !supported ? "请先更新升级服务，以支持" + (mode === "core" ? "上传内核 ZIP。" : "内核升级。") : mode === "core" ? `先选择原作者的内核 ZIP，再上传；自动选择 ${client.coreUpload.architecture}，保留当前 UI 和设置。下载并校验备份后才会切换，DNS 会短暂重启。` : fullReinstall ? "内核已是最新，重装覆盖相同版本；先下载备份，切换时 DNS 会短暂重启。" : eligibility.reason;
       const reason = row.querySelector("[data-reason]");
       reason.id = "version-reason-" + mode;
       reason.textContent = reasonText;
       start.setAttribute("aria-describedby", reason.id);
-      row.querySelector("h4").innerHTML = mode === "full" && fullReinstall ? 'UI + 内核 <span class="version-tag">内核已是最新</span>' : names[mode];
     }
     coreFile.disabled = !available || !(client == null ? void 0 : client.coreUpload) || busy || running() || uncertain;
     coreFile.setAttribute("aria-describedby", "version-reason-core");
@@ -7621,14 +7632,76 @@ function releaseRetryAt(headers, now = Date.now()) {
   const reset = Number(headers.get("x-ratelimit-reset")) * 1e3;
   return Math.max(now + 6e4, Number.isFinite(delay) ? delay : 0, Number.isFinite(reset) ? reset : 0);
 }
+const STORAGE_KEY = "localdns-github-api-v1";
+const RATE_LIMIT_ENDPOINT = "https://api.github.com/rate_limit";
+const RELEASE_RETRY_KEY = "localdns-github-release-retry-at";
+const API_HOST = "api.github.com";
+function githubAuthHeaders(url, token) {
+  const value = String(token ?? "").trim();
+  if (!value) return {};
+  let target;
+  try {
+    target = new URL(String(url), "https://localdns.invalid");
+  } catch {
+    return {};
+  }
+  if (target.protocol !== "https:" || target.hostname !== API_HOST) return {};
+  return { Authorization: `Bearer ${value}` };
+}
+function tokenProblem(value) {
+  const token = String(value ?? "").trim();
+  if (!token) return "请先粘贴 GitHub 访问令牌。";
+  if (/^https?:/i.test(token)) return "这里需要令牌本身，不是 GitHub 页面地址。";
+  if (/\s/.test(token)) return "令牌中不能有空格或换行，请重新复制完整令牌。";
+  if (/[^\x21-\x7e]/.test(token)) return "令牌含有无法识别的字符，请重新复制。";
+  if (token.length < 20) return "令牌长度不对，请确认已复制完整。";
+  if (token.length > 255) return "令牌过长，GitHub 令牌不会超过 255 个字符。";
+  return "";
+}
+function maskToken(token) {
+  const value = String(token ?? "").trim();
+  if (!value) return "";
+  return value.length <= 12 ? `${value.slice(0, 2)}…` : `${value.slice(0, 4)}…${value.slice(-4)}`;
+}
+function readQuota(headers) {
+  const number = (name) => {
+    const value = Number(headers == null ? void 0 : headers.get(name));
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  };
+  return {
+    limit: number("x-ratelimit-limit"),
+    remaining: number("x-ratelimit-remaining"),
+    resetAt: number("x-ratelimit-reset") * 1e3
+  };
+}
+function readGithubToken() {
+  try {
+    return String(preferences.getItem(STORAGE_KEY) ?? "").trim();
+  } catch {
+    return "";
+  }
+}
+function saveGithubToken(token) {
+  preferences.setItem(STORAGE_KEY, String(token ?? "").trim());
+}
+function clearGithubToken() {
+  try {
+    preferences.removeItem(STORAGE_KEY);
+  } catch {
+  }
+}
 const versionService = (() => {
   "use strict";
   const REPO = "https://github.com/yyhoworks/LocalDNS";
   const ENDPOINT2 = "https://api.github.com/repos/yyhoworks/LocalDNS/releases/latest";
   const TTL = 6 * 60 * 60 * 1e3;
-  function versionParts(value) {
+  function versionText(value) {
     const match = String(value || "").match(/(?:^|ui-v|^v)(\d{4}\.\d+\.\d+\.\d+)(?=$|[-+])/i);
-    return match ? match[1].split(".").map(Number) : null;
+    return match ? match[1] : "";
+  }
+  function versionParts(value) {
+    const text2 = versionText(value);
+    return text2 ? text2.split(".").map(Number) : null;
   }
   function compareVersions(a, b) {
     const aa = versionParts(a), bb = versionParts(b);
@@ -7644,7 +7717,7 @@ const versionService = (() => {
     const files = (Array.isArray(value.assets) ? value.assets : []).map((item) => String(item.name || ""));
     return {
       tag,
-      version: versionParts(tag).join("."),
+      version: versionText(tag),
       backend: ((_b2 = (_a2 = tag.match(/^([a-z0-9]+)-ui-v/i)) == null ? void 0 : _a2[1]) == null ? void 0 : _b2.toUpperCase()) || "",
       url: REPO + "/releases/tag/" + encodeURIComponent(tag),
       assetNames: files,
@@ -7681,7 +7754,7 @@ const versionService = (() => {
       const cacheKey = "localdns-release-check-v1:" + location.origin + ":" + String(((_a2 = window.LOCALDNS_UI_CONFIG) == null ? void 0 : _a2.apiBase) || "");
       let runningBackend = null;
       let installed = null, latest = null, checkedAt = 0, lastAttemptAt = 0, error = "", metadataError = "", checking = false, pending2;
-      const cooldownKey = "localdns-github-release-retry-at";
+      const cooldownKey = RELEASE_RETRY_KEY;
       let retryAt = 0, retryTimer;
       function readCooldown() {
         try {
@@ -7696,6 +7769,12 @@ const versionService = (() => {
       const updateSection = document.createElement("section");
       dialog2.querySelector(".version-actions").before(updateSection);
       const updater = createUIUpdatePanel(updateSection);
+      let tokenRejected = false, rejectedFor = "";
+      function currentToken() {
+        const stored = readGithubToken();
+        if (stored !== rejectedFor) tokenRejected = false;
+        return tokenRejected ? "" : stored;
+      }
       const escape = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
       const date = (value) => value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "尚未检查";
       function paint() {
@@ -7713,14 +7792,20 @@ const versionService = (() => {
         manual.textContent = checking ? "正在检查…" : limited ? "等待 GitHub 限流恢复" : "检查更新";
         const fact = (name, value) => `<div><dt>${name}</dt><dd>${escape(value)}</dd></div>`;
         const backend2 = runningBackend || ((_a3 = document.querySelector("#brand-version-tag")) == null ? void 0 : _a3.dataset.backendVersion) || (installed == null ? void 0 : installed.backendVersion);
-        setHTML(content, `<dl class="version-facts">${fact("当前 UI", (installed == null ? void 0 : installed.uiVersion) || "未能读取")}${fact("DNS 核心", backend2 || "尚未读取")}${fact("GitHub 最新正式版", latest ? latest.version + (latest.backend ? " / " + latest.backend : "") : "尚未读取")}${fact("上次成功检查", date(checkedAt))}${limited ? fact("允许再次检查", date(retryAt)) : ""}</dl><p class="version-result">${escape(checking ? "正在获取 GitHub 最新正式版…" : limited || error ? "更新检查暂不可用，保留上次成功检查的结果。" : (status == null ? void 0 : status.available) ? "GitHub 已发布新版本，可查看更新说明与安装包。" : (status == null ? void 0 : status.local) ? "当前为本地测试版，基于正式版 " + status.baseline + "；" + (status.comparison === null ? "请在 GitHub 核对版本。" : "基准之后暂无新正式版。") : (status == null ? void 0 : status.comparison) === 0 ? "当前 UI 已是最新正式版。" : (status == null ? void 0 : status.comparison) < 0 ? "当前 UI 版本高于 GitHub 最新正式版。" : "点击“检查更新”获取 GitHub 最新正式版。")}</p>${(latest == null ? void 0 : latest.packages.length) ? `<p class="version-note">发布包：${escape(latest.packages.join("、"))}。UI 升级包仅更新界面；内核单独更新可上传原作者 ZIP，整套升级使用 GitHub 完整包。</p>` : ""}${metadataError ? `<p class="version-error" role="alert">${escape(metadataError)}</p>` : ""}${limited ? `<p class="version-error" role="alert">GitHub 请求受限，请在 ${escape(date(retryAt))} 后重新检查，也可直接打开 GitHub 发布页。</p>` : error ? `<p class="version-error" role="alert">${escape(error)} 可点击“检查更新”重试，或打开 GitHub 发布页。</p>` : ""}<p class="version-note">自动检查间隔为 6 小时；手动检查会重新请求，限流期间暂停请求。</p>`);
+        setHTML(content, `<dl class="version-facts">${fact("当前 UI", (installed == null ? void 0 : installed.uiVersion) || "未能读取")}${fact("DNS 核心", backend2 || "尚未读取")}${fact("GitHub 最新正式版", latest ? latest.version + (latest.backend ? " / " + latest.backend : "") : "尚未读取")}${fact("上次成功检查", date(checkedAt))}${limited ? fact("允许再次检查", date(retryAt)) : ""}</dl><p class="version-result">${escape(checking ? "正在获取 GitHub 最新正式版…" : limited || error ? "更新检查暂不可用，保留上次成功检查的结果。" : (status == null ? void 0 : status.available) ? "GitHub 已发布新版本，可查看更新说明与安装包。" : (status == null ? void 0 : status.local) ? "当前为本地测试版，基于正式版 " + status.baseline + "；" + (status.comparison === null ? "请在 GitHub 核对版本。" : "基准之后暂无新正式版。") : (status == null ? void 0 : status.comparison) === 0 ? "当前 UI 已是最新正式版。" : (status == null ? void 0 : status.comparison) < 0 ? "当前 UI 版本高于 GitHub 最新正式版。" : "点击“检查更新”获取 GitHub 最新正式版。")}</p>${(latest == null ? void 0 : latest.packages.length) ? `<p class="version-note">发布包：${escape(latest.packages.join("、"))}。UI 升级包仅更新界面；内核单独更新可上传原作者 ZIP，整套升级使用 GitHub 完整包。</p>` : ""}${metadataError ? `<p class="version-error" role="alert">${escape(metadataError)}</p>` : ""}${limited ? `<p class="version-error" role="alert">GitHub 请求受限，请在 ${escape(date(retryAt))} 后重新检查，也可直接打开 GitHub 发布页；或在「系统管理 → GitHub 访问」填入自己的访问令牌，按账号额度立即恢复。</p>` : error ? `<p class="version-error" role="alert">${escape(error)} 可点击“检查更新”重试，或打开 GitHub 发布页。</p>` : ""}<p class="version-note">自动检查间隔为 6 小时；手动检查会重新请求，限流期间暂停请求。个人令牌在「系统管理 → GitHub 访问」里维护。</p>`);
         dialog2.querySelector("#version-release-link").href = (latest == null ? void 0 : latest.url) || REPO + "/releases";
         updater.setRelease(installed, latest);
       }
       async function fetchJSON(url) {
         const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 1e4);
         try {
-          const response = await assetHttp.fetch(url, { signal: controller.signal, cache: "no-store", credentials: "omit", headers: { Accept: "application/json" } });
+          const token = currentToken();
+          const response = await assetHttp.fetch(url, { signal: controller.signal, cache: "no-store", credentials: "omit", headers: { Accept: "application/json", ...githubAuthHeaders(url, token) } });
+          if (String(url) === ENDPOINT2 && response.status === 401 && token) {
+            tokenRejected = true;
+            rejectedFor = token;
+            throw new Error("GitHub 拒绝了「系统管理」里保存的访问令牌（401），已暂停使用；请重新填写或清除。");
+          }
           if (!response.ok) {
             const denied = String(url) === ENDPOINT2 && response.status === 403 ? await response.clone().json().catch(() => null) : null;
             if (String(url) === ENDPOINT2 && (response.status === 429 || response.status === 403 && (response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after") || /rate limit|abuse detection/i.test((denied == null ? void 0 : denied.message) || "")))) {
@@ -9321,6 +9406,86 @@ const switchProfiles = [
   { tag: "switch2", name: "指定 Client FakeIP", desc: "只允许指定客户端科学" },
   { tag: "switch12", name: "指定 Client RealIP", desc: "指定客户端不允许科学" }
 ];
+let githubQuota = null, githubMessage = "";
+function githubAccessHtml() {
+  const token = readGithubToken(), has = Boolean(token);
+  const actions = `${has ? '<span class="badge success">已设置</span>' : '<span class="badge">未设置</span>'}${has ? '<button class="button small danger" id="github-token-clear">清除令牌</button>' : ""}`;
+  const quota = has && githubQuota && githubQuota.limit ? ` 最近一次校验：剩余 ${num(githubQuota.remaining)} / ${num(githubQuota.limit)} 次每小时。` : "";
+  const status = githubMessage || (has ? `已设置令牌 ${maskToken(token)}：检查更新时按你的账号额度请求。${quota}` : "未设置令牌：匿名请求按出口 IP 每小时 60 次，多台设备共用同一出口时更容易触发限流。");
+  const body2 = `<div class="github-access">
+      <div class="settings-refresh-row github-access-row">
+        <input type="password" id="github-token-input" autocomplete="off" spellcheck="false" placeholder="${has ? "已保存令牌，粘贴新令牌可替换" : "粘贴 GitHub 令牌"}" aria-label="GitHub 访问令牌">
+        <button type="button" class="button primary" id="github-token-save">保存并校验</button>
+        <a class="button" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">创建令牌</a>
+      </div>
+      <p class="form-note github-access-status${githubMessage ? " is-error" : ""}" id="github-token-status" role="status">${esc$1(status)}</p>
+      <p class="form-note">令牌只保存在本浏览器，只发送给 api.github.com；不会写入服务器配置，也不随升级包分发。建议创建不授予任何权限的 fine-grained token：公开仓库的发行信息不需要任何权限。</p>
+    </div>`;
+  return card("GitHub 访问", body2, { iconName: "system", subtitle: "检查更新时读取 GitHub 正式发行版，可填入自己的令牌避免匿名限流", actions, className: "github-access-card" });
+}
+function paintGithubSlot() {
+  var _a2, _b2, _c2;
+  const slot = $("#management-github-slot");
+  if (!slot) return;
+  setHTML(slot, githubAccessHtml());
+  (_a2 = $("#github-token-save")) == null ? void 0 : _a2.addEventListener("click", saveGithubAccess);
+  (_b2 = $("#github-token-clear")) == null ? void 0 : _b2.addEventListener("click", clearGithubAccess);
+  (_c2 = $("#github-token-input")) == null ? void 0 : _c2.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveGithubAccess();
+    }
+  });
+}
+async function saveGithubAccess() {
+  var _a2, _b2, _c2, _d;
+  const input = $("#github-token-input"), button = $("#github-token-save");
+  if (!input || !button || button.disabled) return;
+  const value = input.value, problem = tokenProblem(value);
+  if (problem) {
+    githubMessage = problem;
+    paintGithubSlot();
+    return;
+  }
+  button.disabled = true;
+  button.textContent = "校验中…";
+  try {
+    const response = await assetHttp.fetch(RATE_LIMIT_ENDPOINT, { cache: "no-store", credentials: "omit", headers: { Accept: "application/json", Authorization: "Bearer " + value.trim() } });
+    if (response.status === 401) {
+      githubMessage = "GitHub 判定令牌无效或已过期（401），未保存。";
+      return;
+    }
+    if (!response.ok) {
+      githubMessage = `校验令牌失败（HTTP ${response.status}），未保存。`;
+      return;
+    }
+    const body2 = await response.json().catch(() => null);
+    try {
+      saveGithubToken(value.trim());
+    } catch {
+      githubMessage = "浏览器未能保存令牌，本次修改不会在刷新后保留。";
+      return;
+    }
+    githubMessage = "";
+    githubQuota = { limit: Number((_b2 = (_a2 = body2 == null ? void 0 : body2.resources) == null ? void 0 : _a2.core) == null ? void 0 : _b2.limit) || 0, remaining: Number((_d = (_c2 = body2 == null ? void 0 : body2.resources) == null ? void 0 : _c2.core) == null ? void 0 : _d.remaining) || 0 };
+    try {
+      preferences.removeItem(RELEASE_RETRY_KEY);
+    } catch {
+    }
+    toast("GitHub 访问令牌已保存");
+  } catch {
+    githubMessage = "无法连接 GitHub 或校验超时，请检查网络后重试。";
+  } finally {
+    paintGithubSlot();
+  }
+}
+function clearGithubAccess() {
+  clearGithubToken();
+  githubMessage = "";
+  githubQuota = null;
+  paintGithubSlot();
+  toast("GitHub 访问令牌已清除");
+}
 async function renderManagement(container, context) {
   var _a2, _b2;
   const renderScope = context.scope, page2 = container;
@@ -9358,6 +9523,7 @@ async function renderManagement(container, context) {
       </div>
       <div id="management-cache-slot" style="display:contents">${card("缓存管理", skeletonBlock(130), { iconName: "data", className: "data-cache-panel" })}</div>
       <div id="management-feature-slot" style="display:contents">${card("功能开关", skeletonBlock(300), { iconName: "features", subtitle: "常用运行功能集中管理", className: "management-feature-panel" })}</div>
+      <div id="management-github-slot" style="display:contents"></div>
       <div class="management-bottom">
         <div id="management-counts-slot" style="display:contents">${card("域名列表统计", skeletonBlock(150), { iconName: "rules", subtitle: "查看自动分流列表的当前条目数", className: "data-counts-card" })}</div>
         <div id="management-requery-slot" style="display:contents">${card("刷新分流缓存", skeletonBlock(270), { iconName: "refresh", subtitle: "重新扫描域名并更新自动生成的分流列表", className: "data-requery-card" })}</div>
@@ -9366,6 +9532,7 @@ async function renderManagement(container, context) {
   (_a2 = $("#management-restart-button")) == null ? void 0 : _a2.addEventListener("click", restartService);
   (_b2 = page2.querySelector('[data-route="proxy-config"]')) == null ? void 0 : _b2.addEventListener("click", () => requestProxyPane("config"));
   proxyPanelService == null ? void 0 : proxyPanelService.sync();
+  paintGithubSlot();
   const serviceBadge = page2.querySelector(".service-card-badge");
   const switchPromise = Promise.all(tags.map((t) => safe(() => api.request(`/plugins/${t}/show`), "error"))).then((results) => Object.fromEntries(tags.map((t, i) => [t, String(results[i]).trim()])));
   const metricsPromise = api.metrics();
@@ -9672,7 +9839,6 @@ function trafficCSV(rows, today) {
   const lines = [["日期", "下载字节", "上传字节", "合计字节", "采集状态"], ...rows.map((row) => [row.date, row.missing ? "" : row.down, row.missing ? "" : row.up, row.missing ? "" : byteTotal(row), row.missing ? "未采集" : row.date === today ? "今日未结束" : row.coverage === "unknown" ? "覆盖未知" : row.coverage === "partial" ? "部分采集" : "已采集"])];
   return "\uFEFF" + lines.map((line) => line.join(",")).join("\r\n") + "\r\n";
 }
-const formatBytes = (value) => fmtBytesBrief(value);
 const ENDPOINT = "custom/traffic.json";
 function parseProxyTraffic(raw) {
   return parseSummary(raw);
@@ -15244,11 +15410,11 @@ const view = { month: "", selected: "", dimension: "devices" };
 const dimensions = { devices: "设备", providers: "订阅", nodes: "节点" };
 const weekdays = ["一", "二", "三", "四", "五", "六", "日"];
 const amount = (value) => {
-  const parts2 = formatBytes(value).split(" ");
+  const parts2 = fmtBytesBrief(value).split(" ");
   return `${esc$1(parts2[0])}<small>${esc$1(parts2[1] || "")}</small>`;
 };
 const compact = (value) => {
-  const [number, unit = ""] = formatBytes(value).split(" ");
+  const [number, unit = ""] = fmtBytesBrief(value).split(" ");
   return `${number}${unit.slice(0, 1)}`;
 };
 const dayLabel = (date) => `${date.slice(5, 7)}/${date.slice(8, 10)}`;
@@ -15266,7 +15432,7 @@ async function mountTraffic(parent, context, onStatus = () => {
     const week = rangeRows(data, "week"), valid = week.filter((row) => !row.missing), sum = sumBytes(valid);
     const lifetime = data.lifetime;
     return `<div class="pt-kpis">
-      <div class="pt-kpi"><span class="k">今日 · ${esc$1(dayLabel(today))}</span><strong class="v">${current ? amount(byteTotal(current)) : "—"}</strong><span class="s">${current ? `↓ ${esc$1(formatBytes(current.down))} · ↑ ${esc$1(formatBytes(current.up))}` : "今天还没有采集记录"}</span></div>
+      <div class="pt-kpi"><span class="k">今日 · ${esc$1(dayLabel(today))}</span><strong class="v">${current ? amount(byteTotal(current)) : "—"}</strong><span class="s">${current ? `↓ ${esc$1(fmtBytesBrief(current.down))} · ↑ ${esc$1(fmtBytesBrief(current.up))}` : "今天还没有采集记录"}</span></div>
       <div class="pt-kpi"><span class="k">近 7 天 · ${valid.length} 个采集日</span><strong class="v">${valid.length ? amount(byteTotal(sum)) : "—"}</strong><span class="s">${valid.length ? `${esc$1(dayLabel(valid[0].date))} — ${esc$1(dayLabel(valid[valid.length - 1].date))}` : "尚未满一个采集周期"}</span></div>
       <div class="pt-kpi"><span class="k">累计 · 自 ${esc$1(data.since ? dayLabel(data.since) : "—")}</span><strong class="v">${lifetime ? amount(byteTotal(lifetime)) : "—"}</strong><span class="s">每日保留 400 天 · 分类保留 90 天</span></div>
     </div>`;
@@ -15276,7 +15442,7 @@ async function mountTraffic(parent, context, onStatus = () => {
       if (cell.blank) return '<span class="pt-cal-day blank" aria-hidden="true"></span>';
       if (cell.missing) return `<span class="pt-cal-day na${cell.today ? " today" : ""}" aria-disabled="true"><span class="d">${cell.day}</span></span>`;
       const selected = cell.date === view.selected;
-      return `<button type="button" class="pt-cal-day has${cell.today ? " today" : ""}${selected ? " sel" : ""}" id="pt-day-${cell.date}" data-day="${cell.date}" aria-pressed="${selected}" aria-label="${esc$1(`${dayLabel(cell.date)} ${weekdayName(cell.date)} · ${formatBytes(cell.total)}`)}"><span class="d">${cell.day}</span><span class="v">${esc$1(compact(cell.total))}</span></button>`;
+      return `<button type="button" class="pt-cal-day has${cell.today ? " today" : ""}${selected ? " sel" : ""}" id="pt-day-${cell.date}" data-day="${cell.date}" aria-pressed="${selected}" aria-label="${esc$1(`${dayLabel(cell.date)} ${weekdayName(cell.date)} · ${fmtBytesBrief(cell.total)}`)}"><span class="d">${cell.day}</span><span class="v">${esc$1(compact(cell.total))}</span></button>`;
     }).join("");
     const used = cells.filter((cell) => !cell.blank && !cell.missing && cell.date <= today);
     const sum = sumBytes(used), average = used.length ? Math.round(byteTotal(sum) / used.length) : 0;
@@ -15298,12 +15464,12 @@ async function mountTraffic(parent, context, onStatus = () => {
       return match ? match[1] : "—";
     };
     const coverage = day.coverage === "full" ? "完整" : day.coverage === "partial" ? "部分采集" : "未知";
-    const bars = hasHours ? `<div class="pt-hour-bars" role="img" aria-label="每小时代理用量合计，包含上传与下载">${hours.map((hour) => `<i class="${hour.missing ? "z" : ""}" style="height:${Math.max(hour.missing ? 2 : 3, Math.round(hour.total / Math.max(1, peak) * 100))}%" title="${hour.hour}:00${hour.missing ? " · 未采集" : ` · ↓ ${formatBytes(hour.down)} · ↑ ${formatBytes(hour.up)}`}"></i>`).join("")}</div><div class="pt-hour-axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>` : '<p class="pt-note">这一天没有分时记录；用量仍保留在当日合计中。</p>';
+    const bars = hasHours ? `<div class="pt-hour-bars" role="img" aria-label="每小时代理用量合计，包含上传与下载">${hours.map((hour) => `<i class="${hour.missing ? "z" : ""}" style="height:${Math.max(hour.missing ? 2 : 3, Math.round(hour.total / Math.max(1, peak) * 100))}%" title="${hour.hour}:00${hour.missing ? " · 未采集" : ` · ↓ ${fmtBytesBrief(hour.down)} · ↑ ${fmtBytesBrief(hour.up)}`}"></i>`).join("")}</div><div class="pt-hour-axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>` : '<p class="pt-note">这一天没有分时记录；用量仍保留在当日合计中。</p>';
     return `<div class="pt-day-date"><b>${esc$1(dayLabel(day.date))} ${esc$1(weekdayName(day.date))}</b><span class="pt-day-tag${day.date === today ? "" : " na"}">${esc$1(tag)}</span></div>
       <div class="pt-day-total">${amount(total)}</div>
-      <div class="pt-day-split"><span>下载 <b>${esc$1(formatBytes(day.down))}</b></span><span>上传 <b>${esc$1(formatBytes(day.up))}</b></span></div>
+      <div class="pt-day-split"><span>下载 <b>${esc$1(fmtBytesBrief(day.down))}</b></span><span>上传 <b>${esc$1(fmtBytesBrief(day.up))}</b></span></div>
       ${bars}
-      <div class="pt-day-meta"><span>采集时段 <b>${esc$1(clock(day.first))} — ${esc$1(clock(day.last))}</b></span><span>覆盖 <b>${esc$1(coverage)}</b></span><span>断点 <b>${day.gaps}</b></span>${hasHours ? `<span>峰值 <b>${esc$1(hours.reduce((a, b) => b.total > a.total ? b : a).hour)}:00 · ${esc$1(formatBytes(peak))}</b></span>` : ""}</div>`;
+      <div class="pt-day-meta"><span>采集时段 <b>${esc$1(clock(day.first))} — ${esc$1(clock(day.last))}</b></span><span>覆盖 <b>${esc$1(coverage)}</b></span><span>断点 <b>${day.gaps}</b></span>${hasHours ? `<span>峰值 <b>${esc$1(hours.reduce((a, b) => b.total > a.total ? b : a).hour)}:00 · ${esc$1(fmtBytesBrief(peak))}</b></span>` : ""}</div>`;
   }
   function rankPanel() {
     const head = `<div class="pt-rank-head"><h3 id="pt-rank-title">流量排行</h3><div class="pt-dim-tabs" role="group" aria-label="排行维度">${Object.entries(dimensions).map(([key, label]) => `<button type="button" id="pt-dimension-${key}" data-dimension="${key}" aria-pressed="${view.dimension === key}">${label}</button>`).join("")}</div><span>按合计从高到低</span></div>`;
@@ -15312,7 +15478,7 @@ async function mountTraffic(parent, context, onStatus = () => {
     const total = byteTotal(day), entries2 = rankings(data, [day], view.dimension, 50);
     const body2 = entries2.length ? `<div class="pt-mini-list">${entries2.map((entry, index) => {
       const percent = total ? entry.total / total * 100 : 0;
-      return `<div class="pt-mini-row"><span class="pt-mini-index">${String(index + 1).padStart(2, "0")}</span><div class="pt-mini-main"><div class="pt-mini-top"><span class="mn">${esc$1(entry.name)}</span><span class="mv">${esc$1(formatBytes(entry.total))}</span></div><div class="pt-mini-bar"><i style="width:${Math.max(2, percent).toFixed(1)}%"></i></div></div><span class="mp">${percent.toFixed(1)}%</span></div>`;
+      return `<div class="pt-mini-row"><span class="pt-mini-index">${String(index + 1).padStart(2, "0")}</span><div class="pt-mini-main"><div class="pt-mini-top"><span class="mn">${esc$1(entry.name)}</span><span class="mv">${esc$1(fmtBytesBrief(entry.total))}</span></div><div class="pt-mini-bar"><i style="width:${Math.max(2, percent).toFixed(1)}%"></i></div></div><span class="mp">${percent.toFixed(1)}%</span></div>`;
     }).join("")}</div>` : empty("这一天没有分类记录", "旧用量可能尚未按设备、订阅或节点分类。");
     const since = String(data.dimensionsSince || "").slice(0, 16).replace("T", " ");
     const history2 = entries2.some((entry) => entry.key === "__history__") ? `<p class="pt-rank-hint">历史未分类是已计入当天合计、但缺少当前维度明细的用量。${since ? `分类采集始于 ${esc$1(since)}；` : ""}可能来自升级前存量、超过 90 天已清理的明细，或明细缺失，无法还原到具体${dimensions[view.dimension]}。</p>` : "";
@@ -15362,7 +15528,7 @@ async function mountTraffic(parent, context, onStatus = () => {
       </div>
       ${rankPanel()}
       <p class="pt-note">各维度使用同一份用量，不重复相加。未知设备显示 IP，不按 IPv6 网段合并；未采集的日期留空，不记为零流量。</p>
-    </div></section><p class="proxy-traffic-note">${data.since ? `自 ${esc$1(data.since)} 记录` : ""}${data.lifetime ? ` · 累计 ${esc$1(formatBytes(byteTotal(data.lifetime)))}` : ""} · 每日记录保留 400 天，分类记录保留 90 天。</p>`);
+    </div></section><p class="proxy-traffic-note">${data.since ? `自 ${esc$1(data.since)} 记录` : ""}${data.lifetime ? ` · 累计 ${esc$1(fmtBytesBrief(byteTotal(data.lifetime)))}` : ""} · 每日记录保留 400 天，分类记录保留 90 天。</p>`);
     if (focused) (_a2 = parent.querySelector("#" + focused)) == null ? void 0 : _a2.focus({ preventScroll: true });
   }
   async function refresh() {
