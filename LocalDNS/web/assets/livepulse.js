@@ -360,37 +360,58 @@
       '  display: none !important;',
       '}',
       '/* 3D 闭环球体拓扑系统样式体系 */',
+      '.topology-glass-card.is-sphere-mode {',
+      '  overflow-x: hidden !important;',
+      '  width: 100% !important;',
+      '  min-width: 0 !important;',
+      '  padding: 16px 20px 24px !important;',
+      '}',
+      '.topology-glass-card.is-sphere-mode #topo-stage-wrap {',
+      '  display: none !important;',
+      '}',
       '.topo-sphere-viewport {',
       '  position: relative !important;',
+      '  grid-column: 1 / -1 !important;',
       '  width: 100% !important;',
-      '  height: 580px !important;',
-      '  min-height: 480px !important;',
+      '  height: 600px !important;',
+      '  min-height: 520px !important;',
+      '  margin-top: 10px !important;',
       '  overflow: hidden !important;',
       '  border-radius: 16px !important;',
-      '  background: radial-gradient(circle at 50% 50%, rgba(15, 23, 42, 0.45) 0%, rgba(2, 6, 23, 0.95) 100%) !important;',
-      '  box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.7), 0 8px 32px rgba(0, 0, 0, 0.4) !important;',
-      '  border: 1px solid rgba(59, 130, 246, 0.25) !important;',
+      '  background: radial-gradient(circle at 50% 50%, rgba(15, 23, 42, 0.5) 0%, rgba(2, 6, 23, 0.98) 100%) !important;',
+      '  box-shadow: inset 0 0 100px rgba(0, 0, 0, 0.8), 0 12px 36px rgba(0, 0, 0, 0.5) !important;',
+      '  border: 1px solid rgba(59, 130, 246, 0.3) !important;',
       '  cursor: grab !important;',
       '  user-select: none !important;',
       '  touch-action: none !important;',
+      '}',
+      '.topology-glass-card.is-maximized .topo-sphere-viewport {',
+      '  height: calc(100vh - 140px) !important;',
       '}',
       '.topo-sphere-viewport:active {',
       '  cursor: grabbing !important;',
       '}',
       '#topo-sphere-canvas {',
       '  position: absolute !important;',
-      '  inset: 0 !important;',
+      '  left: 0 !important;',
+      '  top: 0 !important;',
       '  width: 100% !important;',
       '  height: 100% !important;',
       '  pointer-events: none !important;',
       '}',
       '.topo-sphere-nodes {',
       '  position: absolute !important;',
-      '  inset: 0 !important;',
+      '  left: 0 !important;',
+      '  top: 0 !important;',
+      '  width: 100% !important;',
+      '  height: 100% !important;',
       '  pointer-events: none !important;',
       '}',
       '.topo-s-node {',
       '  position: absolute !important;',
+      '  left: 0 !important;',
+      '  top: 0 !important;',
+      '  margin: 0 !important;',
       '  pointer-events: auto !important;',
       '  transform-origin: center center !important;',
       '  box-sizing: border-box !important;',
@@ -399,25 +420,29 @@
       '  display: flex !important;',
       '  align-items: center !important;',
       '  gap: 7px !important;',
-      '  padding: 6px 10px !important;',
+      '  padding: 6px 11px !important;',
       '  border-radius: 9px !important;',
-      '  background: rgba(15, 23, 42, 0.88) !important;',
-      '  backdrop-filter: blur(14px) !important;',
-      '  -webkit-backdrop-filter: blur(14px) !important;',
-      '  border: 1px solid rgba(148, 163, 184, 0.3) !important;',
-      '  box-shadow: 0 10px 24px -4px rgba(0, 0, 0, 0.7), 0 0 12px rgba(59, 130, 246, 0.18) !important;',
+      '  background: rgba(15, 23, 42, 0.92) !important;',
+      '  backdrop-filter: blur(16px) !important;',
+      '  -webkit-backdrop-filter: blur(16px) !important;',
+      '  border: 1px solid rgba(148, 163, 184, 0.35) !important;',
+      '  box-shadow: 0 10px 24px -4px rgba(0, 0, 0, 0.8), 0 0 12px rgba(59, 130, 246, 0.25) !important;',
       '  cursor: pointer !important;',
       '  white-space: nowrap !important;',
-      '  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;',
+      '  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s, border-color 0.18s !important;',
       '}',
       '.topo-s-node:hover .topo-s-node-inner {',
-      '  transform: scale(1.12) !important;',
+      '  transform: scale(1.14) !important;',
       '  border-color: #38BDF8 !important;',
-      '  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.9), 0 0 24px rgba(56, 189, 248, 0.6) !important;',
-      '  z-index: 99999 !important;',
+      '  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.95), 0 0 28px rgba(56, 189, 248, 0.7) !important;',
       '}',
       '.topo-s-node.is-back {',
       '  pointer-events: none !important;',
+      '}',
+      '.topo-s-node.is-focused .topo-s-node-inner {',
+      '  border-color: #F59E0B !important;',
+      '  box-shadow: 0 0 30px rgba(245, 158, 11, 0.8) !important;',
+      '  transform: scale(1.15) !important;',
       '}',
       '.topo-s-icon {',
       '  width: 22px !important;',
@@ -654,7 +679,7 @@
 
           var phi = 0;
           if (count > 1) {
-            var phiRange = Math.min(0.9, 0.28 * count);
+            var phiRange = Math.min(0.85, 0.28 * count);
             phi = -phiRange / 2 + (phiRange / (count - 1)) * idx;
           }
 
@@ -675,6 +700,100 @@
           sphereNodes.push(nodeData);
           stageNodeMap[col].push(nodeData);
         }
+      }
+
+      // 保底机制：若 DOM 提取节点数少于 10 个，使用完整全阶段闭环蓝图
+      if (sphereNodes.length < 10) {
+        sphereNodes = [];
+        sphereLinks = [];
+        stageNodeMap = {};
+
+        var ob = (cachedTopologyData && cachedTopologyData.outbound) || {};
+        var s = (cachedTopologyData && cachedTopologyData.surge) || { online: false };
+
+        var BLUEPRINT = [
+          {
+            stage: 1,
+            nodes: [
+              { id: 'c_lan', name: '局域网客户端', val: '192.168.x', sub: '活跃接入', icon: '💻', valColor: '#3B82F6' },
+              { id: 'c_local', name: '本机回环', val: '127.0.0.1', sub: '高频解析', icon: '📱', valColor: '#10B981' },
+              { id: 'c_tun', name: 'TUN 虚拟网卡', val: '全量接管', sub: '全局路由', icon: '🌐', valColor: '#8B5CF6' }
+            ]
+          },
+          {
+            stage: 2,
+            nodes: [
+              { id: 'cache_ram', name: 'RAM 内存缓存', val: '纳秒直出', sub: 'L1 极速', icon: '⚡️', valColor: '#10B981' },
+              { id: 'cache_disk', name: 'Disk 持久缓存', val: 'SQLite 归档', sub: 'L2 降级', icon: '💾', valColor: '#3B82F6' },
+              { id: 'cache_block', name: '0.0.0.0 黑洞', val: '即时拦截', sub: '广告与高危', icon: '🛑', valColor: '#EF4444' }
+            ]
+          },
+          {
+            stage: 3,
+            nodes: [
+              { id: 'r_direct', name: 'DIRECT 直连规则', val: '国内域名', sub: '主流 CDN', icon: '⚡️', valColor: '#10B981' },
+              { id: 'r_proxy', name: 'PROXY 代理规则', val: '境外服务', sub: '节点加速', icon: '✈️', valColor: '#3B82F6' },
+              { id: 'r_reject', name: 'REJECT 广告拦截', val: '脱水规则集', sub: 'Aegis 订阅', icon: '🛡', valColor: '#EF4444' },
+              { id: 'r_apple', name: 'Apple 服务加速', val: '官方直连', sub: 'App Store/iCloud', icon: '🍎', valColor: '#94A3B8' }
+            ]
+          },
+          {
+            stage: 4,
+            nodes: [
+              { id: 'g_domestic', name: '国内主干策略', val: 'BGP 直达', sub: '智能选路', icon: '🇨🇳', valColor: '#10B981' },
+              { id: 'g_foreign', name: '海外加速策略', val: 'Anycast', sub: '多节点汇聚', icon: '🌍', valColor: '#3B82F6' },
+              { id: 'g_fallback', name: '故障备援策略', val: 'Fallback', sub: '自动熔断', icon: '🔄', valColor: '#F59E0B' }
+            ]
+          },
+          {
+            stage: 5,
+            nodes: [
+              { id: 'dns_ali', name: 'AliDNS (223.5.5.5)', val: '国内主力', sub: 'ECS 支持', icon: '📡', valColor: '#10B981' },
+              { id: 'dns_dnspod', name: 'DNSPod (119.29.29.29)', val: '腾讯备选', sub: '腾讯云内网', icon: '📡', valColor: '#10B981' },
+              { id: 'dns_cf', name: 'Cloudflare DoH', val: '加密解析', sub: '隐私保护', icon: '🔒', valColor: '#3B82F6' },
+              { id: 'dns_google', name: 'Google DNS (8.8.8.8)', val: '全球递归', sub: '境外基线', icon: '🌐', valColor: '#3B82F6' }
+            ]
+          },
+          {
+            stage: 6,
+            nodes: [
+              { id: 'out_direct', name: 'DIRECT 直连', val: (ob.direct ? '直连 ' + ob.direct.pct : '直连出站'), sub: '运营商直连出口', icon: '⚡️', valColor: '#10B981' },
+              { id: 'out_proxy', name: 'PROXY 代理', val: (ob.proxy ? (s.online ? '加速 ' : '就绪 ') + ob.proxy.pct : '代理就绪'), sub: 'Surge 节点动态加速', icon: '✈️', valColor: '#3B82F6' },
+              { id: 'out_block', name: 'BLK 广告阻断', val: (ob.block ? '阻断 ' + ob.block.pct : '阻断 0%'), sub: '0.0.0.0 纳秒丢弃', icon: '🛑', valColor: '#EF4444' },
+              { id: 'out_loopback', name: '回环清洗与自愈', val: (ob.loopback ? ob.loopback.status : '闭环运转中'), sub: '脱水规则沉淀 · 灰名单反哺', icon: '🔄', valColor: '#F59E0B', isLoop: true }
+            ]
+          }
+        ];
+
+        BLUEPRINT.forEach(function(stg) {
+          var col = stg.stage;
+          var theta = STAGE_LONGS[col - 1];
+          stageNodeMap[col] = [];
+          var count = stg.nodes.length;
+          stg.nodes.forEach(function(item, idx) {
+            var phi = 0;
+            if (count > 1) {
+              var phiRange = Math.min(0.85, 0.28 * count);
+              phi = -phiRange / 2 + (phiRange / (count - 1)) * idx;
+            }
+            var nodeData = {
+              id: item.id,
+              stage: col,
+              index: idx,
+              name: item.name,
+              val: item.val,
+              sub: item.sub,
+              icon: item.icon,
+              valColor: item.valColor,
+              isLoop: item.isLoop || false,
+              theta: theta,
+              phi: phi,
+              domEl: null
+            };
+            sphereNodes.push(nodeData);
+            stageNodeMap[col].push(nodeData);
+          });
+        });
       }
 
       function linkStageGroup(srcs, tgts, color) {
@@ -701,7 +820,7 @@
           if (s6Proxy && i > 0) sphereLinks.push({ from: s5Node, to: s6Proxy, color: '#3B82F6', isLoop: false });
         });
         if (s6Block && stageNodeMap[3]) {
-          var blockRule = stageNodeMap[3].find(function(n) { return n.name.indexOf('黑洞') >= 0 || n.name.indexOf('拦截') >= 0; }) || stageNodeMap[3][stageNodeMap[3].length - 1];
+          var blockRule = stageNodeMap[3].find(function(n) { return n.name.indexOf('黑洞') >= 0 || n.name.indexOf('拦截') >= 0 || n.name.indexOf('REJECT') >= 0; }) || stageNodeMap[3][stageNodeMap[3].length - 1];
           if (blockRule) sphereLinks.push({ from: blockRule, to: s6Block, color: '#EF4444', isLoop: false });
         }
       }
@@ -785,8 +904,8 @@
       }
 
       ctx.save();
-      ctx.lineWidth = 1;
 
+      // 1. 绘制 5 圈纬线（赤道加粗发光）
       var lats = [-50, -25, 0, 25, 50];
       for (var l = 0; l < lats.length; l++) {
         var phi = lats[l] * Math.PI / 180;
@@ -794,30 +913,29 @@
         var yLat = -R * Math.sin(phi);
 
         ctx.beginPath();
-        var steps = 40;
+        var steps = 48;
         for (var step = 0; step <= steps; step++) {
           var th = (step / steps) * Math.PI * 2;
           var pt = [rLat * Math.sin(th), yLat, rLat * Math.cos(th)];
           var rotPt = mat3VecMul(rotMatrix, pt);
           var p = project(rotPt);
-
-          if (step === 0) {
-            ctx.moveTo(p[0], p[1]);
-          } else {
-            ctx.strokeStyle = rotPt[2] > 0 ? 'rgba(56, 189, 248, 0.22)' : 'rgba(56, 189, 248, 0.07)';
-            ctx.lineTo(p[0], p[1]);
-          }
+          if (step === 0) ctx.moveTo(p[0], p[1]);
+          else ctx.lineTo(p[0], p[1]);
         }
+        var isEquator = (lats[l] === 0);
+        ctx.strokeStyle = isEquator ? 'rgba(56, 189, 248, 0.45)' : 'rgba(56, 189, 248, 0.20)';
+        ctx.lineWidth = isEquator ? 1.8 : 1.0;
         ctx.stroke();
       }
 
+      // 2. 绘制 6 条经线大圆
       var longs = [0, 60, 120, 180, 240, 300];
       for (var lo = 0; lo < longs.length; lo++) {
         var theta = longs[lo] * Math.PI / 180;
         ctx.beginPath();
-        var lSteps = 40;
+        var lSteps = 48;
         for (var st = 0; st <= lSteps; st++) {
-          var ph = -Math.PI / 2 + (st / lSteps) * Math.PI;
+          var ph = (st / lSteps) * Math.PI * 2;
           var pPt = [
             R * Math.cos(ph) * Math.sin(theta),
             -R * Math.sin(ph),
@@ -825,13 +943,20 @@
           ];
           var rPt = mat3VecMul(rotMatrix, pPt);
           var proj = project(rPt);
-
-          ctx.strokeStyle = rPt[2] > 0 ? 'rgba(56, 189, 248, 0.25)' : 'rgba(56, 189, 248, 0.08)';
           if (st === 0) ctx.moveTo(proj[0], proj[1]);
           else ctx.lineTo(proj[0], proj[1]);
         }
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.20)';
+        ctx.lineWidth = 1.0;
         ctx.stroke();
       }
+
+      // 3. 绘制外围大气层微光外环
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
 
       ctx.restore();
     }
@@ -1141,6 +1266,7 @@
         }
       } catch (_) {}
 
+      card.classList.toggle('is-sphere-mode', isSphereMode);
       if (btnView2D) btnView2D.classList.toggle('active', !isSphereMode);
       if (btnView3D) btnView3D.classList.toggle('active', isSphereMode);
       if (sphereBar) sphereBar.style.display = isSphereMode ? 'inline-flex' : 'none';
@@ -1150,7 +1276,7 @@
         if (nav) nav.style.display = 'none';
         engine.viewport.style.display = 'block';
         engine.start();
-        toast('进入 3D 闭环球体拓扑', '支持任意角度 360° 拖拽自由旋转');
+        toast('进入 3D 闭环球体拓扑', '360° 任意拖拽自由旋转 · 滚轮缩放');
       } else {
         engine.stop();
         engine.viewport.style.display = 'none';
@@ -1279,11 +1405,15 @@
       if (isFitView) applyFitView(card, wrap);
     }, { passive: true });
 
+    card.classList.toggle('is-sphere-mode', isSphereMode);
     if (isSphereMode) {
       wrap.style.display = 'none';
       if (nav) nav.style.display = 'none';
       engine.viewport.style.display = 'block';
       engine.start();
+    } else {
+      engine.viewport.style.display = 'none';
+      wrap.style.display = 'block';
     }
   }
 
