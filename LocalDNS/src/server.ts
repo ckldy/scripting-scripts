@@ -12,6 +12,7 @@ import { LocalRecordsEngine } from './records';
 import { SurgeService } from './surge-service';
 import { handleSurgeApiRequest } from './surge-api';
 import { ProcessGuardian } from './guardian';
+import { TrafficManager } from './traffic';
 
 function parseJsonBody(req: HttpRequest): any {
   try {
@@ -282,6 +283,23 @@ export class LocalDnsServer {
       // Redirect root to /ui/
       if (path === '/' || path === '/ui') {
         return HttpResponse.movedTemporarily('/ui/');
+      }
+
+      // 代理流量数据采集端点: custom/traffic.json 与 custom/traffic-detail.json
+      if (
+        path.includes('custom/traffic.json') ||
+        path.includes('custom/traffic-detail.json') ||
+        path === '/api/v1/traffic/detail' ||
+        path === '/api/v1/traffic/summary'
+      ) {
+        const isDetail = path.includes('traffic-detail') || path.endsWith('/detail');
+        if (isDetail) {
+          const detail = await TrafficManager.get().getTrafficDetail();
+          return jsonResponse(detail);
+        } else {
+          const summary = await TrafficManager.get().getTrafficSummary();
+          return jsonResponse(summary);
+        }
       }
 
       // Serve /ui/* static assets

@@ -1,0 +1,29 @@
+{
+  "updated": "2026-11-01T21:31:01+08:00",
+  "date": "2026-11-01",
+  "utc_offset_minutes": 480,
+  "publish_interval_seconds": 30,
+  "source": "Mihomo",
+  "since": "2026-09-28",
+  "today": {
+    "down": 4508876800,
+    "up": 108003328
+  },
+  "yesterday": {
+    "down": 4148166656,
+    "up": 95042928
+  },
+  "week": {
+    "down": 28856811520,
+    "up": 669620633
+  },
+  "month": {
+    "down": 110467481600,
+    "up": 2570479104
+  },
+  "total": {
+    "down": 463963422720,
+    "up": 10796012236
+  },
+  "version": 1
+}
