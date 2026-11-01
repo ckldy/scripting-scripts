@@ -1,4 +1,7 @@
-var _a, _b;
+var __defProp = Object.defineProperty;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+var _a, _b, _c;
 (function polyfill() {
   const relList = document.createElement("link").relList;
   if (relList && relList.supports && relList.supports("modulepreload")) return;
@@ -372,7 +375,7 @@ function initialize$q() {
     } catch {
     }
     async function refresh() {
-      var _a2, _b2, _c;
+      var _a2, _b2, _c2;
       enable(false);
       show("正在读取共享配置…");
       if (retryButton) retryButton.hidden = true;
@@ -388,7 +391,7 @@ function initialize$q() {
           syncFields();
           field.value = String(((_a2 = result.value) == null ? void 0 : _a2.name) ?? "");
           uploaded = ((_b2 = result.value) == null ? void 0 : _b2.logo) && String(result.value.logo).startsWith("data:") ? String(result.value.logo) : "";
-          if (url) url.value = uploaded ? "" : String(((_c = result.value) == null ? void 0 : _c.logo) ?? "");
+          if (url) url.value = uploaded ? "" : String(((_c2 = result.value) == null ? void 0 : _c2.logo) ?? "");
           show(validationError.message + " 已载入服务器上的原始值，请修正后保存。", true);
           return;
         }
@@ -565,6 +568,8 @@ class ApiError extends Error {
 function throwIfAborted(signal) {
   if (signal.aborted) throw signal.reason || new DOMException("Request cancelled", "AbortError");
 }
+const RULE_DOWNLOAD_TIMEOUT = 3e5;
+const downloadsRules = (path, method) => method !== "GET" && method !== "HEAD" && /^\/(?:api\/v1\/(?:rule-groups|adguard)|plugins\/(?:adguard|custom_cn|custom_non_cn|geoip_cn|geoip_non_cn|geosite_cn|geosite_non_cn))(?:\/|$)/.test(new URL(String(path), "http://localdns.invalid").pathname);
 class HttpClient {
   constructor(options = {}) {
     this.options = options;
@@ -575,7 +580,8 @@ class HttpClient {
   }
   async run(path, request2, read) {
     var _a2, _b2;
-    const { timeout = this.options.timeout ?? 1e4, ...options } = request2;
+    const long = downloadsRules(path, String(request2.method || "GET").toUpperCase());
+    const { timeout = long ? this.options.downloadTimeout ?? RULE_DOWNLOAD_TIMEOUT : this.options.timeout ?? 1e4, ...options } = request2;
     const controller = new AbortController();
     const signal = options.signal || (String(options.method || "GET").toUpperCase() === "GET" ? (_b2 = (_a2 = this.options).signal) == null ? void 0 : _b2.call(_a2) : void 0);
     const forward = () => controller.abort(signal == null ? void 0 : signal.reason);
@@ -594,7 +600,7 @@ class HttpClient {
       return value;
     } catch (error) {
       if (signal == null ? void 0 : signal.aborted) throw signal.reason || new DOMException("Request cancelled", "AbortError");
-      if (timedOut) throw new ApiError("请求超时，请重试。", 0, null, "timeout");
+      if (timedOut) throw new ApiError(long ? `等待超过 ${Math.round(timeout / 6e4)} 分钟仍未收到结果，服务器可能仍在更新。请稍后刷新查看更新时间，请勿重复提交。` : "请求超时，请检查与 LocalDNS 的连接。", 0, null, "timeout");
       if (error instanceof ApiError) throw error;
       if (error instanceof SyntaxError) throw new ApiError("服务器返回了无效的 JSON。", 0, null, "invalid-json");
       if (error instanceof Error && error.name === "AbortError") throw error;
@@ -692,6 +698,7 @@ const assetHttp = new HttpClient();
 const backendHttp = new HttpClient({
   base: String(((_a = globalThis.LOCALDNS_UI_CONFIG) == null ? void 0 : _a.apiBase) || "").replace(/\/$/, ""),
   timeout: ((_b = globalThis.LOCALDNS_UI_CONFIG) == null ? void 0 : _b.requestTimeout) || 1e4,
+  downloadTimeout: ((_c = globalThis.LOCALDNS_UI_CONFIG) == null ? void 0 : _c.downloadTimeout) || 3e5,
   signal: () => currentScope().signal
 });
 let fontsService;
@@ -703,7 +710,7 @@ function initialize$p() {
   const list = document.querySelector("#font-upload-list");
   const hint = document.querySelector("#val-font-upload");
   if (!typography || !input || !button || !list || !hint) return;
-  let records = [], faces = /* @__PURE__ */ new Map(), pending = /* @__PURE__ */ new Map(), ready = false, busy = false;
+  let records = [], faces = /* @__PURE__ */ new Map(), pending2 = /* @__PURE__ */ new Map(), ready = false, busy = false;
   const message = (text2) => {
     hint.textContent = text2;
   };
@@ -844,7 +851,7 @@ function initialize$p() {
   async function loadSelected() {
     const selected = new Set(Object.values(typography.getSelection()));
     for (const record2 of records.filter((record3) => record3.shared && selected.has(record3.id))) {
-      if (faces.has(record2.id) || pending.has(record2.id)) continue;
+      if (faces.has(record2.id) || pending2.has(record2.id)) continue;
       const task = (async () => {
         try {
           const face = new FontFace(`LocalDNSUploaded_${record2.id}`, `url(${JSON.stringify(sharedUIService.asset(record2.path))})`);
@@ -854,10 +861,10 @@ function initialize$p() {
         } catch {
           message(`服务器字体“${record2.name}”无法加载，暂用默认字体；刷新可重试。`);
         } finally {
-          pending.delete(record2.id);
+          pending2.delete(record2.id);
         }
       })();
-      pending.set(record2.id, task);
+      pending2.set(record2.id, task);
       await task;
     }
   }
@@ -2930,12 +2937,12 @@ function createDOMPurify() {
     for (let round = 0; ; round++) {
       const live = _collectLiveNodes(root);
       const containers = [root];
-      let pending = false;
+      let pending2 = false;
       arrayForEach(live, (node) => {
         if (_readNodeType(node) === NODE_TYPE.documentFragment) arrayPush(containers, node);
-        else if (!pending && !setHas(visited, node)) pending = setHas(getOriginal(), node);
+        else if (!pending2 && !setHas(visited, node)) pending2 = setHas(getOriginal(), node);
       });
-      if (!pending) return;
+      if (!pending2) return;
       if (round >= MAX_UNVISITED_ROUNDS) throw typeErrorCreate("the tree kept changing during in-place sanitization; refusing to return it");
       arrayForEach(containers, (container, index) => {
         _sanitizeUnvisitedIn(container, index > 0, root, getOriginal());
@@ -3861,7 +3868,7 @@ function initialize$m() {
     };
   }
   function render(container, series, minutes, now = Date.now(), state2 = {}) {
-    var _a2, _b2, _c, _d;
+    var _a2, _b2, _c2, _d;
     const metric = definitions[state2.metric] && !definitions[state2.metric].hidden ? state2.metric : "anomaly";
     const definition = definitions[metric], s = summary(series, minutes, now, metric);
     const focus = container.contains(document.activeElement) ? (_a2 = document.activeElement) == null ? void 0 : _a2.dataset.trafficMetric : null;
@@ -3902,7 +3909,7 @@ function initialize$m() {
       container.append(error);
     }
     inspect(container, s.points, metric);
-    if (definitions[focus]) (_c = container.querySelector(`[data-traffic-metric="${focus}"]`)) == null ? void 0 : _c.focus({ preventScroll: true });
+    if (definitions[focus]) (_c2 = container.querySelector(`[data-traffic-metric="${focus}"]`)) == null ? void 0 : _c2.focus({ preventScroll: true });
     if (plotFocused) (_d = container.querySelector(".traffic-plot")) == null ? void 0 : _d.focus({ preventScroll: true });
   }
   trafficService = { parse, raw, record: record2, summary, aggregate, chart, render, definitions };
@@ -4002,7 +4009,7 @@ const trafficRepository = new TrafficRepository();
 let trafficClientService;
 function initialize$l() {
   const series = [];
-  let range = 60, metric = "anomaly", overviewContext = null, pending = null, lastAttempt = 0, error = "", storageError = "", loading = true, mountedScope, breakNext = true;
+  let range = 60, metric = "anomaly", overviewContext = null, pending2 = null, lastAttempt = 0, error = "", storageError = "", loading = true, mountedScope, breakNext = true;
   const overview = () => !location.hash || location.hash === "#/overview" || location.hash === "#overview";
   const base = () => {
     var _a2;
@@ -4035,12 +4042,12 @@ function initialize$l() {
   }
   async function refresh(force = false) {
     const scope = currentScope();
-    if ((pending == null ? void 0 : pending.scope) === scope) return pending.promise;
+    if ((pending2 == null ? void 0 : pending2.scope) === scope) return pending2.promise;
     if (!force && Date.now() - lastAttempt < 4e3) return;
     lastAttempt = Date.now();
     const controller = new AbortController(), release = scope.add(() => controller.abort());
     const request2 = { scope, controller };
-    pending = request2;
+    pending2 = request2;
     request2.promise = (async () => {
       try {
         throwIfAborted(scope.signal);
@@ -4066,7 +4073,7 @@ function initialize$l() {
         if (!scope.signal.aborted) error = "DNS 趋势采样暂时不可用，请检查连接后重新读取。";
       } finally {
         release();
-        if (pending === request2) pending = null;
+        if (pending2 === request2) pending2 = null;
         if (!scope.signal.aborted) redraw();
       }
     })();
@@ -4295,10 +4302,10 @@ function initialize$k() {
   }
   function semantics(root = document) {
     $$2("input:not([type=file]),select,textarea", root).forEach((input) => {
-      var _a2, _b2, _c, _d, _e;
+      var _a2, _b2, _c2, _d, _e;
       const field = input.closest(".field"), label = field && $2("label", field);
       if (label && input.id) label.htmlFor = input.id;
-      if (input.type === "checkbox" && !input.getAttribute("aria-label")) input.setAttribute("aria-label", ((_b2 = (_a2 = input.closest(".feature-card")) == null ? void 0 : _a2.querySelector("h3")) == null ? void 0 : _b2.textContent) || ((_d = (_c = input.closest("tr")) == null ? void 0 : _c.querySelector("strong")) == null ? void 0 : _d.textContent) || ((_e = input.closest("label")) == null ? void 0 : _e.textContent.trim()) || "启用");
+      if (input.type === "checkbox" && !input.getAttribute("aria-label")) input.setAttribute("aria-label", ((_b2 = (_a2 = input.closest(".feature-card")) == null ? void 0 : _a2.querySelector("h3")) == null ? void 0 : _b2.textContent) || ((_d = (_c2 = input.closest("tr")) == null ? void 0 : _c2.querySelector("strong")) == null ? void 0 : _d.textContent) || ((_e = input.closest("label")) == null ? void 0 : _e.textContent.trim()) || "启用");
     });
     $$2(".t-node,.spark-kpi-card,[data-route]", root).forEach((el) => {
       if (!["BUTTON", "A"].includes(el.tagName)) {
@@ -4345,22 +4352,6 @@ function initialize$k() {
       }
     });
   }
-  function ruleMenuOptions(tag) {
-    const menu = $2(".rule-menu");
-    let items = [];
-    try {
-      items = JSON.parse((menu == null ? void 0 : menu.dataset.ruleOptions) || "[]");
-    } catch {
-    }
-    if (!Array.isArray(items) || !items.length) items = $$2(".rule-menu [data-rule-tag]").map((b) => {
-      var _a2;
-      return { tag: b.dataset.ruleTag, label: ((_a2 = b.querySelector("span")) == null ? void 0 : _a2.textContent) || b.textContent.trim(), group: "" };
-    });
-    const option = (x) => `<option value="${escape(x.tag)}" ${x.tag === tag ? "selected" : ""}>${escape(x.label)}</option>`;
-    const groups2 = [...new Set(items.map((x) => x.group || ""))];
-    if (groups2.length < 2 || groups2.every((g) => !g)) return items.map(option).join("");
-    return groups2.map((g) => `<optgroup label="${escape(g)}">${items.filter((x) => (x.group || "") === g).map(option).join("")}</optgroup>`).join("");
-  }
   function ruleState() {
     const el = $2(".console-rule-state"), tag = activeTag();
     if (!el) return;
@@ -4384,17 +4375,6 @@ function initialize$k() {
         ruleState();
       });
       insertHTML($2(".section-header>div"), "beforeend", '<div class="console-rule-state" role="status"></div>');
-      if (!$2(".console-rule-select")) {
-        const select = document.createElement("div");
-        select.className = "console-rule-select";
-        setHTML(select, '<label for="console-list-select">名单类别</label><select id="console-list-select">' + ruleMenuOptions(tag) + "</select>");
-        $2(".rule-editor").prepend(select);
-        $2("select", select).onchange = (e) => {
-          var _a2;
-          rememberDraft();
-          (_a2 = $2(`.rule-menu [data-rule-tag="${e.target.value}"]`)) == null ? void 0 : _a2.click();
-        };
-      }
     }
     ruleState();
   }
@@ -5354,8 +5334,172 @@ function initialize$f() {
   }
   topologyFlowService = { start, stop, sync: () => current == null ? void 0 : current.sync() };
 }
-let queryPathService;
+const overviewInsightsService = (() => {
+  "use strict";
+  const names = {
+    cache_main: "主缓存命中",
+    cache_domestic: "国内缓存命中",
+    cache_foreign: "国外缓存命中",
+    cache_foreign_ecs: "国外 ECS 缓存命中",
+    blocked_qtype: "查询类型屏蔽",
+    blocked_nodata: "无结果请求屏蔽",
+    client_direct: "客户端直连",
+    geosite_non_cn: "非国内规则命中",
+    whitelist: "白名单命中",
+    greylist: "灰名单命中",
+    blocked: "请求屏蔽",
+    direct_list: "直连名单命中",
+    proxy_list: "代理名单命中",
+    proxy_realip_list: "代理真实 IP 名单命中",
+    geosite_cn_use_foreign_cn: "国内规则采用国外返回的国内地址",
+    rewrite: "重定向规则命中",
+    learned_realip: "已学习 RealIP",
+    learned_fakeip: "已学习 FakeIP",
+    geosite_cn: "国内规则命中",
+    custom_cn: "自定义国内规则",
+    custom_non_cn: "自定义非国内规则",
+    unknown_fakeip: "未知域名 FakeIP",
+    geosite_cn_nodata: "国内规则无记录",
+    geosite_cn_unverified: "国内规则待验证",
+    geosite_cn_conflict_fakeip: "国内规则冲突 FakeIP",
+    client_direct_upstream_error: "客户端直连上游错误",
+    geosite_non_cn_upstream_error: "非国内规则上游错误",
+    local_name: "本地保留名应答",
+    local_any: "ANY 查询本地应答",
+    local_meta: "META 查询本地应答",
+    local_reverse: "反查区本地应答",
+    local_xfr: "区域传送本地应答",
+    unknown_noaddr: "未知域名无地址",
+    foreign_other: "其他国外结果",
+    blocked_aaaa: "IPv6 屏蔽",
+    adguard: "广告拦截",
+    pcdn: "PCDN 拦截",
+    domestic_ddns: "DDNS 直连",
+    prefer_blocked: "双栈优选屏蔽",
+    unknown: "列表外域名",
+    nxdomain_reuse: "域名不存在·复用",
+    zone_fakeip: "同站·国外",
+    zone_domestic: "同站·国内",
+    zone_miss: "同站·未定",
+    zone_check: "同站复核（后台）",
+    zone_apex: "主域名查询（后台）",
+    other: "其他类型",
+    domestic: "国内解析",
+    foreign: "国外解析",
+    domestic_other: "其他类型·国内",
+    domestic_after_ecs: "国内·ECS 之后"
+  };
+  const suffixes = {
+    other: "其他类型",
+    service_empty: "HTTPS 本地回空",
+    service_timeout: "HTTPS 超时回空",
+    unverified_noreply: "待验证·国外无回应",
+    unverified: "待验证",
+    noreply: "国外无回应",
+    nodata: "无记录",
+    noaddr: "无地址",
+    nxdomain: "域名不存在",
+    conflict: "冲突复核",
+    follow_a: "跟随 A",
+    hidden_recent: "刚发现隐藏",
+    hidden: "隐藏域名",
+    fakeip: "走代理",
+    realip: "直连",
+    ecs: "ECS",
+    domestic_fallback: "国内兜底",
+    domestic_negative: "国内无结果",
+    domestic: "问国内",
+    direct_ip: "直连 IP 段",
+    foreign_cn: "国外返回国内地址",
+    use_foreign_cn: "采用国外返回的国内地址",
+    unknown: "列表外",
+    sinkhole: "黑洞地址",
+    upstream_error: "上游出错",
+    overload: "繁忙拒绝",
+    error: "出错"
+  };
+  const baseKeys = Object.keys(names).sort((a, b) => b.length - a.length);
+  const suffixKeys = Object.keys(suffixes).sort((a, b) => b.length - a.length);
+  const tones = {
+    cache_main: 0,
+    blocked_qtype: 2,
+    blocked_nodata: 4,
+    client_direct: 1,
+    geosite_non_cn: 3,
+    geosite_cn: 1,
+    whitelist: 1,
+    greylist: 3,
+    blocked: 4,
+    learned_realip: 1,
+    learned_fakeip: 3,
+    __other__: 5
+  };
+  const palettes = {
+    glass: ["#2563eb", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#64748b"],
+    claude: ["#3b6d9b", "#2d6a4f", "#b45309", "#87619e", "#b91c1c", "#857f74"]
+  };
+  const pools = {
+    cache_main: { code: "MAIN", short: "全部缓存", shortLabel: "全部缓存", sub: "最终结果主缓存池", tag: "cache_main", full: "全部缓存 (cache_main)", tone: "main" },
+    cache_domestic: { code: "CN", short: "国内缓存", shortLabel: "国内缓存", sub: "大陆域名直连缓存", tag: "cache_domestic", full: "国内缓存 (cache_domestic)", tone: "domestic" },
+    cache_foreign: { code: "GL", short: "国外缓存", shortLabel: "国外缓存", sub: "海外无污染缓存", tag: "cache_foreign", full: "国外缓存 (cache_foreign)", tone: "foreign" },
+    cache_foreign_ecs: { code: "ECS", short: "国外 ECS", shortLabel: "国外 ECS", sub: "EDNS 子网缓存", tag: "cache_foreign_ecs", full: "国外 ECS (cache_foreign_ecs)", tone: "ecs" }
+  };
+  function label(key) {
+    const code = String(key || "");
+    if (!code) return "未分类";
+    if (names[code]) return names[code];
+    const base = baseKeys.find((name) => code.startsWith(name + "_"));
+    if (!base) return code;
+    const out = [names[base]];
+    let rest = code.slice(base.length);
+    while (rest.startsWith("_")) {
+      const suffix = suffixKeys.find((name) => rest === "_" + name || rest.startsWith("_" + name + "_"));
+      if (!suffix) {
+        out.push(rest.slice(1));
+        break;
+      }
+      out.push(suffixes[suffix]);
+      rest = rest.slice(suffix.length + 1);
+    }
+    return out.join("·");
+  }
+  function color(key, skin) {
+    const hash = [...String(key)].reduce((value, ch) => value * 31 + ch.charCodeAt(0) >>> 0, 0);
+    return (palettes[skin] || palettes.glass)[tones[key] ?? hash % 5];
+  }
+  function distribution(items, visible = 6) {
+    const counts = /* @__PURE__ */ new Map();
+    for (const row of Array.isArray(items) ? items : []) {
+      const count = Number(row == null ? void 0 : row.count), key = String((row == null ? void 0 : row.key) || "");
+      if (Number.isFinite(count) && count > 0) counts.set(key, (counts.get(key) || 0) + count);
+    }
+    const all = [...counts].map(([key, count]) => ({ key, count, label: label(key) })).sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+    const total = all.reduce((sum, row) => sum + row.count, 0);
+    const shown = all.length > visible ? [...all.slice(0, visible - 1), {
+      key: "__other__",
+      label: "其他",
+      count: all.slice(visible - 1).reduce((sum, row) => sum + row.count, 0),
+      members: all.slice(visible - 1)
+    }] : all;
+    return { all, total, shown };
+  }
+  function latencyTier(durationMs) {
+    const v = Number(durationMs) || 0;
+    if (v > 500) return "critical";
+    if (v >= 300) return "warn";
+    if (v >= 150) return "moderate";
+    return "fast";
+  }
+  function poolInfo(tag) {
+    const t = String(tag || "缓存池");
+    return pools[tag] || { code: "POOL", short: t, shortLabel: t, sub: t, tag: t, full: t, tone: "main" };
+  }
+  return { label, color, distribution, latencyTier, poolInfo };
+})();
 function initialize$e() {
+}
+let queryPathService;
+function initialize$d() {
   "use strict";
   const esc2 = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const missing = (value) => value === null || value === void 0 || value === "";
@@ -5365,15 +5509,15 @@ function initialize$e() {
     const answers = Array.isArray(record2.answers) ? record2.answers : [];
     const steps = [{ name: "请求来源", result: aliases[record2.client_ip] || record2.client_ip || "未记录", facts: [["客户端", record2.client_ip], ["查询名称", record2.query_name], ["类型 / 类别", [record2.query_type, record2.query_class].filter(Boolean).join(" / ")]], note: "本条日志记录的查询问题与来源。" }];
     if (typeof record2.cache === "boolean") steps.push({ name: "缓存记录", result: record2.cache ? "缓存命中" : "未标记命中", facts: [["缓存标记", String(record2.cache)], ["最终分流", record2.domain_set]], note: record2.cache ? "此请求标记为缓存命中；命中前的其他执行步骤未记录。" : "cache=false 仅表示未标记缓存命中，不据此推断检查顺序。" });
-    if (record2.domain_set) steps.push({ name: "分流结果", result: record2.domain_set, facts: [["最终分流", record2.domain_set], ["学习记录", record2.learning], ["上游尝试", record2.upstream_attempt]], note: "最终分类与日志原文；未将分类推断为具体规则条目或上游节点。" });
+    if (record2.domain_set) steps.push({ name: "分流结果", result: overviewInsightsService.label(record2.domain_set), facts: [["最终分流", overviewInsightsService.label(record2.domain_set)], ["分流代码", record2.domain_set], ["学习记录", record2.learning], ["上游尝试", record2.upstream_attempt]], note: "最终分类与日志原文；未将分类推断为具体规则条目或上游节点。" });
     steps.push({ name: "返回应答", result: record2.response_code || "未记录", facts: [["响应码", record2.response_code], ["应答条数", answers.length], ["请求总耗时", elapsed(record2.duration_ms)]], note: "请求总耗时按接口原值显示，阶段耗时没有单独记录。" });
     const cached = record2.cache === true && record2.domain_set === "cache_main";
-    const conclusion = cached ? "主缓存命中，返回 " + answers.length + " 条应答。" : [record2.domain_set ? "分流结果：" + record2.domain_set : "分流未记录", record2.response_code || "响应码未记录", answers.length + " 条应答"].join(" · ");
+    const conclusion = cached ? "主缓存命中，返回 " + answers.length + " 条应答。" : [record2.domain_set ? "分流结果：" + overviewInsightsService.label(record2.domain_set) : "分流未记录", record2.response_code || "响应码未记录", answers.length + " 条应答"].join(" · ");
     return { record: record2, answers, steps, conclusion };
   }
   function html2(record2, aliases = {}) {
     const m = model(record2, aliases);
-    return `<div class="query-path" data-query-path><div class="query-path-summary"><p>${esc2(m.conclusion)}</p>${facts([["请求总耗时", elapsed(record2.duration_ms)], ["Trace ID", record2.trace_id], ["记录范围", "已有字段摘要"]])}</div><section class="query-path-overview"><header><h3>已记录的路径</h3><span>点击查看依据</span></header><ol class="query-path-nodes">${m.steps.map((s, i) => `<li><button type="button" data-path-step="${i}" aria-pressed="${i === 0}" aria-controls="query-path-step-detail"><strong>${esc2(s.name)}</strong><span>${esc2(s.result)}</span><small>耗时未记录</small></button></li>`).join("")}</ol></section><section id="query-path-step-detail" class="query-path-step" aria-label="所选步骤"></section><p class="query-path-gap">本条缺少逐步执行记录。未记录不代表未执行；不补造规则、上游或分段耗时。</p><section class="query-path-answers"><header><h3>应答记录</h3><span>${m.answers.length} 条</span></header>${m.answers.length ? `<div class="table-wrap"><table><thead><tr><th>类型</th><th>值</th><th>TTL</th></tr></thead><tbody>${m.answers.map((a) => `<tr><td>${esc2(a.type ?? a.record_type ?? "未记录")}</td><td class="mono">${esc2(a.data ?? a.value ?? "未记录")}</td><td>${esc2(a.ttl === void 0 || a.ttl === null ? "—" : a.ttl + " s")}</td></tr>`).join("")}</tbody></table></div>` : '<p class="query-path-note">本条日志没有 Answer 记录。</p>'}</section><details class="workspace-note"><summary>原始日志</summary><pre>${esc2(JSON.stringify(record2, null, 2))}</pre></details></div>`;
+    return `<div class="query-path" data-query-path><div class="query-path-summary"><p>${esc2(m.conclusion)}</p>${facts([["请求总耗时", elapsed(record2.duration_ms)], ["追踪编号", record2.trace_id], ["记录范围", "已有字段摘要"]])}</div><section class="query-path-overview"><header><h3>已记录的路径</h3><span>点击查看依据</span></header><ol class="query-path-nodes">${m.steps.map((s, i) => `<li><button type="button" data-path-step="${i}" aria-pressed="${i === 0}" aria-controls="query-path-step-detail"><strong>${esc2(s.name)}</strong><span>${esc2(s.result)}</span><small>耗时未记录</small></button></li>`).join("")}</ol></section><section id="query-path-step-detail" class="query-path-step" aria-label="所选步骤"></section><p class="query-path-gap">本条缺少逐步执行记录。未记录不代表未执行；不补造规则、上游或分段耗时。</p><section class="query-path-answers"><header><h3>应答记录</h3><span>${m.answers.length} 条</span></header>${m.answers.length ? `<div class="table-wrap"><table><thead><tr><th>类型</th><th>值</th><th>TTL</th></tr></thead><tbody>${m.answers.map((a) => `<tr><td>${esc2(a.type ?? a.record_type ?? "未记录")}</td><td class="mono">${esc2(a.data ?? a.value ?? "未记录")}</td><td>${esc2(a.ttl === void 0 || a.ttl === null ? "—" : a.ttl + " s")}</td></tr>`).join("")}</tbody></table></div>` : '<p class="query-path-note">本条日志没有应答记录。</p>'}</section><details class="workspace-note"><summary>原始日志</summary><pre>${esc2(JSON.stringify(record2, null, 2))}</pre></details></div>`;
   }
   function bind(root, record2, aliases = {}) {
     const m = model(record2, aliases), detail = root.querySelector("#query-path-step-detail");
@@ -5389,7 +5533,7 @@ function initialize$e() {
   queryPathService = { model, html: html2, bind };
 }
 let rankLatencyService;
-function initialize$d() {
+function initialize$c() {
   "use strict";
   const limit = 1e3;
   function params(kind, key) {
@@ -5453,121 +5597,962 @@ function initialize$d() {
   }
   rankLatencyService = { create: create2, summarize, params };
 }
-const overviewInsightsService = (() => {
-  "use strict";
-  const names = {
-    cache_main: "主缓存命中",
-    cache_domestic: "国内缓存命中",
-    cache_foreign: "国外缓存命中",
-    cache_foreign_ecs: "国外 ECS 缓存命中",
-    blocked_qtype: "查询类型屏蔽",
-    blocked_nodata: "无结果请求屏蔽",
-    client_direct: "客户端直连",
-    geosite_non_cn: "非国内规则命中",
-    whitelist: "白名单命中",
-    greylist: "灰名单命中",
-    blocked: "请求屏蔽",
-    direct_list: "直连名单命中",
-    proxy_list: "代理名单命中",
-    proxy_realip_list: "代理真实 IP 名单命中",
-    geosite_cn_use_foreign_cn: "国内规则使用国外 ECS",
-    rewrite: "重定向规则命中",
-    learned_realip: "已学习 RealIP",
-    learned_fakeip: "已学习 FakeIP",
-    geosite_cn: "国内规则命中",
-    custom_cn: "自定义国内规则",
-    custom_non_cn: "自定义非国内规则",
-    unknown_fakeip: "未知域名 FakeIP",
-    geosite_cn_nodata: "国内规则无记录",
-    geosite_cn_unverified: "国内规则待验证",
-    geosite_cn_conflict_fakeip: "国内规则冲突 FakeIP",
-    client_direct_upstream_error: "客户端直连上游错误",
-    geosite_non_cn_upstream_error: "非国内规则上游错误",
-    local_name: "本地保留名应答",
-    local_any: "ANY 查询本地应答",
-    local_meta: "META 查询本地应答",
-    local_reverse: "反查区本地应答",
-    local_xfr: "区域传送本地应答",
-    unknown_noaddr: "未知域名无地址",
-    foreign_other: "其他国外结果"
-  };
-  const tones = {
-    cache_main: 0,
-    blocked_qtype: 2,
-    blocked_nodata: 4,
-    client_direct: 1,
-    geosite_non_cn: 3,
-    geosite_cn: 1,
-    whitelist: 1,
-    greylist: 3,
-    blocked: 4,
-    learned_realip: 1,
-    learned_fakeip: 3,
-    __other__: 5
-  };
-  const palettes = {
-    glass: ["#2563eb", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#64748b"],
-    claude: ["#3b6d9b", "#2d6a4f", "#b45309", "#87619e", "#b91c1c", "#857f74"]
-  };
-  const pools = {
-    cache_main: { code: "MAIN", short: "全部缓存", shortLabel: "全部缓存", sub: "最终结果主缓存池", tag: "cache_main", full: "全部缓存 (cache_main)", tone: "main" },
-    cache_domestic: { code: "CN", short: "国内缓存", shortLabel: "国内缓存", sub: "大陆域名直连缓存", tag: "cache_domestic", full: "国内缓存 (cache_domestic)", tone: "domestic" },
-    cache_foreign: { code: "GL", short: "国外缓存", shortLabel: "国外缓存", sub: "海外无污染缓存", tag: "cache_foreign", full: "国外缓存 (cache_foreign)", tone: "foreign" },
-    cache_foreign_ecs: { code: "ECS", short: "国外 ECS", shortLabel: "国外 ECS", sub: "EDNS 子网缓存", tag: "cache_foreign_ecs", full: "国外 ECS (cache_foreign_ecs)", tone: "ecs" }
-  };
-  const label = (key) => names[key] || String(key || "未分类");
-  function color(key, skin) {
-    const hash = [...String(key)].reduce((value, ch) => value * 31 + ch.charCodeAt(0) >>> 0, 0);
-    return (palettes[skin] || palettes.glass)[tones[key] ?? hash % 5];
-  }
-  function distribution(items, visible = 6) {
-    const counts = /* @__PURE__ */ new Map();
-    for (const row of Array.isArray(items) ? items : []) {
-      const count = Number(row == null ? void 0 : row.count), key = String((row == null ? void 0 : row.key) || "");
-      if (Number.isFinite(count) && count > 0) counts.set(key, (counts.get(key) || 0) + count);
-    }
-    const all = [...counts].map(([key, count]) => ({ key, count, label: label(key) })).sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
-    const total = all.reduce((sum, row) => sum + row.count, 0);
-    const shown = all.length > visible ? [...all.slice(0, visible - 1), {
-      key: "__other__",
-      label: "其他",
-      count: all.slice(visible - 1).reduce((sum, row) => sum + row.count, 0),
-      members: all.slice(visible - 1)
-    }] : all;
-    return { all, total, shown };
-  }
-  function latencyTier(durationMs) {
-    const v = Number(durationMs) || 0;
-    if (v > 500) return "critical";
-    if (v >= 300) return "warn";
-    if (v >= 150) return "moderate";
-    return "fast";
-  }
-  function poolInfo(tag) {
-    const t = String(tag || "缓存池");
-    return pools[tag] || { code: "POOL", short: t, shortLabel: t, sub: t, tag: t, full: t, tone: "main" };
-  }
-  return { label, color, distribution, latencyTier, poolInfo };
-})();
-function initialize$c() {
+const U32_MASK64 = /* @__PURE__ */ (() => BigInt(2 ** 32 - 1))();
+const _32n = /* @__PURE__ */ BigInt(32);
+function fromBig(n, le = false) {
+  if (le)
+    return { h: Number(n & U32_MASK64), l: Number(n >> _32n & U32_MASK64) };
+  return { h: Number(n >> _32n & U32_MASK64) | 0, l: Number(n & U32_MASK64) | 0 };
 }
+function split(lst, le = false) {
+  const len = lst.length;
+  let Ah = new Uint32Array(len);
+  let Al = new Uint32Array(len);
+  for (let i = 0; i < len; i++) {
+    const { h, l } = fromBig(lst[i], le);
+    [Ah[i], Al[i]] = [h, l];
+  }
+  return [Ah, Al];
+}
+const toBig = (h, l) => BigInt(h >>> 0) << _32n | BigInt(l >>> 0);
+const fromNumH = (n) => n / 2 ** 32 | 0;
+const fromNumL = (n) => n >>> 0;
+function setU64FromNum(view, byteOffset, n, isLE2) {
+  const h = fromNumH(n);
+  const l = fromNumL(n);
+  view.setUint32(byteOffset, isLE2 ? l : h, isLE2);
+  view.setUint32(byteOffset + 4, isLE2 ? h : l, isLE2);
+}
+const shrSH = (h, _l, s) => h >>> s;
+const shrSL = (h, l, s) => h << 32 - s | l >>> s;
+const rotrSH = (h, l, s) => h >>> s | l << 32 - s;
+const rotrSL = (h, l, s) => h << 32 - s | l >>> s;
+const rotrBH = (h, l, s) => h << 64 - s | l >>> s - 32;
+const rotrBL = (h, l, s) => h >>> s - 32 | l << 64 - s;
+const rotr32H = (_h, l) => l;
+const rotr32L = (h, _l) => h;
+function add(Ah, Al, Bh, Bl) {
+  const l = (Al >>> 0) + (Bl >>> 0);
+  return { h: Ah + Bh + (l / 2 ** 32 | 0) | 0, l: l | 0 };
+}
+const add3L = (Al, Bl, Cl) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0);
+const add3H = (low, Ah, Bh, Ch) => Ah + Bh + Ch + (low / 2 ** 32 | 0) | 0;
+const add4L = (Al, Bl, Cl, Dl) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0) + (Dl >>> 0);
+const add4H = (low, Ah, Bh, Ch, Dh) => Ah + Bh + Ch + Dh + (low / 2 ** 32 | 0) | 0;
+const add5L = (Al, Bl, Cl, Dl, El) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0) + (Dl >>> 0) + (El >>> 0);
+const add5H = (low, Ah, Bh, Ch, Dh, Eh) => Ah + Bh + Ch + Dh + Eh + (low / 2 ** 32 | 0) | 0;
+function isBytes(a) {
+  return a instanceof Uint8Array || ArrayBuffer.isView(a) && a.constructor.name === "Uint8Array" && "BYTES_PER_ELEMENT" in a && a.BYTES_PER_ELEMENT === 1;
+}
+const atitle = (title) => title ? `"${title}" ` : "";
+function anumber(n, title = "") {
+  if (typeof n !== "number")
+    throw new TypeError(atitle(title) + "expected number, got " + typeof n);
+  if (!Number.isSafeInteger(n) || n < 0)
+    throw new RangeError(atitle(title) + "expected integer >= 0, got " + n);
+  return n;
+}
+function abool(value, title = "") {
+  if (typeof value !== "boolean")
+    throw new TypeError(atitle(title) + "expected boolean, got type=" + typeof value);
+  return value;
+}
+function abytes(value, length, title = "") {
+  if (isBytes(value) && (length === void 0 || value.length === length))
+    return value;
+  if (length !== void 0)
+    anumber(length, "length");
+  const bytes = isBytes(value);
+  const ofLen = length !== void 0 ? ` of length ${length}` : "";
+  const got = bytes ? `length=${value.length}` : `type=${typeof value}`;
+  const message = atitle(title) + "expected Uint8Array" + ofLen + ", got " + got;
+  if (!bytes)
+    throw new TypeError(message);
+  throw new RangeError(message);
+}
+function copyBytes(bytes) {
+  return Uint8Array.from(abytes(bytes));
+}
+function ahash(h) {
+  if (typeof h !== "function" || typeof h.create !== "function")
+    throw new TypeError("expected hash wrapped by utils.createHasher");
+  anumber(h.outputLen);
+  anumber(h.blockLen);
+  if (h.outputLen < 1 || h.blockLen < 1)
+    throw new Error("hash blockLen / outputLen must be >= 1");
+}
+const aobject = (value, label) => {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    throw new TypeError((label === "object" ? "" : `"${label}" `) + "expected object, got type=" + typeof value);
+};
+const aopts = (value, label) => {
+  aobject(value, label);
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null)
+    throw new TypeError(`"${label}" expected plain object`);
+  if (Object.hasOwn(value, "__proto__"))
+    throw new TypeError(`"${label}.__proto__" is not allowed`);
+};
+function aexists(instance, checkFinished = true) {
+  if (instance.destroyed)
+    throw new Error("hash was destroyed");
+  if (checkFinished && instance.finished)
+    throw new Error("digest() was already called");
+}
+function aoutput(out, instance) {
+  abytes(out, void 0, "output");
+  const min = instance.outputLen;
+  if (!(out.length >= min)) {
+    throw new RangeError('"output" expected length >= ' + min);
+  }
+}
+function u8(arr) {
+  return new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
+}
+function u32(arr) {
+  return new Uint32Array(arr.buffer, arr.byteOffset, Math.floor(arr.byteLength / 4));
+}
+function clean(...arrays) {
+  for (let i = 0; i < arrays.length; i++) {
+    arrays[i].fill(0);
+  }
+}
+function createView(arr) {
+  return new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+}
+function rotr(word, shift) {
+  return word << 32 - shift | word >>> shift;
+}
+function rotl(word, shift) {
+  return word << shift | word >>> 32 - shift >>> 0;
+}
+const isLE = /* @__PURE__ */ (() => new Uint8Array(new Uint32Array([287454020]).buffer)[0] === 68)();
+function byteSwap(word) {
+  return word << 24 & 4278190080 | word << 8 & 16711680 | word >>> 8 & 65280 | word >>> 24 & 255;
+}
+const swap8IfBE = isLE ? (n) => n : (n) => byteSwap(n) >>> 0;
+function byteSwap32(arr) {
+  for (let i = 0; i < arr.length; i++) {
+    arr[i] = byteSwap(arr[i]);
+  }
+  return arr;
+}
+const swap32IfBE = isLE ? (u) => u : byteSwap32;
+const hasHexBuiltin = /* @__PURE__ */ (() => (
+  // @ts-ignore
+  typeof Uint8Array.from([]).toHex === "function" && typeof Uint8Array.fromHex === "function"
+))();
+const hexes = /* @__PURE__ */ Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
+function bytesToHex(bytes) {
+  abytes(bytes);
+  if (hasHexBuiltin)
+    return bytes.toHex();
+  let hex = "";
+  for (let i = 0; i < bytes.length; i++) {
+    hex += hexes[bytes[i]];
+  }
+  return hex;
+}
+function asciiToBase16(ch) {
+  return ch >= 48 && ch <= 57 ? ch - 48 : ch >= 65 && ch <= 70 ? ch - (65 - 10) : ch >= 97 && ch <= 102 ? ch - (97 - 10) : void 0;
+}
+function hexToBytes(hex) {
+  if (typeof hex !== "string")
+    throw new TypeError("hex string expected, got " + typeof hex);
+  if (hasHexBuiltin) {
+    try {
+      return Uint8Array.fromHex(hex);
+    } catch (error) {
+      if (error instanceof SyntaxError)
+        throw new RangeError(error.message);
+      throw error;
+    }
+  }
+  const hl = hex.length;
+  const al = hl / 2;
+  if (hl % 2)
+    throw new RangeError("hex string expected, got unpadded hex of length " + hl);
+  const array2 = new Uint8Array(al);
+  for (let ai = 0, hi = 0; ai < al; ai++, hi += 2) {
+    const n1 = asciiToBase16(hex.charCodeAt(hi));
+    const n2 = asciiToBase16(hex.charCodeAt(hi + 1));
+    if (n1 === void 0 || n2 === void 0) {
+      const char = hex[hi] + hex[hi + 1];
+      throw new RangeError('hex string expected, got non-hex character "' + char + '" at index ' + hi);
+    }
+    array2[ai] = n1 * 16 + n2;
+  }
+  return array2;
+}
+function nextTick(onReject) {
+  var _a2;
+  const host = globalThis;
+  if (typeof ((_a2 = host.scheduler) == null ? void 0 : _a2.yield) === "function") {
+    const promise = host.scheduler.yield();
+    if (onReject)
+      promise.catch(onReject);
+    return promise;
+  }
+  return new Promise((resolve) => host.setTimeout(resolve, 0));
+}
+async function asyncLoop(iters, tick, cb, onReject) {
+  anumber(iters, "iters");
+  anumber(tick, "tick");
+  if (typeof cb !== "function")
+    throw new TypeError("callback must be a function");
+  let ts = Date.now();
+  for (let i = 0; i < iters; i++) {
+    cb(i);
+    const diff = Date.now() - ts;
+    if (diff >= 0 && diff < tick)
+      continue;
+    await nextTick(onReject);
+    ts = Date.now();
+  }
+}
+function utf8ToBytes(str) {
+  if (typeof str !== "string")
+    throw new TypeError("string expected");
+  const encoded = new TextEncoder().encode(str);
+  try {
+    return new Uint8Array(encoded);
+  } finally {
+    clean(encoded);
+  }
+}
+function kdfInputToBytes(data, errorTitle = "") {
+  if (typeof data === "string")
+    return utf8ToBytes(data);
+  return abytes(data, void 0, errorTitle);
+}
+function concatBytes(...arrays) {
+  let sum = 0;
+  for (let i = 0; i < arrays.length; i++) {
+    const a = arrays[i];
+    abytes(a);
+    sum += a.length;
+  }
+  const res = new Uint8Array(sum);
+  for (let i = 0, pad = 0; i < arrays.length; i++) {
+    const a = arrays[i];
+    res.set(a, pad);
+    pad += a.length;
+  }
+  return res;
+}
+const validateObject = (object, fields = {}, optFields = {}, title = "object") => {
+  aobject(object, title);
+  aobject(fields, "fields");
+  aobject(optFields, "optFields");
+  function checkField(fieldName, expectedType, isOpt) {
+    const label = title === "object" ? `param "${String(fieldName)}"` : `"${title}.${String(fieldName)}"`;
+    const val = object[fieldName];
+    if (!Object.hasOwn(object, fieldName) && (isOpt ? val !== void 0 : expectedType !== "function")) {
+      throw new TypeError(`${label} is invalid: expected own property`);
+    }
+    if (isOpt && val === void 0)
+      return;
+    const current = typeof val;
+    if (current !== expectedType || val === null)
+      throw new TypeError(`${label} is invalid: expected ${expectedType}, got ${current}`);
+  }
+  const iter = (f, isOpt) => Object.entries(f).forEach(([k, v]) => checkField(k, v, isOpt));
+  iter(fields, false);
+  iter(optFields, true);
+};
+function checkOpts(defaults, opts, title = "opts") {
+  aopts(defaults, "defaults");
+  if (opts !== void 0)
+    aopts(opts, title);
+  const merged = Object.assign(/* @__PURE__ */ Object.create(null), defaults, opts);
+  return merged;
+}
+function createHasher(hashCons, info = {}) {
+  if (typeof hashCons !== "function")
+    throw new TypeError('"hashCons" expected function, got type=' + typeof hashCons);
+  info = checkOpts({}, info, "info");
+  const hashC = (msg, opts) => hashCons(opts).update(msg).digest();
+  const tmp = hashCons(void 0);
+  hashC.outputLen = tmp.outputLen;
+  hashC.blockLen = tmp.blockLen;
+  hashC.canXOF = tmp.canXOF;
+  hashC.create = (opts) => hashCons(opts);
+  Object.assign(hashC, info);
+  return Object.freeze(hashC);
+}
+function randomBytes(bytesLength = 32) {
+  anumber(bytesLength, "bytesLength");
+  const cr = typeof globalThis === "object" ? globalThis.crypto : null;
+  if (typeof (cr == null ? void 0 : cr.getRandomValues) !== "function")
+    throw new Error("crypto.getRandomValues must be defined");
+  if (bytesLength > 65536)
+    throw new RangeError(`"bytesLength" expected <= 65536, got ${bytesLength}`);
+  return cr.getRandomValues(new Uint8Array(bytesLength));
+}
+const oidNist = (suffix) => ({
+  // Current NIST hashAlgs suffixes used here fit in one DER subidentifier octet.
+  // Larger suffix values would need base-128 OID encoding and a different length byte.
+  oid: Uint8Array.from([6, 9, 96, 134, 72, 1, 101, 3, 4, 2, suffix])
+});
+function Chi(a, b, c) {
+  return a & b ^ ~a & c;
+}
+function Maj(a, b, c) {
+  return a & b ^ a & c ^ b & c;
+}
+class HashMD {
+  constructor(blockLen, outputLen, padOffset, isLE2) {
+    __publicField(this, "blockLen");
+    __publicField(this, "outputLen");
+    __publicField(this, "canXOF", false);
+    __publicField(this, "padOffset");
+    __publicField(this, "isLE");
+    // For partial updates less than block size
+    __publicField(this, "buffer");
+    __publicField(this, "view");
+    __publicField(this, "finished", false);
+    __publicField(this, "length", 0);
+    __publicField(this, "pos", 0);
+    __publicField(this, "destroyed", false);
+    this.blockLen = blockLen;
+    this.outputLen = outputLen;
+    this.padOffset = padOffset;
+    this.isLE = isLE2;
+    this.buffer = new Uint8Array(blockLen);
+    this.view = createView(this.buffer);
+  }
+  update(data) {
+    aexists(this);
+    abytes(data);
+    const { view, buffer, blockLen } = this;
+    const len = data.length;
+    let processed = false;
+    for (let pos = 0; pos < len; ) {
+      const take = Math.min(blockLen - this.pos, len - pos);
+      if (take === blockLen) {
+        const dataView = createView(data);
+        for (; blockLen <= len - pos; pos += blockLen)
+          this.process(dataView, pos);
+        processed = true;
+        continue;
+      }
+      buffer.set(pos === 0 && take === len ? data : data.subarray(pos, pos + take), this.pos);
+      this.pos += take;
+      pos += take;
+      if (this.pos === blockLen) {
+        this.process(view, 0);
+        this.pos = 0;
+        processed = true;
+      }
+    }
+    this.length += data.length;
+    if (processed)
+      this.roundClean();
+    return this;
+  }
+  digestInto(out) {
+    aexists(this);
+    aoutput(out, this);
+    this.finished = true;
+    const { buffer, view, blockLen, isLE: isLE2 } = this;
+    let { pos } = this;
+    buffer[pos++] = 128;
+    buffer.fill(0, pos);
+    if (this.padOffset > blockLen - pos) {
+      this.process(view, 0);
+      buffer.fill(0);
+    }
+    setU64FromNum(view, blockLen - 8, this.length * 8, isLE2);
+    this.process(view, 0);
+    this.roundClean();
+    const oview = out === buffer ? view : createView(out);
+    const len = this.outputLen;
+    const outLen = len / 4;
+    const state2 = this.get();
+    if (len % 4 || outLen > state2.length)
+      throw new Error("invalid outputLen");
+    for (let i = 0; i < outLen; i++)
+      oview.setUint32(4 * i, state2[i], isLE2);
+  }
+  digest() {
+    const { buffer, outputLen } = this;
+    this.digestInto(buffer);
+    const res = buffer.slice(0, outputLen);
+    this.destroy();
+    return res;
+  }
+  _cloneIntoMeta(to) {
+    const { buffer, length, finished, destroyed, pos } = this;
+    to.destroyed = destroyed;
+    to.finished = finished;
+    to.length = length;
+    to.pos = pos;
+    if (pos)
+      to.buffer.set(buffer);
+    return to;
+  }
+  clone() {
+    return this._cloneInto();
+  }
+}
+const SHA256_IV = /* @__PURE__ */ Uint32Array.from([
+  1779033703,
+  3144134277,
+  1013904242,
+  2773480762,
+  1359893119,
+  2600822924,
+  528734635,
+  1541459225
+]);
+const SHA224_IV = /* @__PURE__ */ Uint32Array.from([
+  3238371032,
+  914150663,
+  812702999,
+  4144912697,
+  4290775857,
+  1750603025,
+  1694076839,
+  3204075428
+]);
+const SHA384_IV = /* @__PURE__ */ Uint32Array.from([
+  3418070365,
+  3238371032,
+  1654270250,
+  914150663,
+  2438529370,
+  812702999,
+  355462360,
+  4144912697,
+  1731405415,
+  4290775857,
+  2394180231,
+  1750603025,
+  3675008525,
+  1694076839,
+  1203062813,
+  3204075428
+]);
+const SHA512_IV = /* @__PURE__ */ Uint32Array.from([
+  1779033703,
+  4089235720,
+  3144134277,
+  2227873595,
+  1013904242,
+  4271175723,
+  2773480762,
+  1595750129,
+  1359893119,
+  2917565137,
+  2600822924,
+  725511199,
+  528734635,
+  4215389547,
+  1541459225,
+  327033209
+]);
+const SHA256_K = /* @__PURE__ */ Uint32Array.from([
+  1116352408,
+  1899447441,
+  3049323471,
+  3921009573,
+  961987163,
+  1508970993,
+  2453635748,
+  2870763221,
+  3624381080,
+  310598401,
+  607225278,
+  1426881987,
+  1925078388,
+  2162078206,
+  2614888103,
+  3248222580,
+  3835390401,
+  4022224774,
+  264347078,
+  604807628,
+  770255983,
+  1249150122,
+  1555081692,
+  1996064986,
+  2554220882,
+  2821834349,
+  2952996808,
+  3210313671,
+  3336571891,
+  3584528711,
+  113926993,
+  338241895,
+  666307205,
+  773529912,
+  1294757372,
+  1396182291,
+  1695183700,
+  1986661051,
+  2177026350,
+  2456956037,
+  2730485921,
+  2820302411,
+  3259730800,
+  3345764771,
+  3516065817,
+  3600352804,
+  4094571909,
+  275423344,
+  430227734,
+  506948616,
+  659060556,
+  883997877,
+  958139571,
+  1322822218,
+  1537002063,
+  1747873779,
+  1955562222,
+  2024104815,
+  2227730452,
+  2361852424,
+  2428436474,
+  2756734187,
+  3204031479,
+  3329325298
+]);
+const SHA256_W = /* @__PURE__ */ new Uint32Array(64);
+class SHA2_32B extends HashMD {
+  constructor(outputLen, IV) {
+    super(64, outputLen, 8, false);
+    // We cannot use array here since array allows indexing by variable
+    // which means optimizer/compiler cannot use registers.
+    // Numeric initializers matter: starting the fields as `undefined` changes
+    // V8's field representation and makes sha256 3x slower (measured).
+    __publicField(this, "A", 0);
+    __publicField(this, "B", 0);
+    __publicField(this, "C", 0);
+    __publicField(this, "D", 0);
+    __publicField(this, "E", 0);
+    __publicField(this, "F", 0);
+    __publicField(this, "G", 0);
+    __publicField(this, "H", 0);
+    this.A = IV[0] | 0;
+    this.B = IV[1] | 0;
+    this.C = IV[2] | 0;
+    this.D = IV[3] | 0;
+    this.E = IV[4] | 0;
+    this.F = IV[5] | 0;
+    this.G = IV[6] | 0;
+    this.H = IV[7] | 0;
+  }
+  get() {
+    const { A, B, C, D, E, F, G, H } = this;
+    return [A, B, C, D, E, F, G, H];
+  }
+  // prettier-ignore
+  set(A, B, C, D, E, F, G, H) {
+    this.A = A | 0;
+    this.B = B | 0;
+    this.C = C | 0;
+    this.D = D | 0;
+    this.E = E | 0;
+    this.F = F | 0;
+    this.G = G | 0;
+    this.H = H | 0;
+  }
+  _cloneInto(to) {
+    (to || (to = new this.constructor())).set(...this.get());
+    return this._cloneIntoMeta(to);
+  }
+  process(view, offset) {
+    for (let i = 0; i < 16; i++, offset += 4)
+      SHA256_W[i] = view.getUint32(offset, false);
+    for (let i = 16; i < 64; i++) {
+      const W15 = SHA256_W[i - 15];
+      const W2 = SHA256_W[i - 2];
+      const s0 = rotr(W15, 7) ^ rotr(W15, 18) ^ W15 >>> 3;
+      const s1 = rotr(W2, 17) ^ rotr(W2, 19) ^ W2 >>> 10;
+      SHA256_W[i] = s1 + SHA256_W[i - 7] + s0 + SHA256_W[i - 16] | 0;
+    }
+    let { A, B, C, D, E, F, G, H } = this;
+    for (let i = 0; i < 64; i++) {
+      const sigma1 = rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25);
+      const T1 = H + sigma1 + Chi(E, F, G) + SHA256_K[i] + SHA256_W[i] | 0;
+      const sigma0 = rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22);
+      const T2 = sigma0 + Maj(A, B, C) | 0;
+      H = G;
+      G = F;
+      F = E;
+      E = D + T1 | 0;
+      D = C;
+      C = B;
+      B = A;
+      A = T1 + T2 | 0;
+    }
+    A = A + this.A | 0;
+    B = B + this.B | 0;
+    C = C + this.C | 0;
+    D = D + this.D | 0;
+    E = E + this.E | 0;
+    F = F + this.F | 0;
+    G = G + this.G | 0;
+    H = H + this.H | 0;
+    this.set(A, B, C, D, E, F, G, H);
+  }
+  roundClean() {
+    clean(SHA256_W);
+  }
+  destroy() {
+    this.destroyed = true;
+    this.set(0, 0, 0, 0, 0, 0, 0, 0);
+    clean(this.buffer);
+  }
+}
+class _SHA256 extends SHA2_32B {
+  constructor() {
+    super(32, SHA256_IV);
+  }
+}
+class _SHA224 extends SHA2_32B {
+  constructor() {
+    super(28, SHA224_IV);
+  }
+}
+const K512 = /* @__PURE__ */ (() => split([
+  "0x428a2f98d728ae22",
+  "0x7137449123ef65cd",
+  "0xb5c0fbcfec4d3b2f",
+  "0xe9b5dba58189dbbc",
+  "0x3956c25bf348b538",
+  "0x59f111f1b605d019",
+  "0x923f82a4af194f9b",
+  "0xab1c5ed5da6d8118",
+  "0xd807aa98a3030242",
+  "0x12835b0145706fbe",
+  "0x243185be4ee4b28c",
+  "0x550c7dc3d5ffb4e2",
+  "0x72be5d74f27b896f",
+  "0x80deb1fe3b1696b1",
+  "0x9bdc06a725c71235",
+  "0xc19bf174cf692694",
+  "0xe49b69c19ef14ad2",
+  "0xefbe4786384f25e3",
+  "0x0fc19dc68b8cd5b5",
+  "0x240ca1cc77ac9c65",
+  "0x2de92c6f592b0275",
+  "0x4a7484aa6ea6e483",
+  "0x5cb0a9dcbd41fbd4",
+  "0x76f988da831153b5",
+  "0x983e5152ee66dfab",
+  "0xa831c66d2db43210",
+  "0xb00327c898fb213f",
+  "0xbf597fc7beef0ee4",
+  "0xc6e00bf33da88fc2",
+  "0xd5a79147930aa725",
+  "0x06ca6351e003826f",
+  "0x142929670a0e6e70",
+  "0x27b70a8546d22ffc",
+  "0x2e1b21385c26c926",
+  "0x4d2c6dfc5ac42aed",
+  "0x53380d139d95b3df",
+  "0x650a73548baf63de",
+  "0x766a0abb3c77b2a8",
+  "0x81c2c92e47edaee6",
+  "0x92722c851482353b",
+  "0xa2bfe8a14cf10364",
+  "0xa81a664bbc423001",
+  "0xc24b8b70d0f89791",
+  "0xc76c51a30654be30",
+  "0xd192e819d6ef5218",
+  "0xd69906245565a910",
+  "0xf40e35855771202a",
+  "0x106aa07032bbd1b8",
+  "0x19a4c116b8d2d0c8",
+  "0x1e376c085141ab53",
+  "0x2748774cdf8eeb99",
+  "0x34b0bcb5e19b48a8",
+  "0x391c0cb3c5c95a63",
+  "0x4ed8aa4ae3418acb",
+  "0x5b9cca4f7763e373",
+  "0x682e6ff3d6b2b8a3",
+  "0x748f82ee5defb2fc",
+  "0x78a5636f43172f60",
+  "0x84c87814a1f0ab72",
+  "0x8cc702081a6439ec",
+  "0x90befffa23631e28",
+  "0xa4506cebde82bde9",
+  "0xbef9a3f7b2c67915",
+  "0xc67178f2e372532b",
+  "0xca273eceea26619c",
+  "0xd186b8c721c0c207",
+  "0xeada7dd6cde0eb1e",
+  "0xf57d4f7fee6ed178",
+  "0x06f067aa72176fba",
+  "0x0a637dc5a2c898a6",
+  "0x113f9804bef90dae",
+  "0x1b710b35131c471b",
+  "0x28db77f523047d84",
+  "0x32caab7b40c72493",
+  "0x3c9ebe0a15c9bebc",
+  "0x431d67c49c100d4c",
+  "0x4cc5d4becb3e42b6",
+  "0x597f299cfc657e2a",
+  "0x5fcb6fab3ad6faec",
+  "0x6c44198c4a475817"
+].map((n) => BigInt(n))))();
+const SHA512_Kh = /* @__PURE__ */ (() => K512[0])();
+const SHA512_Kl = /* @__PURE__ */ (() => K512[1])();
+const SHA512_W_H = /* @__PURE__ */ new Uint32Array(80);
+const SHA512_W_L = /* @__PURE__ */ new Uint32Array(80);
+class SHA2_64B extends HashMD {
+  constructor(outputLen, IV) {
+    super(128, outputLen, 16, false);
+    // We cannot use array here since array allows indexing by variable
+    // which means optimizer/compiler cannot use registers.
+    // h -- high 32 bits, l -- low 32 bits
+    // Numeric initializers matter: starting the fields as `undefined` changes
+    // V8's field representation and slows hashing down (measured on sha256).
+    __publicField(this, "Ah", 0);
+    __publicField(this, "Al", 0);
+    __publicField(this, "Bh", 0);
+    __publicField(this, "Bl", 0);
+    __publicField(this, "Ch", 0);
+    __publicField(this, "Cl", 0);
+    __publicField(this, "Dh", 0);
+    __publicField(this, "Dl", 0);
+    __publicField(this, "Eh", 0);
+    __publicField(this, "El", 0);
+    __publicField(this, "Fh", 0);
+    __publicField(this, "Fl", 0);
+    __publicField(this, "Gh", 0);
+    __publicField(this, "Gl", 0);
+    __publicField(this, "Hh", 0);
+    __publicField(this, "Hl", 0);
+    this.Ah = IV[0] | 0;
+    this.Al = IV[1] | 0;
+    this.Bh = IV[2] | 0;
+    this.Bl = IV[3] | 0;
+    this.Ch = IV[4] | 0;
+    this.Cl = IV[5] | 0;
+    this.Dh = IV[6] | 0;
+    this.Dl = IV[7] | 0;
+    this.Eh = IV[8] | 0;
+    this.El = IV[9] | 0;
+    this.Fh = IV[10] | 0;
+    this.Fl = IV[11] | 0;
+    this.Gh = IV[12] | 0;
+    this.Gl = IV[13] | 0;
+    this.Hh = IV[14] | 0;
+    this.Hl = IV[15] | 0;
+  }
+  // prettier-ignore
+  get() {
+    const { Ah, Al, Bh, Bl, Ch, Cl, Dh, Dl, Eh, El, Fh, Fl, Gh, Gl, Hh, Hl } = this;
+    return [Ah, Al, Bh, Bl, Ch, Cl, Dh, Dl, Eh, El, Fh, Fl, Gh, Gl, Hh, Hl];
+  }
+  // prettier-ignore
+  set(Ah, Al, Bh, Bl, Ch, Cl, Dh, Dl, Eh, El, Fh, Fl, Gh, Gl, Hh, Hl) {
+    this.Ah = Ah | 0;
+    this.Al = Al | 0;
+    this.Bh = Bh | 0;
+    this.Bl = Bl | 0;
+    this.Ch = Ch | 0;
+    this.Cl = Cl | 0;
+    this.Dh = Dh | 0;
+    this.Dl = Dl | 0;
+    this.Eh = Eh | 0;
+    this.El = El | 0;
+    this.Fh = Fh | 0;
+    this.Fl = Fl | 0;
+    this.Gh = Gh | 0;
+    this.Gl = Gl | 0;
+    this.Hh = Hh | 0;
+    this.Hl = Hl | 0;
+  }
+  _cloneInto(to) {
+    (to || (to = new this.constructor())).set(...this.get());
+    return this._cloneIntoMeta(to);
+  }
+  process(view, offset) {
+    for (let i = 0; i < 16; i++, offset += 4) {
+      SHA512_W_H[i] = view.getUint32(offset);
+      SHA512_W_L[i] = view.getUint32(offset += 4);
+    }
+    for (let i = 16; i < 80; i++) {
+      const W15h = SHA512_W_H[i - 15] | 0;
+      const W15l = SHA512_W_L[i - 15] | 0;
+      const s0h = rotrSH(W15h, W15l, 1) ^ rotrSH(W15h, W15l, 8) ^ shrSH(W15h, W15l, 7);
+      const s0l = rotrSL(W15h, W15l, 1) ^ rotrSL(W15h, W15l, 8) ^ shrSL(W15h, W15l, 7);
+      const W2h = SHA512_W_H[i - 2] | 0;
+      const W2l = SHA512_W_L[i - 2] | 0;
+      const s1h = rotrSH(W2h, W2l, 19) ^ rotrBH(W2h, W2l, 61) ^ shrSH(W2h, W2l, 6);
+      const s1l = rotrSL(W2h, W2l, 19) ^ rotrBL(W2h, W2l, 61) ^ shrSL(W2h, W2l, 6);
+      const SUMl = add4L(s0l, s1l, SHA512_W_L[i - 7], SHA512_W_L[i - 16]);
+      const SUMh = add4H(SUMl, s0h, s1h, SHA512_W_H[i - 7], SHA512_W_H[i - 16]);
+      SHA512_W_H[i] = SUMh | 0;
+      SHA512_W_L[i] = SUMl | 0;
+    }
+    let { Ah, Al, Bh, Bl, Ch, Cl, Dh, Dl, Eh, El, Fh, Fl, Gh, Gl, Hh, Hl } = this;
+    for (let i = 0; i < 80; i++) {
+      const sigma1h = rotrSH(Eh, El, 14) ^ rotrSH(Eh, El, 18) ^ rotrBH(Eh, El, 41);
+      const sigma1l = rotrSL(Eh, El, 14) ^ rotrSL(Eh, El, 18) ^ rotrBL(Eh, El, 41);
+      const CHIh = Eh & Fh ^ ~Eh & Gh;
+      const CHIl = El & Fl ^ ~El & Gl;
+      const T1ll = add5L(Hl, sigma1l, CHIl, SHA512_Kl[i], SHA512_W_L[i]);
+      const T1h = add5H(T1ll, Hh, sigma1h, CHIh, SHA512_Kh[i], SHA512_W_H[i]);
+      const T1l = T1ll | 0;
+      const sigma0h = rotrSH(Ah, Al, 28) ^ rotrBH(Ah, Al, 34) ^ rotrBH(Ah, Al, 39);
+      const sigma0l = rotrSL(Ah, Al, 28) ^ rotrBL(Ah, Al, 34) ^ rotrBL(Ah, Al, 39);
+      const MAJh = Ah & Bh ^ Ah & Ch ^ Bh & Ch;
+      const MAJl = Al & Bl ^ Al & Cl ^ Bl & Cl;
+      Hh = Gh | 0;
+      Hl = Gl | 0;
+      Gh = Fh | 0;
+      Gl = Fl | 0;
+      Fh = Eh | 0;
+      Fl = El | 0;
+      ({ h: Eh, l: El } = add(Dh | 0, Dl | 0, T1h | 0, T1l | 0));
+      Dh = Ch | 0;
+      Dl = Cl | 0;
+      Ch = Bh | 0;
+      Cl = Bl | 0;
+      Bh = Ah | 0;
+      Bl = Al | 0;
+      const All = add3L(T1l, sigma0l, MAJl);
+      Ah = add3H(All, T1h, sigma0h, MAJh);
+      Al = All | 0;
+    }
+    ({ h: Ah, l: Al } = add(this.Ah | 0, this.Al | 0, Ah | 0, Al | 0));
+    ({ h: Bh, l: Bl } = add(this.Bh | 0, this.Bl | 0, Bh | 0, Bl | 0));
+    ({ h: Ch, l: Cl } = add(this.Ch | 0, this.Cl | 0, Ch | 0, Cl | 0));
+    ({ h: Dh, l: Dl } = add(this.Dh | 0, this.Dl | 0, Dh | 0, Dl | 0));
+    ({ h: Eh, l: El } = add(this.Eh | 0, this.El | 0, Eh | 0, El | 0));
+    ({ h: Fh, l: Fl } = add(this.Fh | 0, this.Fl | 0, Fh | 0, Fl | 0));
+    ({ h: Gh, l: Gl } = add(this.Gh | 0, this.Gl | 0, Gh | 0, Gl | 0));
+    ({ h: Hh, l: Hl } = add(this.Hh | 0, this.Hl | 0, Hh | 0, Hl | 0));
+    this.set(Ah, Al, Bh, Bl, Ch, Cl, Dh, Dl, Eh, El, Fh, Fl, Gh, Gl, Hh, Hl);
+  }
+  roundClean() {
+    clean(SHA512_W_H, SHA512_W_L);
+  }
+  destroy() {
+    this.destroyed = true;
+    clean(this.buffer);
+    this.set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+  }
+}
+class _SHA512 extends SHA2_64B {
+  constructor() {
+    super(64, SHA512_IV);
+  }
+}
+class _SHA384 extends SHA2_64B {
+  constructor() {
+    super(48, SHA384_IV);
+  }
+}
+const T224_IV = /* @__PURE__ */ Uint32Array.from([
+  2352822216,
+  424955298,
+  1944164710,
+  2312950998,
+  502970286,
+  855612546,
+  1738396948,
+  1479516111,
+  258812777,
+  2077511080,
+  2011393907,
+  79989058,
+  1067287976,
+  1780299464,
+  286451373,
+  2446758561
+]);
+const T256_IV = /* @__PURE__ */ Uint32Array.from([
+  573645204,
+  4230739756,
+  2673172387,
+  3360449730,
+  596883563,
+  1867755857,
+  2520282905,
+  1497426621,
+  2519219938,
+  2827943907,
+  3193839141,
+  1401305490,
+  721525244,
+  746961066,
+  246885852,
+  2177182882
+]);
+class _SHA512_224 extends SHA2_64B {
+  constructor() {
+    super(28, T224_IV);
+  }
+}
+class _SHA512_256 extends SHA2_64B {
+  constructor() {
+    super(32, T256_IV);
+  }
+}
+const sha256 = /* @__PURE__ */ createHasher(
+  () => new _SHA256(),
+  /* @__PURE__ */ oidNist(1)
+);
+const sha224 = /* @__PURE__ */ createHasher(
+  () => new _SHA224(),
+  /* @__PURE__ */ oidNist(4)
+);
+const sha512 = /* @__PURE__ */ createHasher(
+  () => new _SHA512(),
+  /* @__PURE__ */ oidNist(3)
+);
+const sha384 = /* @__PURE__ */ createHasher(
+  () => new _SHA384(),
+  /* @__PURE__ */ oidNist(2)
+);
+const sha512_256 = /* @__PURE__ */ createHasher(
+  () => new _SHA512_256(),
+  /* @__PURE__ */ oidNist(6)
+);
+const sha512_224 = /* @__PURE__ */ createHasher(
+  () => new _SHA512_224(),
+  /* @__PURE__ */ oidNist(5)
+);
 function parts(value) {
   var _a2;
   return (_a2 = /^(\d{4}\.\d+\.\d+\.\d+)(?:-local[\w.-]*)?$/.exec(value)) == null ? void 0 : _a2[1].split(".").map(Number);
 }
-function upgradeTarget(installed, release) {
-  var _a2;
+function upgradeTarget(installed, release, options) {
+  var _a2, _b2;
   if (!installed || !release) return { reason: "先检查更新，获取可安装的正式版本。" };
-  if (release.backend && release.backend !== ((_a2 = installed.backendVersion) == null ? void 0 : _a2.toUpperCase())) return { reason: "此发行版需要不同的 DNS 核心，请先查看发布说明。" };
+  if (!(options == null ? void 0 : options.unified) && release.backend && release.backend !== ((_a2 = installed.backendVersion) == null ? void 0 : _a2.toUpperCase())) return { reason: "此发行版需要不同的 DNS 核心，请先查看发布说明。" };
   const current = parts(installed.uiVersion), target = parts(release.version);
   if (!current || !target) return { reason: "版本信息无效，请重新检查更新。" };
   const different = target.findIndex((value, index) => value !== current[index]);
+  if ((options == null ? void 0 : options.unified) && options.mode !== "ui") {
+    if (!release.packages.includes("含核心完整包")) return { reason: "该发行版没有提供完整包。" };
+    if (!release.backend || !/^fj[a-z][a-z0-9]+-ui-v\d{4}\.\d+\.\d+\.\d+$/i.test(release.tag)) return { reason: "发行版标签无效。" };
+    if (different >= 0 && target[different] < current[different]) return { reason: "目标发行版早于当前 UI，请使用回退操作。" };
+    const sameCore = release.backend === ((_b2 = installed.backendVersion) == null ? void 0 : _b2.toUpperCase());
+    if (options.mode === "core" && sameCore) return { reason: "当前内核已是此版本。" };
+    if (options.mode === "full" && sameCore && different < 0) return { reason: "UI 与内核均已是此版本。" };
+    return { tag: release.tag, reason: options.mode === "core" ? "保留当前 UI，升级内核；先下载备份，切换时 DNS 会短暂重启。" : "同时升级 UI 与内核；先下载备份，切换时 DNS 会短暂重启。" };
+  }
   if (different < 0 || target[different] < current[different]) return { reason: "暂无比当前 UI 更新的正式版。" };
   if (!release.packages.includes("UI 升级包")) return { reason: "该发行版没有提供 UI 升级包。" };
   if (!/^fj[a-z][a-z0-9]+-ui-v\d{4}\.\d+\.\d+\.\d+$/i.test(release.tag)) return { reason: "发行版标签无效，请查看发布说明。" };
   return { tag: release.tag, reason: "仅更新界面，保留配置、Logo 和字体；无需重启 DNS。" };
 }
 class UIUpdateClient {
+  get unified() {
+    var _a2;
+    return ((_a2 = this.capabilities) == null ? void 0 : _a2.protocol) === "localdns-updater/v2";
+  }
+  get coreUpload() {
+    var _a2;
+    const upload = (_a2 = this.capabilities) == null ? void 0 : _a2.coreUpload;
+    return this.unified && (upload == null ? void 0 : upload.format) === "upstream-zip" && Number.isSafeInteger(upload.maxBytes) && upload.maxBytes > 0 ? upload : void 0;
+  }
   constructor(base, pageURL = document.baseURI, fetcher) {
     const address = new URL(base || new URL(pageURL).origin, pageURL);
     if (!["http:", "https:"].includes(address.protocol) || address.username || address.password || address.search || address.hash) {
@@ -5590,25 +6575,73 @@ class UIUpdateClient {
     });
   }
   async discover() {
+    var _a2;
     const result = await this.request("/upgrade/ui");
     if ((result == null ? void 0 : result.protocol) !== "localdns-ui-updater/v1" || result.repository !== "https://github.com/yyhoworks/LocalDNS") {
       throw new Error("服务器未提供兼容的 LocalDNS UI 升级接口。");
     }
+    if (((_a2 = result.capabilities) == null ? void 0 : _a2.protocol) === "localdns-updater/v2" && ["ui", "core", "full"].every((mode) => {
+      var _a3;
+      return (_a3 = result.capabilities.modes) == null ? void 0 : _a3.includes(mode);
+    })) this.capabilities = result.capabilities;
   }
   validate(value) {
     const result = value;
-    if (!result || !["idle", "queued", "running", "succeeded", "failed"].includes(result.state) || typeof result.canRollback !== "boolean") throw new Error("升级任务状态无效，请重试连接。");
+    if (!result || !["idle", "queued", "running", "awaiting_backup", "rolling_back", "rolled_back", "succeeded", "failed"].includes(result.state) || typeof result.canRollback !== "boolean") throw new Error("升级任务状态无效，请重试连接。");
+    if (result.backup && (!/^[a-f0-9]{64}$/.test(result.backup.sha256) || !Number.isSafeInteger(result.backup.bytes) || result.backup.bytes <= 0 || !/^[a-f0-9]{24}$/.test(result.jobId || ""))) throw new Error("升级备份信息无效。");
     return result;
   }
-  async status() {
-    return this.validate(await this.request("/upgrade/ui/status"));
+  get path() {
+    return this.unified ? "/upgrade" : "/upgrade/ui";
   }
-  async upgrade(releaseTag) {
-    return this.validate(await this.request("/upgrade/ui", { releaseTag }));
+  async status() {
+    return this.validate(await this.request(this.path + "/status"));
+  }
+  async upgrade(releaseTag, mode = "ui") {
+    if (!this.unified && mode !== "ui") throw new Error("请先安装支持内核升级的服务。");
+    return this.validate(await this.request(this.path, { releaseTag, ...this.unified ? { mode } : {} }));
   }
   async rollback() {
-    return this.validate(await this.request("/upgrade/ui/rollback", {}));
+    return this.validate(await this.request(this.path + "/rollback", {}));
   }
+  async uploadCore(file, progress) {
+    if (!this.coreUpload) throw new Error("请先更新升级服务，以支持上传内核 ZIP。");
+    if (!/\.zip$/i.test(file.name) || !file.size || file.size > this.coreUpload.maxBytes) {
+      throw new Error(`请选择原作者内核 ZIP 文件，大小不超过 ${Math.floor(this.coreUpload.maxBytes / 1048576)} MB。`);
+    }
+    const digest = await hashBackup(file, progress);
+    return this.validate(await this.http.request("/upgrade/core/upload", {
+      method: "POST",
+      body: file,
+      timeout: 3e5,
+      credentials: "omit",
+      cache: "no-store",
+      headers: { Accept: "application/json", "Content-Type": "application/zip", "X-Content-SHA256": digest }
+    }));
+  }
+  async continue(jobId, sha2562) {
+    return this.validate(await this.request("/upgrade/continue", { jobId, sha256: sha2562 }));
+  }
+  async cancel(jobId) {
+    return this.validate(await this.request("/upgrade/cancel", { jobId }));
+  }
+  async download(task) {
+    if (!task.backup || !/^[a-f0-9]{24}$/.test(task.jobId || "")) throw new Error("备份尚未就绪。");
+    const response = await this.http.fetch("/upgrade/backup/" + task.jobId, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", timeout: 3e5, credentials: "omit", cache: "no-store" });
+    if (!response.ok) throw new Error("备份下载失败，请刷新状态后重试。");
+    const blob = await response.blob();
+    if (blob.size !== task.backup.bytes || await hashBackup(blob) !== task.backup.sha256) throw new Error("备份下载不完整或摘要不一致，请重新下载。");
+    return blob;
+  }
+}
+async function hashBackup(file, progress) {
+  const hash = sha256.create(), size = 1024 * 1024;
+  for (let offset = 0; offset < file.size; offset += size) {
+    hash.update(new Uint8Array(await file.slice(offset, offset + size).arrayBuffer()));
+    progress == null ? void 0 : progress(Math.min(100, Math.round((offset + size) / file.size * 100)));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  return Array.from(hash.digest(), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 const icons$1 = {
   overview: '<path d="M4 13h6V3H4v10Zm0 8h6v-6H4v6Zm10 0h6V11h-6v10Zm0-18v6h6V3h-6Z"/>',
@@ -5851,7 +6884,7 @@ function initialize$b() {
   function cleanFilter(value = {}) {
     return Object.fromEntries(keyFields.map((key) => [key, key === "exact" ? value[key] === true : typeof value[key] === "string" ? value[key].slice(0, 2e3) : ""]));
   }
-  function views() {
+  function views2() {
     const saved = store.get("query-views", null);
     return Array.isArray(saved) ? saved.filter((v) => v && typeof v.name === "string" && v.filter && typeof v.filter === "object").slice(0, 12).map((v) => ({ name: v.name.slice(0, 40), filter: cleanFilter(v.filter) })) : [{ name: "SERVFAIL", filter: cleanFilter({ code: "SERVFAIL" }) }, { name: "AAAA 请求", filter: cleanFilter({ type: "AAAA" }) }];
   }
@@ -5867,12 +6900,12 @@ function initialize$b() {
   }
   function logTools(filter) {
     const labels = { q: "搜索", type: "类型", set: "分流", code: "响应码", client: "客户端包含", exact: "精确匹配" }, cols = columns();
-    return `<details class="workspace-log-extras" ${matchMedia("(max-width:600px)").matches ? "" : "open"}><summary>常用筛选与显示设置</summary><div class="workspace-saved"><span>常用筛选</span>${views().map((v, i) => `<button type="button" class="glass-btn" data-query-view="${i}">${esc2(v.name)}</button>`).join("")}<button type="button" class="glass-btn" id="log-save-view">保存当前条件</button></div><div class="workspace-log-tools"><span id="log-live-state">${ctx.state.logsPaused ? "刷新已暂停" : "自动刷新已开启"}</span><div><details class="workspace-columns"><summary>显示列</summary><div>${Object.entries({ type: "类型", set: "分流", client: "客户端", code: "响应码" }).map(([k, name]) => `<label><input type="checkbox" data-query-column="${k}" ${cols[k] ? "checked" : ""}>${name}</label>`).join("")}</div></details><button type="button" class="glass-btn" id="log-export">导出当前页</button></div></div></details><div class="workspace-filter-chips">${keyFields.filter((k) => filter[k]).map((k) => `<button type="button" data-clear-query="${k}" aria-label="移除${labels[k]}筛选">${labels[k]}${k === "exact" ? "" : "：" + esc2(filter[k])}<span aria-hidden="true"> ×</span></button>`).join("")}</div>`;
+    return `<details class="workspace-log-extras" ${matchMedia("(max-width:600px)").matches ? "" : "open"}><summary>常用筛选与显示设置</summary><div class="workspace-saved"><span>常用筛选</span>${views2().map((v, i) => `<button type="button" class="glass-btn" data-query-view="${i}">${esc2(v.name)}</button>`).join("")}<button type="button" class="glass-btn" id="log-save-view">保存当前条件</button></div><div class="workspace-log-tools"><span id="log-live-state">${ctx.state.logsPaused ? "刷新已暂停" : "自动刷新已开启"}</span><div><details class="workspace-columns"><summary>显示列</summary><div>${Object.entries({ type: "类型", set: "分流", client: "客户端", code: "响应码" }).map(([k, name]) => `<label><input type="checkbox" data-query-column="${k}" ${cols[k] ? "checked" : ""}>${name}</label>`).join("")}</div></details><button type="button" class="glass-btn" id="log-export">导出当前页</button></div></div></details><div class="workspace-filter-chips">${keyFields.filter((k) => filter[k]).map((k) => `<button type="button" data-clear-query="${k}" aria-label="移除${labels[k]}筛选">${labels[k]}${k === "exact" ? "" : "：" + esc2(filter[k])}<span aria-hidden="true"> ×</span></button>`).join("")}</div>`;
   }
   function bindLogs(root, rows) {
     applyColumns(root);
     root.querySelectorAll("[data-query-view]").forEach((b) => b.onclick = () => {
-      Object.assign(ctx.state.logs, { page: 1, ...views()[Number(b.dataset.queryView)].filter });
+      Object.assign(ctx.state.logs, { page: 1, ...views2()[Number(b.dataset.queryView)].filter });
       ctx.renderRoute(true);
     });
     root.querySelectorAll("[data-clear-query]").forEach((b) => b.onclick = () => {
@@ -5889,7 +6922,7 @@ function initialize$b() {
     root.querySelector("#log-save-view").onclick = () => ctx.modalOpen("保存筛选", "仅保存在当前浏览器", `<div class="field"><label for="query-view-name">名称</label><input id="query-view-name" maxlength="40" placeholder="例如：工作电脑的失败查询"></div>`, async () => {
       const name = document.querySelector("#query-view-name").value.trim();
       if (!name) throw new Error("请填写筛选名称");
-      const saved = [{ name, filter: cleanFilter(ctx.state.logs) }, ...views().filter((v) => v.name !== name)].slice(0, 12);
+      const saved = [{ name, filter: cleanFilter(ctx.state.logs) }, ...views2().filter((v) => v.name !== name)].slice(0, 12);
       if (!store.set("query-views", saved)) throw new Error("浏览器无法保存，请检查存储空间");
       ctx.toast("筛选已保存");
       ctx.renderRoute(true);
@@ -5996,7 +7029,7 @@ function initialize$b() {
       const open = diversionOpen.has(section.tag);
       const kind = section.domainRules === false ? "IP 段" : "域名规则";
       const body2 = section.items.map((item) => diversionRow(item, format)).join("");
-      return `<section class="div-group" data-diversion-group="${esc2(section.tag)}"><header class="div-group-head" data-div-toggle="${esc2(section.tag)}" aria-expanded="${open}" aria-controls="div-group-${esc2(section.tag)}"><svg class="div-group-chevron${open ? " open" : ""}" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg><strong>${esc2(section.label)}</strong><span class="div-group-kind">${kind}</span><span class="div-group-meta">${section.items.length} 个来源 · ${number(total)} 条</span><button type="button" class="button small div-group-update" data-div-update-group="${esc2(section.tag)}">全部更新</button></header><div class="div-group-body" id="div-group-${esc2(section.tag)}"${open ? "" : " hidden"}><div class="table-wrap collection-diversion-wrap"><table class="collection-diversion-table"><thead><tr>${head}</tr></thead><tbody>${body2}</tbody></table></div></div></section>`;
+      return `<section class="div-group" data-diversion-group="${esc2(section.tag)}"><header class="div-group-head" data-div-toggle="${esc2(section.tag)}" tabindex="0" role="button" aria-expanded="${open}" aria-controls="div-group-${esc2(section.tag)}"><svg class="div-group-chevron${open ? " open" : ""}" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg><strong>${esc2(section.label)}</strong><span class="div-group-kind">${kind}</span><span class="div-group-meta">${section.items.length} 个来源 · ${number(total)} 条</span><button type="button" class="button small div-group-update" data-div-update-group="${esc2(section.tag)}">全部更新</button></header><div class="div-group-body" id="div-group-${esc2(section.tag)}"${open ? "" : " hidden"}><div class="table-wrap collection-diversion-wrap"><table class="collection-diversion-table"><thead><tr>${head}</tr></thead><tbody>${body2}</tbody></table></div></div></section>`;
     }).join("");
   }
   function diversionStats(rows, defs) {
@@ -6038,6 +7071,11 @@ function initialize$b() {
       apply3();
     });
     root.querySelectorAll("[data-div-stat]").forEach((card2) => card2.onclick = () => {
+      const listView2 = root.querySelector('[data-collection-view="list"]');
+      if (listView2 && listView2.hidden) {
+        const listBtn = root.querySelector('.collection-switch [data-layout="list"]');
+        if (listBtn) listBtn.click();
+      }
       const section = root.querySelector(`[data-diversion-group="${card2.dataset.divStat}"]`);
       if (!section) return;
       const body2 = section.querySelector(".div-group-body");
@@ -6057,6 +7095,13 @@ function initialize$b() {
       const tag = head.dataset.divToggle;
       if (open) diversionOpen.add(tag);
       else diversionOpen.delete(tag);
+    });
+    root.querySelectorAll("[data-div-toggle]").forEach((head) => head.onkeydown = (event) => {
+      if (event.target.closest("[data-div-update-group]")) return;
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        head.click();
+      }
     });
     apply3();
   }
@@ -6217,7 +7262,8 @@ function initialize$b() {
     ctx = options;
   }, logTools, bindLogs, rankings, bindRanks, upstreams, diversion, bindDiversion, ruleDetails, trackRuleDraft, clearRuleDraft, modalChanging: () => modalController == null ? void 0 : modalController.abort(), finish, topology };
 }
-function modalOpen(title, subtitle, html2, onSave, showActions = true) {
+function modalOpen(title, subtitle, html2, onSave, showActions = true, options = {}) {
+  var _a2;
   workspaceService.modalChanging();
   $("#modal-title").textContent = title;
   $("#modal-subtitle").textContent = subtitle || "";
@@ -6226,27 +7272,33 @@ function modalOpen(title, subtitle, html2, onSave, showActions = true) {
   const scope = currentScope(), d = $("#modal");
   shellInterfaceService == null ? void 0 : shellInterfaceService.semantics(d);
   if (!d.open) d.showModal();
-  const firstFocusable = $("#modal-content").querySelector('input:not([disabled]),select:not([disabled]),textarea:not([disabled]),button:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])');
-  firstFocusable == null ? void 0 : firstFocusable.focus();
+  (_a2 = $("#modal-content").querySelector('input:not([disabled]),select:not([disabled]),textarea:not([disabled]),button:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])')) == null ? void 0 : _a2.focus();
   const cancel = $("#modal-cancel");
   if (cancel) cancel.onclick = modalClose;
   if (onSave && showActions) $("#modal-save").onclick = async () => {
-    var _a2;
-    if (!$("#modal-form").reportValidity()) return;
+    var _a3;
     const b = $("#modal-save");
+    if (b.disabled || !$("#modal-form").reportValidity()) return;
+    const label = b.textContent;
     b.disabled = true;
-    (_a2 = $("#modal-error")) == null ? void 0 : _a2.remove();
+    b.textContent = options.pendingLabel || "保存中…";
+    b.setAttribute("aria-busy", "true");
+    (_a3 = $("#modal-error")) == null ? void 0 : _a3.remove();
     try {
       const next = await onSave();
       if (scope.signal.aborted) return;
+      if ($("#modal-save") !== b) return;
       modalClose();
       if (typeof next === "function") next();
     } catch (e) {
       if (scope.signal.aborted) return;
-      shellInterfaceService == null ? void 0 : shellInterfaceService.formError(e.message);
-      toast("操作失败", "error", e.message);
+      if ($("#modal-save") === b) shellInterfaceService == null ? void 0 : shellInterfaceService.formError(e.message);
+      if (options.onError) options.onError(e);
+      else toast("操作失败", "error", e.message);
     } finally {
       b.disabled = false;
+      b.textContent = label;
+      b.removeAttribute("aria-busy");
     }
   };
 }
@@ -6294,66 +7346,88 @@ function confirmDialog({ title = "请确认", message = "", confirmText = "确�
   });
 }
 function createUIUpdatePanel(container) {
-  setHTML(container, `<h3>在线升级 UI</h3>
-    <p class="version-note" data-update-connection>正在连接服务器升级入口…</p>
-    <p class="version-note" data-update-target></p>
-    <div class="version-update-progress" hidden><progress aria-label="UI 升级正在进行"></progress></div>
+  const modes = ["ui", "core", "full"], names = { ui: "UI", core: "内核", full: "UI + 内核" };
+  setHTML(container, `<h3>在线升级</h3><p class="version-note" data-connection>正在连接服务器升级入口…</p>
+    <div class="version-upgrade-choices">${modes.map((mode) => `<div class="version-upgrade-row" data-mode="${mode}"><div><h4>${names[mode]}</h4><p class="version-note" data-target></p><p class="version-note" data-reason></p>${mode === "core" ? '<p class="version-note" data-core-name role="status">尚未选择文件</p>' : ""}</div><div class="version-upgrade-controls">${mode === "core" ? '<label class="button version-file-label">选择内核 ZIP<input type="file" accept=".zip,application/zip" aria-label="选择原作者内核 ZIP" data-core-file disabled></label>' : ""}<button class="button${mode === "full" ? " primary" : ""}" type="button" data-start="${mode}" disabled>${mode === "core" ? "上传并准备更新" : "升级" + names[mode]}</button></div></div>`).join("")}</div>
+    <div class="version-update-progress" hidden><progress aria-label="升级正在进行"></progress></div>
     <p class="version-update-result" role="status" aria-live="polite" hidden></p>
-    <p class="version-error" role="alert" data-update-error hidden></p>
-    <div class="version-actions version-update-actions">
-      <button class="button primary" type="button" data-update-start disabled>升级 UI</button>
-      <button class="button" type="button" data-update-refresh hidden>刷新使用新版</button>
-      <button class="button" type="button" data-update-rollback hidden>恢复上一版 UI</button>
-      <button class="button" type="button" data-update-retry>重试连接</button>
-      <a class="button" href="https://github.com/yyhoworks/LocalDNS/blob/main/docs/WEB_UPDATE.md" target="_blank" rel="noopener noreferrer" data-update-help>安装说明</a>
-    </div>`);
+    <section class="version-backup" aria-label="下载并校验本机备份" hidden><h4>先保存完整备份</h4>
+      <p class="version-note">备份包含上游、自定义规则、客户端别名和订阅设置。请下载到电脑，再选择下载的文件校验。验证通过后才能切换版本。</p>
+      <p class="version-note" data-backup-name></p><p class="version-backup-hash" data-backup-hash></p>
+      <div class="version-actions"><button class="button" type="button" data-download>下载完整备份</button><label class="button version-file-label">选择本机备份校验<input type="file" accept=".gz,.tgz" data-file></label></div>
+      <p class="version-note" role="status" data-backup-result></p><div class="version-actions"><button class="button primary" type="button" data-continue disabled>校验后继续升级</button><button class="button" type="button" data-cancel>取消本次准备</button></div></section>
+    <p class="version-error" role="alert" data-error hidden></p>
+    <div class="version-actions version-update-actions"><button class="button primary" type="button" data-refresh hidden>刷新使用新版</button><button class="button" type="button" data-rollback hidden>恢复上一版本</button><button class="button" type="button" data-retry>重试连接</button><a class="button" href="https://github.com/yyhoworks/LocalDNS/blob/main/docs/WEB_UPDATE.md" target="_blank" rel="noopener noreferrer" data-help>安装说明</a></div>`);
   container.classList.add("version-ui-update");
   const get = (selector) => container.querySelector(selector);
-  const connection = get("[data-update-connection]");
-  const start = get("[data-update-start]"), refresh = get("[data-update-refresh]");
-  const rollback = get("[data-update-rollback]"), retry = get("[data-update-retry]");
-  const help = get("[data-update-help]"), errorNode = get("[data-update-error]");
-  const message = get(".version-update-result"), progress = get(".version-update-progress");
-  let client, available = false, busy = false, reading = false, error = "";
-  let installed = null, latest = null;
-  let connectionState = "idle";
+  const refresh = get("[data-refresh]"), rollback = get("[data-rollback]");
+  const retry = get("[data-retry]"), download = get("[data-download]");
+  const file = get("[data-file]"), proceed = get("[data-continue]"), cancel = get("[data-cancel]");
+  const coreFile = get("[data-core-file]");
+  let client, available = false, busy = false, reading = false, uncertain = false, confirming = false, error = "";
+  let installed = null, latest = null, verifiedHash = "", backupResult = "尚未校验本机文件。", notEnabled = false;
+  let selectedCore, uploading = false, uploadMessage = "";
   let task = { state: "idle", canRollback: false }, timer;
-  const running = () => task.state === "queued" || task.state === "running";
-  const currentUI = () => installed && task.installedVersion ? { ...installed, uiVersion: task.installedVersion } : installed;
+  const running = () => ["queued", "running", "awaiting_backup", "rolling_back"].includes(task.state);
+  const currentUI = () => installed ? { ...installed, uiVersion: task.installedVersion || installed.uiVersion, backendVersion: task.installedBackend || installed.backendVersion } : installed;
   const describe = (failure) => failure instanceof Error && (failure.name === "TypeError" || /Failed to fetch|NetworkError/.test(failure.message)) ? "连接失败，请重试。" : failure instanceof Error ? failure.message : "连接失败，请重试。";
+  const target = (mode) => upgradeTarget(currentUI(), latest, { mode, unified: Boolean(client == null ? void 0 : client.unified) });
+  function accept(value) {
+    if (task.jobId !== value.jobId) {
+      verifiedHash = "";
+      backupResult = "尚未校验本机文件。";
+      file.value = "";
+    }
+    task = value;
+    uncertain = false;
+    document.dispatchEvent(new CustomEvent("localdns-update-status", { detail: value }));
+  }
   function paint() {
-    const target = upgradeTarget(currentUI(), latest);
-    start.disabled = !available || !target.tag || busy || running();
-    start.textContent = running() ? "正在更新…" : latest && target.tag ? "升级至 " + latest.version : "升级 UI";
+    var _a2, _b2, _c2;
+    for (const mode of modes) {
+      const row = get(`[data-mode="${mode}"]`), start = row.querySelector("button");
+      const eligibility = target(mode), supported = mode === "core" ? Boolean(client == null ? void 0 : client.coreUpload) : mode === "ui" || (client == null ? void 0 : client.unified);
+      start.disabled = !available || !supported || (mode === "core" ? !selectedCore : !eligibility.tag) || busy || running() || uncertain;
+      start.textContent = mode === "core" && uploading ? "正在上传…" : running() && task.mode === mode ? "更新中…" : mode === "core" ? "上传并准备更新" : "升级" + names[mode];
+      row.querySelector("[data-target]").textContent = mode === "ui" ? `${((_a2 = currentUI()) == null ? void 0 : _a2.uiVersion) || "—"} → ${(latest == null ? void 0 : latest.version) || "待检查"}` : mode === "core" ? `当前内核：${((_b2 = currentUI()) == null ? void 0 : _b2.backendVersion) || "—"}${running() && task.source === "upload" && task.targetBackend ? " → " + task.targetBackend : ""}` : latest ? `${latest.version} / ${latest.backend}` : "检查更新后显示目标版本";
+      row.querySelector("[data-reason]").textContent = !supported ? "请先更新升级服务，以支持" + (mode === "core" ? "上传内核 ZIP。" : "内核升级。") : mode === "core" ? `上传原作者的内核 ZIP，自动选择 ${client.coreUpload.architecture}；保留当前 UI 和设置。下载并校验备份后才会切换，DNS 会短暂重启。` : eligibility.reason;
+    }
+    coreFile.disabled = !available || !(client == null ? void 0 : client.coreUpload) || busy || running() || uncertain;
+    get("[data-core-name]").textContent = selectedCore ? `${selectedCore.name} · ${(selectedCore.size / 1048576).toFixed(1)} MB` : "尚未选择文件";
     rollback.hidden = !available || !task.canRollback;
-    rollback.disabled = busy || running();
-    const needsRefresh = task.state === "succeeded" && task.installedVersion !== (installed == null ? void 0 : installed.uiVersion);
-    refresh.hidden = !needsRefresh;
-    refresh.classList.toggle("primary", needsRefresh);
-    start.hidden = task.state === "succeeded" && !target.tag;
-    retry.disabled = busy;
+    rollback.disabled = busy || running() || uncertain;
+    rollback.textContent = task.rollbackKind === "full" ? "恢复上一整套版本" : "恢复上一版 UI";
+    refresh.hidden = task.state !== "succeeded" || task.installedVersion === (installed == null ? void 0 : installed.uiVersion);
+    retry.disabled = busy || reading;
     retry.textContent = available ? "刷新状态" : "重试连接";
-    help.hidden = available;
-    connection.textContent = available ? "已连接，升级任务由服务器执行。" : busy ? "正在连接服务器升级入口…" : connectionState === "not-enabled" ? "此服务器尚未启用网页升级。完成一次安装后即可在这里操作。" : connectionState === "failed" ? "连接失败，请重试。" : "正在连接服务器升级入口…";
-    get("[data-update-target]").textContent = needsRefresh ? `当前页面 UI 为 ${(installed == null ? void 0 : installed.uiVersion) || "旧版"}；刷新后使用服务器上的 ${task.installedVersion}。` : target.reason;
-    progress.hidden = !running();
-    message.hidden = !task.message;
-    message.textContent = task.message || "";
-    errorNode.hidden = !error;
-    errorNode.textContent = error;
+    get("[data-help]").hidden = available && Boolean(client == null ? void 0 : client.coreUpload);
+    get("[data-connection]").textContent = available ? (client == null ? void 0 : client.coreUpload) ? "已连接。UI 使用 GitHub 发行版，内核可上传 ZIP；上传完成后，关闭弹窗任务仍会继续。" : (client == null ? void 0 : client.unified) ? "已连接。当前服务支持 UI 与整套升级；更新升级服务后可上传内核 ZIP。" : "已连接旧版升级服务，目前支持 UI 单独升级。" : busy ? "正在连接服务器升级入口…" : notEnabled ? "此服务器尚未启用网页升级，请先完成一次安装。" : "升级服务连接失败，请重试。";
+    get(".version-update-progress").hidden = !uploading && (!running() || task.state === "awaiting_backup");
+    get(".version-update-result").hidden = !uploading && !task.message;
+    get(".version-update-result").textContent = uploading ? uploadMessage : task.message || "";
+    get(".version-backup").hidden = task.state !== "awaiting_backup" || !task.backup;
+    get("[data-backup-name]").textContent = task.backup ? `${task.backup.name} · ${(task.backup.bytes / 1048576).toFixed(1)} MB` : "";
+    get("[data-backup-hash]").textContent = task.backup ? "SHA-256：" + task.backup.sha256 : "";
+    get("[data-backup-result]").textContent = backupResult;
+    download.disabled = file.disabled = cancel.disabled = busy || uncertain;
+    proceed.disabled = busy || uncertain || !verifiedHash || verifiedHash !== ((_c2 = task.backup) == null ? void 0 : _c2.sha256) || !task.backupDownloaded;
+    proceed.textContent = task.action === "rollback" ? "校验通过，继续恢复" : "校验通过，继续升级";
+    get("[data-error]").hidden = !error;
+    get("[data-error]").textContent = error;
   }
   function schedule() {
     clearTimeout(timer);
-    if (running() && available) timer = setTimeout(() => void readStatus(), 1500);
+    if ((running() || uncertain) && available) timer = setTimeout(() => void readStatus(), task.state === "awaiting_backup" ? 4e3 : 1500);
   }
   async function readStatus() {
     if (!client || !available || busy || reading) return;
     reading = true;
     try {
-      task = await client.status();
+      accept(await client.status());
       error = "";
     } catch (failure) {
       error = describe(failure);
+      uncertain = true;
     } finally {
       reading = false;
     }
@@ -6373,34 +7447,32 @@ function createUIUpdatePanel(container) {
       const config = window.LOCALDNS_UI_CONFIG;
       client = new UIUpdateClient((config == null ? void 0 : config.uiUpdaterBase) || (config == null ? void 0 : config.apiBase) || "");
       await client.discover();
-      task = await client.status();
+      accept(await client.status());
       available = true;
     } catch (failure) {
       available = false;
-      const notFound = failure instanceof ApiError && failure.status === 404;
-      connectionState = notFound ? "not-enabled" : "failed";
-      error = notFound ? "" : describe(failure);
+      notEnabled = failure instanceof ApiError && failure.status === 404;
+      error = notEnabled ? "" : describe(failure);
     } finally {
       busy = false;
       paint();
       schedule();
     }
   }
-  async function execute(restore) {
-    const target = upgradeTarget(currentUI(), latest);
-    if (!client || !available || busy || running() || !restore && !target.tag) return;
-    if (!await confirmDialog({ message: restore ? "恢复上一版 UI？当前 Logo、字体和站点配置会保留。" : "开始升级 UI？请先保存未提交的修改。升级完成后由你手动刷新，DNS 服务继续运行。", danger: restore })) return;
+  async function mutate(action) {
+    if (busy || !client) return;
     busy = true;
     error = "";
     paint();
     try {
-      task = restore ? await client.rollback() : await client.upgrade(target.tag);
+      accept(await action());
     } catch (failure) {
       error = describe(failure);
       try {
-        task = await client.status();
+        accept(await client.status());
       } catch {
-        error += " 请刷新状态核对服务器任务，避免重复提交。";
+        uncertain = true;
+        error += " 正在重新核对服务器任务，请勿重复提交。";
       }
     } finally {
       busy = false;
@@ -6408,22 +7480,129 @@ function createUIUpdatePanel(container) {
       schedule();
     }
   }
-  start.addEventListener("click", () => void execute(false));
-  rollback.addEventListener("click", () => void execute(true));
+  async function execute(mode) {
+    const eligibility = mode === "rollback" ? null : target(mode);
+    if (!client || !available || busy || running() || uncertain || (mode === "core" ? !selectedCore || !client.coreUpload : mode !== "rollback" && !(eligibility == null ? void 0 : eligibility.tag))) return;
+    if (mode === "core") {
+      const selected = selectedCore;
+      if (confirming) return;
+      confirming = true;
+      try {
+        if (!await confirmDialog({ title: "准备更新内核", confirmText: "上传并准备", message: `上传「${selected.name}」并准备更换内核？请先保存修改。下载并校验完整备份后才会切换，DNS 届时会短暂重启。` })) return;
+      } finally {
+        confirming = false;
+      }
+      uploading = true;
+      uploadMessage = "正在校验内核 ZIP…";
+      try {
+        await mutate(async () => {
+          const result = await client.uploadCore(selected, (percent) => {
+            uploadMessage = percent === 100 ? "正在上传内核 ZIP，请保持页面打开…" : `正在校验内核 ZIP… ${percent}%`;
+            paint();
+          });
+          selectedCore = void 0;
+          return result;
+        });
+      } finally {
+        uploading = false;
+        paint();
+      }
+      return;
+    }
+    const text2 = mode === "rollback" ? task.rollbackKind === "full" ? "准备恢复上一整套版本？将先备份当前状态，恢复后设置也回到快照时。" : "恢复上一版 UI？当前 Logo、字体和站点配置会保留。" : mode === "ui" ? "开始升级 UI？请先保存未提交的修改。DNS 服务继续运行。" : "开始准备升级？请先保存修改。备份下载并校验后才会切换，DNS 届时会短暂重启。";
+    if (confirming) return;
+    confirming = true;
+    try {
+      if (!await confirmDialog({ message: text2, danger: mode === "rollback" })) return;
+    } finally {
+      confirming = false;
+    }
+    await mutate(() => mode === "rollback" ? client.rollback() : client.upgrade(eligibility.tag, mode));
+  }
+  for (const mode of modes) get(`[data-start="${mode}"]`).addEventListener("click", () => void execute(mode));
+  coreFile.addEventListener("change", () => {
+    var _a2, _b2, _c2;
+    const selected = (_a2 = coreFile.files) == null ? void 0 : _a2[0];
+    selectedCore = void 0;
+    error = "";
+    if (selected) {
+      if (!/\.zip$/i.test(selected.name) || !selected.size || selected.size > (((_b2 = client == null ? void 0 : client.coreUpload) == null ? void 0 : _b2.maxBytes) || 0)) error = `请选择原作者内核 ZIP，大小不超过 ${Math.floor((((_c2 = client == null ? void 0 : client.coreUpload) == null ? void 0 : _c2.maxBytes) || 0) / 1048576)} MB。`;
+      else selectedCore = selected;
+    }
+    coreFile.value = "";
+    paint();
+  });
+  rollback.addEventListener("click", () => void execute("rollback"));
   retry.addEventListener("click", () => void connect());
   refresh.addEventListener("click", () => window.location.reload());
+  download.addEventListener("click", async () => {
+    if (busy || !client || !task.backup) return;
+    busy = true;
+    error = "";
+    backupResult = "正在下载并核对备份，请稍候…";
+    paint();
+    try {
+      const blob = await client.download(task), url = URL.createObjectURL(blob), anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = task.backup.name;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 6e4);
+      backupResult = "下载已发起，请在电脑上保存文件，再选择该文件校验。";
+      accept(await client.status());
+    } catch (failure) {
+      error = describe(failure);
+      backupResult = "下载未完成，请重新下载。";
+    } finally {
+      busy = false;
+      paint();
+      schedule();
+    }
+  });
+  file.addEventListener("change", async () => {
+    var _a2;
+    const selected = (_a2 = file.files) == null ? void 0 : _a2[0], expected = task.backup, job = task.jobId;
+    verifiedHash = "";
+    if (!selected || !expected || busy) return;
+    busy = true;
+    error = "";
+    paint();
+    try {
+      if (selected.size !== expected.bytes) throw new Error("所选文件大小不一致，请选择本次下载的完整备份。");
+      const value = await hashBackup(selected, (percent) => {
+        backupResult = `正在校验本机文件… ${percent}%`;
+        paint();
+      });
+      if (job !== task.jobId || value !== expected.sha256) throw new Error("备份摘要不一致，请重新下载并选择正确文件。");
+      verifiedHash = value;
+      backupResult = "本机文件 SHA-256 一致，可继续升级。";
+      if (client) accept(await client.status());
+    } catch (failure) {
+      error = describe(failure);
+      backupResult = "校验未通过，现网尚未切换。";
+    } finally {
+      busy = false;
+      file.value = "";
+      paint();
+      schedule();
+    }
+  });
+  proceed.addEventListener("click", () => {
+    if (!proceed.disabled) void mutate(() => client.continue(task.jobId, verifiedHash));
+  });
+  cancel.addEventListener("click", () => {
+    if (!cancel.disabled) void mutate(() => client.cancel(task.jobId));
+  });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && available) void readStatus();
   });
   paint();
-  return {
-    connect,
-    setRelease(current, release) {
-      installed = current;
-      latest = release;
-      paint();
-    }
-  };
+  return { connect, setRelease(current, release) {
+    installed = current;
+    latest = release;
+    paint();
+  } };
 }
 const versionService = (() => {
   "use strict";
@@ -6483,7 +7662,8 @@ const versionService = (() => {
       document.body.append(dialog2);
       const content = dialog2.querySelector("#version-content"), manual = dialog2.querySelector("#version-check-now");
       const cacheKey = "localdns-release-check-v1:" + location.origin + ":" + String(((_a2 = window.LOCALDNS_UI_CONFIG) == null ? void 0 : _a2.apiBase) || "");
-      let installed = null, latest = null, checkedAt = 0, lastAttemptAt = 0, error = "", metadataError = "", checking = false, pending;
+      let runningBackend = null;
+      let installed = null, latest = null, checkedAt = 0, lastAttemptAt = 0, error = "", metadataError = "", checking = false, pending2;
       const updateSection = document.createElement("section");
       dialog2.querySelector(".version-actions").before(updateSection);
       const updater = createUIUpdatePanel(updateSection);
@@ -6491,7 +7671,7 @@ const versionService = (() => {
       const date = (value) => value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "尚未检查";
       function paint() {
         var _a3;
-        const status = installed && latest ? assess(installed, latest) : null;
+        const status = installed && latest ? assess({ ...installed, backendVersion: runningBackend || installed.backendVersion }, latest) : null;
         const text2 = checking ? "检查中" : error ? "检查失败" : !installed ? "版本未读取" : !latest ? "尚未检查" : status.available ? "有新版本" : status.comparison === null ? "版本待核对" : status.local ? "本地测试版" : status.comparison < 0 ? "当前版本较新" : "已是最新";
         button.dataset.status = error ? "error" : (status == null ? void 0 : status.available) ? "update" : "normal";
         const displayVersion = String((installed == null ? void 0 : installed.uiVersion) || "").replace(/-local.*$/, "");
@@ -6502,8 +7682,8 @@ const versionService = (() => {
         manual.disabled = checking;
         manual.textContent = checking ? "正在检查…" : "检查更新";
         const fact = (name, value) => `<div><dt>${name}</dt><dd>${escape(value)}</dd></div>`;
-        const backend2 = ((_a3 = document.querySelector("#brand-version-tag")) == null ? void 0 : _a3.dataset.backendVersion) || (installed == null ? void 0 : installed.backendVersion);
-        setHTML(content, `<dl class="version-facts">${fact("当前 UI", (installed == null ? void 0 : installed.uiVersion) || "未能读取")}${fact("DNS 核心", backend2 || "尚未读取")}${fact("GitHub 最新正式版", latest ? latest.version + (latest.backend ? " / " + latest.backend : "") : "尚未读取")}${fact("上次成功检查", date(checkedAt))}</dl><p class="version-result">${escape(checking ? "正在获取 GitHub 最新正式版…" : error ? "更新检查失败，当前版本信息仍可查看。" : (status == null ? void 0 : status.available) ? "GitHub 已发布新版本，可查看更新说明与安装包。" : (status == null ? void 0 : status.local) ? "当前为本地测试版，基于正式版 " + status.baseline + "；" + (status.comparison === null ? "请在 GitHub 核对版本。" : "基准之后暂无新正式版。") : (status == null ? void 0 : status.comparison) === 0 ? "当前 UI 已是最新正式版。" : (status == null ? void 0 : status.comparison) < 0 ? "当前 UI 版本高于 GitHub 最新正式版。" : "点击“检查更新”获取 GitHub 最新正式版。")}</p>${(latest == null ? void 0 : latest.packages.length) ? `<p class="version-note">发布包：${escape(latest.packages.join("、"))}。UI 升级包仅更新界面；更换 DNS 核心需使用完整包。</p>` : ""}${metadataError ? `<p class="version-error" role="alert">${escape(metadataError)}</p>` : ""}${error ? `<p class="version-error" role="alert">${escape(error)} 可点击“检查更新”重试，或打开 GitHub 发布页。</p>` : ""}<p class="version-note">自动检查间隔为 6 小时；手动检查立即重新请求。</p>`);
+        const backend2 = runningBackend || ((_a3 = document.querySelector("#brand-version-tag")) == null ? void 0 : _a3.dataset.backendVersion) || (installed == null ? void 0 : installed.backendVersion);
+        setHTML(content, `<dl class="version-facts">${fact("当前 UI", (installed == null ? void 0 : installed.uiVersion) || "未能读取")}${fact("DNS 核心", backend2 || "尚未读取")}${fact("GitHub 最新正式版", latest ? latest.version + (latest.backend ? " / " + latest.backend : "") : "尚未读取")}${fact("上次成功检查", date(checkedAt))}</dl><p class="version-result">${escape(checking ? "正在获取 GitHub 最新正式版…" : error ? "更新检查失败，当前版本信息仍可查看。" : (status == null ? void 0 : status.available) ? "GitHub 已发布新版本，可查看更新说明与安装包。" : (status == null ? void 0 : status.local) ? "当前为本地测试版，基于正式版 " + status.baseline + "；" + (status.comparison === null ? "请在 GitHub 核对版本。" : "基准之后暂无新正式版。") : (status == null ? void 0 : status.comparison) === 0 ? "当前 UI 已是最新正式版。" : (status == null ? void 0 : status.comparison) < 0 ? "当前 UI 版本高于 GitHub 最新正式版。" : "点击“检查更新”获取 GitHub 最新正式版。")}</p>${(latest == null ? void 0 : latest.packages.length) ? `<p class="version-note">发布包：${escape(latest.packages.join("、"))}。UI 升级包仅更新界面；内核单独更新可上传原作者 ZIP，整套升级使用 GitHub 完整包。</p>` : ""}${metadataError ? `<p class="version-error" role="alert">${escape(metadataError)}</p>` : ""}${error ? `<p class="version-error" role="alert">${escape(error)} 可点击“检查更新”重试，或打开 GitHub 发布页。</p>` : ""}<p class="version-note">自动检查间隔为 6 小时；手动检查立即重新请求。</p>`);
         dialog2.querySelector("#version-release-link").href = (latest == null ? void 0 : latest.url) || REPO + "/releases";
         updater.setRelease(installed, latest);
       }
@@ -6528,7 +7708,7 @@ const versionService = (() => {
         }
       }
       function check(force = false) {
-        if (pending) return pending;
+        if (pending2) return pending2;
         if (!force && error && Date.now() - lastAttemptAt < 15 * 60 * 1e3) return Promise.resolve();
         if (!force && latest && Date.now() - checkedAt >= 0 && Date.now() - checkedAt < TTL) {
           paint();
@@ -6538,7 +7718,7 @@ const versionService = (() => {
         error = "";
         lastAttemptAt = Date.now();
         paint();
-        pending = (async () => {
+        pending2 = (async () => {
           try {
             if (!installed) await loadInstalled();
             latest = releaseInfo(await fetchJSON(ENDPOINT));
@@ -6554,12 +7734,16 @@ const versionService = (() => {
             error = failure.name === "AbortError" ? "连接 GitHub 超时。" : failure instanceof TypeError || /Failed to fetch|NetworkError/.test(failure.message || "") ? "无法连接 GitHub，请检查网络后重试。" : failure.message || "无法连接 GitHub。";
           } finally {
             checking = false;
-            pending = null;
+            pending2 = null;
             paint();
           }
         })();
-        return pending;
+        return pending2;
       }
+      document.addEventListener("localdns-update-status", (event) => {
+        runningBackend = event.detail.installedBackend || runningBackend;
+        paint();
+      });
       button.onclick = () => {
         paint();
         dialog2.showModal();
@@ -6987,6 +8171,7 @@ const lists = {
   pcdn_regex_v6: "pcdn_v6",
   client_ip: "clients",
   direct_ip: "direct_cidrs",
+  foreign_ip: "foreign_cidrs",
   rewrite: "rewrite"
 };
 const switches = {
@@ -7509,32 +8694,32 @@ const routeDefs = [
 ];
 const groupName = (g) => ({ domestic: "国内", foreign: "国外", foreign_ecs: "国外 ECS", proxy: "代理" })[g] || g;
 const upstreamErrorReasonLabels = {
-  timeout: "Timeout",
-  upstream_timeout: "Timeout",
-  deadline: "Timeout",
-  tls: "TLS",
-  tls_handshake: "TLS",
-  certificate: "TLS",
-  socks5: "SOCKS5",
-  socks: "SOCKS5",
-  proxy: "SOCKS5",
-  eof_reset: "EOF / Reset",
-  eof: "EOF / Reset",
-  reset: "EOF / Reset",
-  broken_pipe: "EOF / Reset",
-  dial_connect: "Dial / Connect",
-  dial: "Dial / Connect",
-  connect: "Dial / Connect",
-  refused_unreachable: "Refused / Unreachable",
-  refused: "Refused / Unreachable",
-  unreachable: "Refused / Unreachable",
-  http: "HTTP",
-  protocol: "Protocol",
-  unpack: "Protocol",
-  other: "Other"
+  timeout: "超时",
+  upstream_timeout: "超时",
+  deadline: "超时",
+  tls: "TLS 握手失败",
+  tls_handshake: "TLS 握手失败",
+  certificate: "TLS 握手失败",
+  socks5: "SOCKS5 出错",
+  socks: "SOCKS5 出错",
+  proxy: "SOCKS5 出错",
+  eof_reset: "连接中断",
+  eof: "连接中断",
+  reset: "连接中断",
+  broken_pipe: "连接中断",
+  dial_connect: "连接失败",
+  dial: "连接失败",
+  connect: "连接失败",
+  refused_unreachable: "拒绝或不可达",
+  refused: "拒绝或不可达",
+  unreachable: "拒绝或不可达",
+  http: "HTTP 错误",
+  protocol: "回答格式错误",
+  unpack: "回答格式错误",
+  other: "其他错误"
 };
 function upstreamErrorReasonName(reason) {
-  return upstreamErrorReasonLabels[String(reason || "").toLowerCase()] || String(reason || "Other").replace(/_/g, " ");
+  return upstreamErrorReasonLabels[String(reason || "").toLowerCase()] || String(reason || "其他错误").replace(/_/g, " ");
 }
 function upstreamMetrics(metrics, group, tag) {
   const labels = { metrics_tag: group, tag };
@@ -7579,7 +8764,7 @@ function openUpstreamErrorPopover(trigger, row) {
   closeUpstreamErrorPopover();
   const { g, u, m } = row;
   const reasonTotal = (m.reasons || []).reduce((n, x) => n + (Number(x.value) || 0), 0);
-  const detail = m.reasonSupported ? m.reasons.length ? `<div class="up-error-reason-list">${m.reasons.map((x) => `<div class="up-error-reason-row"><span>${esc$1(x.label)}</span><strong>${num(x.value)}</strong></div>`).join("")}</div>` : `<div class="up-error-compat"><strong>分类计数异常</strong><span>当前错误总数大于 0，但分类计数均为 0。请检查当前二进制是否提供完整的错误分类指标。</span></div>` : `<div class="up-error-compat"><strong>等待错误分类数据</strong><span>当前错误分类指标不可用；当二进制提供分类指标后，这里会自动显示 Timeout、TLS、SOCKS5、EOF / Reset 等分类。</span></div>`;
+  const detail = m.reasonSupported ? m.reasons.length ? `<div class="up-error-reason-list">${m.reasons.map((x) => `<div class="up-error-reason-row"><span>${esc$1(x.label)}</span><strong>${num(x.value)}</strong></div>`).join("")}</div>` : `<div class="up-error-compat"><strong>分类计数异常</strong><span>当前错误总数大于 0，但分类计数均为 0。请检查当前二进制是否提供完整的错误分类指标。</span></div>` : `<div class="up-error-compat"><strong>等待错误分类数据</strong><span>当前错误分类指标不可用；当二进制提供分类指标后，这里会自动显示超时、TLS 握手失败、SOCKS5 出错、连接中断等分类。</span></div>`;
   const totalMismatch = m.reasonSupported && reasonTotal !== Number(m.err || 0) ? `<div class="up-error-warning">分类合计 ${num(reasonTotal)} 与错误总数 ${num(m.err)} 不一致，请检查后端统计口径。</div>` : "";
   const last = m.lastError ? `<div class="up-error-meta-row"><span>最近错误</span><strong>${esc$1(upstreamErrorTime(m.lastError))}</strong></div>` : "";
   const pop = document.createElement("div");
@@ -7626,7 +8811,7 @@ async function safe(fn, fallback) {
   }
 }
 function parseSystem(metrics) {
-  var _a2, _b2, _c;
+  var _a2, _b2, _c2;
   const start = metricFind(metrics, "process_start_time_seconds");
   const info = metrics.find((x) => x.name === "localdns_runtime_info");
   const ver = metrics.find((x) => x.name === "localdns_info");
@@ -7638,7 +8823,7 @@ function parseSystem(metrics) {
     cpu: metricFind(metrics, "process_cpu_seconds_total"),
     rss: metricFind(metrics, "process_resident_memory_bytes"),
     heapIdle: metricFind(metrics, "localdns_heap_free_bytes"),
-    runtime: info ? `Rust ${String(((_c = info.labels) == null ? void 0 : _c.runtime) || "").replace("rust-", "")}` : "—",
+    runtime: info ? `Rust ${String(((_c2 = info.labels) == null ? void 0 : _c2.runtime) || "").replace("rust-", "")}` : "—",
     threads: metricFind(metrics, "localdns_threads"),
     goroutines: metricFind(metrics, "localdns_tasks"),
     fds: metricFind(metrics, "process_open_fds")
@@ -7735,8 +8920,8 @@ function drawTopoCurves(edges) {
     node.onmouseleave = () => applyTraceState(focusedId());
     node.onfocus = () => applyTraceState(node.dataset.nodeId);
     node.onblur = (event) => {
-      var _a3, _b2, _c;
-      return applyTraceState(((_b2 = (_a3 = event.relatedTarget) == null ? void 0 : _a3.closest(".t-node")) == null ? void 0 : _b2.dataset.nodeId) || ((_c = wrap.querySelector(".t-node:hover")) == null ? void 0 : _c.dataset.nodeId));
+      var _a3, _b2, _c2;
+      return applyTraceState(((_b2 = (_a3 = event.relatedTarget) == null ? void 0 : _a3.closest(".t-node")) == null ? void 0 : _b2.dataset.nodeId) || ((_c2 = wrap.querySelector(".t-node:hover")) == null ? void 0 : _c2.dataset.nodeId));
     };
   });
   applyTraceState(focusedId() || ((_a2 = wrap.querySelector(".t-node:hover")) == null ? void 0 : _a2.dataset.nodeId));
@@ -7850,8 +9035,8 @@ function cacheLimitsForm(settings, helpers) {
     }).join("");
     const budget = cacheBudget(cache, settings.cache_memory_mb);
     const budgetText = budget ? `<span class="cache-limit-budget" title="内存预算按各池记录上限的比例分配，改上限并重启内核后重新计算">预算 ${budget.size} MB${budget.share === null ? "" : ` · ${budget.share}%`}</span>` : "";
-    const pending = poolPending(cache) ? '<span class="badge pink cache-limit-pending">待重启</span>' : "";
-    return `<tr data-cache-key="${esc2(cache.key)}"><th scope="row"><span class="cache-limit-name">${esc2(cacheName2(cache.tag))}</span><code class="cache-limit-key">${esc2(cache.key)}</code>${budgetText}${pending}</th>${cells}</tr>`;
+    const pending2 = poolPending(cache) ? '<span class="badge pink cache-limit-pending">待重启</span>' : "";
+    return `<tr data-cache-key="${esc2(cache.key)}"><th scope="row"><span class="cache-limit-name">${esc2(cacheName2(cache.tag))}</span><code class="cache-limit-key">${esc2(cache.key)}</code>${budgetText}${pending2}</th>${cells}</tr>`;
   }).join("");
   const [minEntries, maxEntries] = settings.limits.max_entries;
   const [minTtl, maxTtl] = displayBounds("stale_ttl", settings.limits.stale_ttl);
@@ -7902,7 +9087,7 @@ function buildCacheLimits(settings, values) {
 }
 const cacheName = (t) => ({ cache_main: "全部缓存", cache_domestic: "国内缓存", cache_foreign: "国外缓存", cache_foreign_ecs: "国外 ECS 缓存" })[t] || t;
 function requeryHtml(s, c) {
-  var _a2, _b2, _c, _d, _e;
+  var _a2, _b2, _c2, _d, _e;
   if (!s) return { actions: "", body: empty("Requery 插件不可用") };
   const taskState = String(s.task_state || s.status || "idle").toLowerCase();
   const running = s.running === true || ["running", "processing", "cancelling"].includes(taskState);
@@ -7913,7 +9098,7 @@ function requeryHtml(s, c) {
   const lastRun = s.last_run_end_time || s.last_run_start_time || ((_a2 = s.last_run) == null ? void 0 : _a2.finished_at) || ((_b2 = s.last_run) == null ? void 0 : _b2.started_at);
   const lastCount = s.last_run_domain_count;
   const tile = (k, v) => `<div class="mg-tile"><span>${k}</span><strong>${v}</strong></div>`;
-  const statusRow = `<div class="rq-status"><span class="mg-chip"><span class="mg-lab">当前状态</span><span class="badge ${stateClass}">${stateText}</span></span><span class="mg-chip"><span class="mg-lab">定时任务</span><span class="badge ${((_c = c == null ? void 0 : c.scheduler) == null ? void 0 : _c.enabled) ? "success" : ""}">${((_d = c == null ? void 0 : c.scheduler) == null ? void 0 : _d.enabled) ? "已启用" : "未启用"}</span></span></div>`;
+  const statusRow = `<div class="rq-status"><span class="mg-chip"><span class="mg-lab">当前状态</span><span class="badge ${stateClass}">${stateText}</span></span><span class="mg-chip"><span class="mg-lab">定时任务</span><span class="badge ${((_c2 = c == null ? void 0 : c.scheduler) == null ? void 0 : _c2.enabled) ? "success" : ""}">${((_d = c == null ? void 0 : c.scheduler) == null ? void 0 : _d.enabled) ? "已启用" : "未启用"}</span></span></div>`;
   const actions = `<button class="button small" id="requery-scheduler" title="定时任务设置"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h9M18 8h2M4 16h4M13 16h7"/><circle cx="15.5" cy="8" r="2"/><circle cx="10.5" cy="16" r="2"/></svg>定时设置</button>${running ? '<button class="button small danger" id="requery-cancel">取消任务</button>' : '<button class="button small primary" id="requery-trigger" title="开始全新任务"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 4.5 19 12 7 19.5Z"/></svg>全新任务</button>'}`;
   const body2 = statusRow + `<div class="mg-tiles">${tile("进度", hasProgress ? `${num(pr.processed ?? 0)} / ${num(pr.total ?? 0)}` : "—")}${tile("上次处理域名", lastCount === void 0 || lastCount === null ? "—" : num(lastCount) + " 条")}${tile("上次运行", fmtDate(lastRun))}${tile("下次执行", fmtDate(s.next_run_time))}${tile("间隔", ((_e = c == null ? void 0 : c.scheduler) == null ? void 0 : _e.interval_minutes) ? num(c.scheduler.interval_minutes) + " 分钟" : "—")}</div>`;
   return { actions, body: body2 };
@@ -8152,7 +9337,7 @@ async function renderManagement(container, context) {
     if (isCurrent() && $("#management-cache-slot")) setHTML($("#management-cache-slot"), card("缓存管理", `<div class="error-panel">加载失败：${esc$1(e.message)}</div>`, { iconName: "data", className: "data-cache-panel" }));
   });
   Promise.all([reqStatusPromise, reqCfgPromise]).then(([reqStatus, reqCfg]) => {
-    var _a3, _b2, _c;
+    var _a3, _b2, _c2;
     if (!isCurrent()) return;
     const slot = $("#management-requery-slot");
     if (!slot) return;
@@ -8178,7 +9363,7 @@ async function renderManagement(container, context) {
         renderRoute(true);
       }
     });
-    (_c = $("#requery-scheduler")) == null ? void 0 : _c.addEventListener("click", () => openRequeryScheduler(reqCfg));
+    (_c2 = $("#requery-scheduler")) == null ? void 0 : _c2.addEventListener("click", () => openRequeryScheduler(reqCfg));
   });
   countsPromise.then((counts) => {
     var _a3, _b2;
@@ -8212,7 +9397,7 @@ async function restartService() {
 }
 const cpuSample = { total: null, at: null };
 async function renderOverview(container, context) {
-  var _a2, _b2, _c, _d, _e;
+  var _a2, _b2, _c2, _d, _e;
   const renderScope = context.scope, page2 = container;
   trafficClientService.start(renderScope);
   await renderScope.guard(loadAliases(renderScope).catch(() => {
@@ -8417,7 +9602,7 @@ async function renderOverview(container, context) {
   const p95Ms = slowGroups.length > 1 ? Math.round(+slowGroups[Math.min(1, slowGroups.length - 1)].duration_ms || 0) : maxSlowMs;
   const clientModeText = clientMode === "fakeip" ? "指定 FakeIP" : clientMode === "realip" ? "指定 RealIP" : clientMode === "all" ? "全员分流" : "状态未知";
   const shortcutsSummary = `当前策略：${clientModeText} · 核心缓存 ${cacheState === "on" ? "开" : cacheState === "off" ? "关" : "未知"} · 乐观过期 ${lazyState === "on" ? "开" : lazyState === "off" ? "关" : "未知"} · AdGuard ${sw.switch7 === "A" ? "已开启" : sw.switch7 === "B" ? "未启用" : "未知"}`;
-  (_c = trafficClientService.setOverviewContext) == null ? void 0 : _c.call(trafficClientService, {
+  (_c2 = trafficClientService.setOverviewContext) == null ? void 0 : _c2.call(trafficClientService, {
     avgLatencyMs: Number.isFinite(+stats.average_duration_ms) ? +stats.average_duration_ms : null,
     upstreamAvgMs: domAvgNum > 0 ? domAvgNum : null,
     upstreamLabel: domShortLabel,
@@ -8498,9 +9683,19 @@ async function renderOverview(container, context) {
             <span>缓存与过期</span>
           </div>
           <div class="cb-right">
-            <div class="seg-group" role="group" aria-label="缓存功能开关">
-              <button type="button" class="seg-item ${cacheState === "on" ? "active" : ""}" id="btn-toggle-switch13" ${cacheState === "unknown" ? "disabled" : ""} title="${cacheState === "unknown" ? "核心缓存开关读取失败，状态未知，暂不可切换" : "点击切换核心缓存 (switch13)"}">核心缓存 ${cacheState === "on" ? "开" : cacheState === "off" ? "关" : "未知"}</button>
-              <button type="button" class="seg-item ${lazyEnabled ? "active" : ""}" id="btn-toggle-switch4" ${lazyState === "unknown" ? "disabled" : ""} title="${lazyState === "unknown" ? "乐观过期缓存开关读取失败，状态未知，暂不可切换" : "点击切换乐观过期缓存 (switch4)"}">乐观过期 ${lazyState === "on" ? "开" : lazyState === "off" ? "关" : "未知"}</button>
+            <div class="cache-switches" role="group" aria-label="缓存功能开关">
+              <label class="switch cache-switch ${cacheState === "unknown" ? "is-unknown" : ""}" title="${cacheState === "unknown" ? "核心缓存开关读取失败，状态未知，暂不可切换" : "点击切换核心缓存 (switch13)"}">
+                <input type="checkbox" role="switch" id="btn-toggle-switch13" ${cacheState === "on" ? "checked" : ""} ${cacheState === "unknown" ? "disabled" : ""} aria-label="核心缓存">
+                <span class="switch-label">核心缓存</span>
+                <span class="switch-track"><span class="switch-thumb"></span></span>
+                <span class="cache-switch-state">${cacheState === "on" ? "开" : cacheState === "off" ? "关" : "未知"}</span>
+              </label>
+              <label class="switch cache-switch ${lazyState === "unknown" ? "is-unknown" : ""}" title="${lazyState === "unknown" ? "乐观过期缓存开关读取失败，状态未知，暂不可切换" : "点击切换乐观过期缓存 (switch4)"}">
+                <input type="checkbox" role="switch" id="btn-toggle-switch4" ${lazyEnabled ? "checked" : ""} ${lazyState === "unknown" ? "disabled" : ""} aria-label="乐观过期">
+                <span class="switch-label">乐观过期</span>
+                <span class="switch-track"><span class="switch-thumb"></span></span>
+                <span class="cache-switch-state">${lazyState === "on" ? "开" : lazyState === "off" ? "关" : "未知"}</span>
+              </label>
             </div>
             <button type="button" class="glass-btn" id="btn-flush-all-cache">清空</button>
           </div>
@@ -8957,8 +10152,29 @@ async function renderOverview(container, context) {
       }
     };
   };
-  bindSwitchBtn("#btn-toggle-switch13", "switch13", sw.switch13, "核心缓存");
-  bindSwitchBtn("#btn-toggle-switch4", "switch4", sw.switch4, "乐观过期缓存");
+  const bindSwitchToggle = (sel, tag, curVal, label) => {
+    const el = $(sel);
+    if (!el) return;
+    el.onchange = async () => {
+      if (curVal !== "A" && curVal !== "B") {
+        el.checked = curVal === "A";
+        return;
+      }
+      const nextVal = el.checked ? "A" : "B";
+      el.disabled = true;
+      try {
+        await api.json(`/plugins/${tag}/post`, "POST", { value: nextVal });
+        toast(`${label}已${nextVal === "A" ? "开启" : "关闭"}`);
+        renderRoute(true, true);
+      } catch (e) {
+        el.checked = curVal === "A";
+        el.disabled = false;
+        toast("操作失败", "error", e.message);
+      }
+    };
+  };
+  bindSwitchToggle("#btn-toggle-switch13", "switch13", sw.switch13, "核心缓存");
+  bindSwitchToggle("#btn-toggle-switch4", "switch4", sw.switch4, "乐观过期缓存");
   bindSwitchBtn("#btn-toggle-switch7", "switch7", sw.switch7, "AdGuard 广告拦截");
   if ($("#btn-flush-all-cache")) {
     $("#btn-flush-all-cache").onclick = async () => {
@@ -9291,7 +10507,7 @@ function logRow(view) {
   return `<tr data-log='${esc$1(JSON.stringify(view.record))}'><td title="${esc$1(view.time)}"><span class="log-time-full">${view.time}</span><span class="log-time-mobile">${esc$1(view.mobileTime)}</span></td><td class="td-domain" data-qtype="${esc$1(view.type)}" data-qtype-short="${esc$1(view.shortType)}" data-blocked="${view.blocked ? 1 : 0}"><strong class="copyable" role="button" tabindex="0" data-copy="${esc$1(view.domain)}" title="点击复制域名">${esc$1(view.domain)}</strong><div style="color:var(--muted);font-size:11px;max-width:360px;overflow:hidden;text-overflow:ellipsis">${esc$1(view.answer)}</div></td><td>${esc$1(view.queryType)}</td><td>${logBadge(view.set)}</td><td>${ms(view.duration)}</td><td><span class="copyable value-chip" role="button" tabindex="0" data-copy="${esc$1(view.client)}" title="点击复制客户端 IP">${esc$1(view.clientLabel)}</span></td><td><span class="badge ${view.success ? "success" : "danger"}">${esc$1(view.code)}</span></td><td><button class="icon-button row-action log-detail" type="button" aria-label="查看查询详情" title="查看详情"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.6"/></svg></button></td></tr>`;
 }
 async function renderLogs(container, context) {
-  var _a2, _b2, _c, _d, _e;
+  var _a2, _b2, _c2, _d, _e;
   const renderScope = context.scope, page2 = container;
   const p = state.logs;
   await loadAliases(renderScope);
@@ -9299,12 +10515,12 @@ async function renderLogs(container, context) {
   const rows = data.rows, filters = data.filters;
   const topPager = `<div class="logs-top-pagination">${paginationHtml(data.pagination)}</div>`;
   const choices = (items, selected) => [...new Set([...items || [], selected].filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "zh-CN"));
-  const options = (items, value, label) => `<option value="">${label}</option>${choices(items, value).map((v) => `<option value="${esc$1(v)}" ${v === value ? "selected" : ""}>${esc$1(v)}</option>`).join("")}`;
+  const options = (items, value, label, format = (v) => v) => `<option value="">${label}</option>${choices(items, value).map((v) => `<option value="${esc$1(v)}" title="${esc$1(v)}" ${v === value ? "selected" : ""}>${esc$1(format(v))}</option>`).join("")}`;
   const hasFilter = !!(p.q || p.type || p.set || p.code || p.client || p.exact);
   const emptyRow = hasFilter ? '<tr><td colspan="8" class="table-empty">没有符合筛选的记录<div style="margin-top:10px"><button type="button" class="button small" id="logs-clear-filters">清除筛选</button></div></td></tr>' : '<tr><td colspan="8" class="table-empty">暂无查询日志，可在「审计控制」中开启查询日志审计<div style="margin-top:10px"><button type="button" class="button small" id="logs-open-audit">打开审计控制</button></div></td></tr>';
   setHTML(page2, `<div class="view-title-row"><div><h1>查询日志</h1></div><div class="workspace-actions"><button type="button" class="glass-btn" id="log-pause" aria-pressed="${!!state.logsPaused}">${state.logsPaused ? "继续刷新" : "暂停刷新"}</button><button type="button" class="glass-btn" id="audit-control">审计控制</button><button type="button" class="glass-btn" id="alias-control">客户端管理</button></div></div>
-    ${card("查询与过滤", `<div class="log-filter-bar"><div class="lf-search"><span class="search-icon">${icon$1("search")}</span><input id="log-q" value="${esc$1(p.q)}" placeholder="域名、IP、响应值" aria-label="搜索查询"></div><select id="log-type" aria-label="请求类型">${options(filters.query_types, p.type, "全部类型")}</select><select id="log-set" aria-label="分流结果">${options(filters.domain_sets, p.set, "全部分流结果")}</select><button type="button" class="lf-more" id="lf-more" aria-expanded="${!!(p.code || p.client || p.exact)}" aria-controls="log-filter-more">更多筛选</button><button type="button" class="lf-reset" id="lf-reset">重置</button><button type="button" class="button primary" id="log-search">查询</button></div><div class="log-filter-more" id="log-filter-more" ${p.code || p.client || p.exact ? "" : "hidden"}><div class="field"><label for="log-code">响应码</label><select id="log-code">${options(filters.response_codes, p.code, "全部响应码")}</select></div><div class="field"><label for="log-client">客户端</label><input id="log-client" value="${esc$1(p.client)}" placeholder="客户端 IP"></div><label class="switch"><input id="log-exact" type="checkbox" ${p.exact ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">精确匹配</span></label></div>${workspaceService.logTools(p)}`, { iconName: "logs" })}
-    ${card("DNS 请求记录", `${topPager}<div class="table-wrap"><table class="workspace-log-table"><thead><tr><th>时间</th><th>域名 / 响应</th><th>类型</th><th>分流结果</th><th>耗时</th><th>客户端</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.length ? rows.map(logRow).join("") : emptyRow}</tbody></table></div>${paginationHtml(data.pagination)}`, { iconName: "logs", subtitle: `共 ${num(((_a2 = data.pagination) == null ? void 0 : _a2.total_items) || 0)} 条 · 第 ${num(((_b2 = data.pagination) == null ? void 0 : _b2.current_page) || 1)} / ${num(((_c = data.pagination) == null ? void 0 : _c.total_pages) || 1)} 页` })}`);
+    ${card("查询与过滤", `<div class="log-filter-bar"><div class="lf-search"><span class="search-icon">${icon$1("search")}</span><input id="log-q" value="${esc$1(p.q)}" placeholder="域名、IP、响应值" aria-label="搜索查询"></div><select id="log-type" aria-label="请求类型">${options(filters.query_types, p.type, "全部类型")}</select><select id="log-set" aria-label="分流结果">${options(filters.domain_sets, p.set, "全部分流结果", overviewInsightsService.label)}</select><button type="button" class="lf-more" id="lf-more" aria-expanded="${!!(p.code || p.client || p.exact)}" aria-controls="log-filter-more">更多筛选</button><button type="button" class="lf-reset" id="lf-reset">重置</button><button type="button" class="button primary" id="log-search">查询</button></div><div class="log-filter-more" id="log-filter-more" ${p.code || p.client || p.exact ? "" : "hidden"}><div class="field"><label for="log-code">响应码</label><select id="log-code">${options(filters.response_codes, p.code, "全部响应码")}</select></div><div class="field"><label for="log-client">客户端</label><input id="log-client" value="${esc$1(p.client)}" placeholder="客户端 IP"></div><label class="switch"><input id="log-exact" type="checkbox" ${p.exact ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">精确匹配</span></label></div>${workspaceService.logTools(p)}`, { iconName: "logs" })}
+    ${card("DNS 请求记录", `${topPager}<div class="table-wrap"><table class="workspace-log-table"><thead><tr><th>时间</th><th>域名 / 响应</th><th>类型</th><th>分流结果</th><th>耗时</th><th>客户端</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows.length ? rows.map(logRow).join("") : emptyRow}</tbody></table></div>${paginationHtml(data.pagination)}`, { iconName: "logs", subtitle: `共 ${num(((_a2 = data.pagination) == null ? void 0 : _a2.total_items) || 0)} 条 · 第 ${num(((_b2 = data.pagination) == null ? void 0 : _b2.current_page) || 1)} / ${num(((_c2 = data.pagination) == null ? void 0 : _c2.total_pages) || 1)} 页` })}`);
   $("#log-search").onclick = () => {
     Object.assign(p, { page: 1, q: $("#log-q").value.trim(), type: $("#log-type").value, set: $("#log-set").value, code: $("#log-code").value, client: $("#log-client").value.trim(), exact: $("#log-exact").checked });
     renderRoute(true);
@@ -9524,23 +10740,24 @@ class LatestView {
   }
 }
 let mountToolbar;
+const ruleDescriptions = {
+  whitelist: "强制走国内直连解析，最高优先级放行",
+  greylist: "强制走代理解析组（FakeIP / 远程无污染解析）",
+  blocklist: "直接拦截并拒绝解析请求",
+  force_realip: "匹配域名禁用 FakeIP，强制返回真实 IP 地址",
+  ddns_domains: "动态域名直连解析并缩短缓存生存周期",
+  direct_ip: "指定目的 IP 或 CIDR 网段强制直连",
+  foreign_ip: "指定 IP 或 CIDR 网段按国外地址处理，优先于中国 IP 表",
+  rewrite: "自定义域名重定向或 A/AAAA/CNAME 静态映射",
+  pcdn_domains: "匹配常见 PCDN 节点域名并抑制解析",
+  pcdn_regex_v4: "按正则表达式识别并过滤 PCDN IPv4 节点请求",
+  pcdn_regex_v6: "按正则表达式识别并过滤 PCDN IPv6 节点请求"
+};
 function initialize$6() {
   "use strict";
   const $2 = (s, r = document) => r.querySelector(s);
   const esc2 = (value) => String(value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-  const names = { whitelist: "白名单", blocklist: "黑名单", greylist: "灰名单", force_realip: "强制 RealIP", ddns_domains: "DDNS 域名", pcdn_domains: "PCDN 域名", pcdn_regex_v4: "PCDN IPv4 规则", pcdn_regex_v6: "PCDN IPv6 规则", direct_ip: "直连 IP", rewrite: "重定向" };
-  const notes = {
-    whitelist: "强制走国内直连解析，最高优先级放行 · 修改先保留为草稿，点击右侧“保存”后生效",
-    greylist: "强制走代理解析组（FakeIP / 远程无污染解析）· 修改先保留为草稿，保存后生效",
-    blocklist: "直接拦截并拒绝解析请求 · 修改先保留为草稿，保存后生效",
-    force_realip: "匹配域名禁用 FakeIP，强制返回真实 IP 地址 · 修改先保留为草稿，保存后生效",
-    ddns_domains: "动态域名直连解析并缩短缓存生存周期 · 修改先保留为草稿，保存后生效",
-    direct_ip: "指定目的 IP 或 CIDR 网段强制直连 · 修改先保留为草稿，保存后生效",
-    rewrite: "自定义域名重定向或 A/AAAA/CNAME 静态映射 · 修改先保留为草稿，保存后生效",
-    pcdn_domains: "匹配常见 PCDN 节点域名并抑制解析 · 修改先保留为草稿，保存后生效",
-    pcdn_regex_v4: "按正则表达式识别并过滤 PCDN IPv4 节点请求 · 修改先保留为草稿，保存后生效",
-    pcdn_regex_v6: "按正则表达式识别并过滤 PCDN IPv6 节点请求 · 修改先保留为草稿，保存后生效"
-  };
+  const names = { whitelist: "白名单", blocklist: "黑名单", greylist: "灰名单", force_realip: "强制 RealIP", ddns_domains: "DDNS 域名", pcdn_domains: "PCDN 域名", pcdn_regex_v4: "PCDN IPv4 规则", pcdn_regex_v6: "PCDN IPv6 规则", direct_ip: "直连 IP", foreign_ip: "国外 IP 段", rewrite: "重定向" };
   function syncMode() {
     const host = $2("#rv-root");
     if (!host) {
@@ -9569,8 +10786,8 @@ function initialize$6() {
     const activeTag = (_a2 = $2(".rule-menu [data-rule-tag].active")) == null ? void 0 : _a2.dataset.ruleTag;
     const heading = document.createElement("div");
     heading.className = "wb-list-heading";
-    const note = (notes[activeTag] || "").split(" · ")[0] || "本地名单";
-    setHTML(heading, `<div><h2>${esc2(names[activeTag] || "名单管理")}</h2><p>${esc2(note)}</p></div><div class="wb-list-tools"><button type="button" class="workspace-text-button" data-route="devices">客户端 IP 与分流模式已移至「设备」›</button></div>`);
+    const note = ruleDescriptions[activeTag] || "本地名单";
+    setHTML(heading, `<div><h2>${esc2(names[activeTag] || "名单管理")}</h2><p>${esc2(note)}</p></div>`);
     bar.before(heading);
     const modes = document.createElement("div");
     modes.className = "wb-modes";
@@ -9653,16 +10870,16 @@ function initialize$5() {
       rt = setTimeout(fitList, 150);
     });
     lifecycle.listen(window, "beforeunload", beforeUnload);
-    let pending = false;
+    let pending2 = false;
     observer = new MutationObserver(() => {
-      if (pending || lifecycle.signal.aborted) return;
-      pending = true;
+      if (pending2 || lifecycle.signal.aborted) return;
+      pending2 = true;
       try {
         tick();
       } catch {
       }
       const frame = requestAnimationFrame(() => {
-        pending = false;
+        pending2 = false;
         if (!lifecycle.signal.aborted) {
           tick();
           fitList();
@@ -9710,7 +10927,7 @@ function initialize$5() {
   var hist = [], histAt = -1, histLock = false, savedText = "";
   var dragIds = [];
   var sheetBaseline = "", sheetOff = false, pendingLeave = null, focusTimer = null, mainWasInert = false, ownsInert = false;
-  var rawTags = { direct_ip: true, rewrite: true };
+  var rawTags = { direct_ip: true, foreign_ip: true, rewrite: true };
   var rawMode = false;
   var sheetEl = null, scrimEl = null;
   var sheetBack = null;
@@ -10580,10 +11797,10 @@ function initialize$5() {
     var raw = inp.value, v = raw.trim(), t = curType();
     var pm = v.match(PREFIX_RE), hash = /^#\s*/.test(v);
     var body2 = v.replace(/^#\s*/, "").replace(PREFIX_RE, "");
-    var pending = !!pm || hash;
-    var bad = !rawMode && !pending && !!body2 && !valid(body2, t);
+    var pending2 = !!pm || hash;
+    var bad = !rawMode && !pending2 && !!body2 && !valid(body2, t);
     inp.classList.toggle("bad", bad);
-    var rawLabels = { direct_ip: "IP 或网段", rewrite: "重定向条目" };
+    var rawLabels = { direct_ip: "IP 或网段", foreign_ip: "IP 或网段", rewrite: "重定向条目" };
     sheet().querySelector("#rv-value-label").textContent = rawMode ? rawLabels[activeTag()] || "原文" : NAME[t];
     inp.placeholder = rawMode ? activeTag() === "rewrite" ? "例如 home.example.com 192.0.2.10" : "例如 192.0.2.10" : "例如 " + TYPE_TIP[t].ph;
     var note = sheet().dataset.note;
@@ -11785,29 +13002,73 @@ function initialize$4() {
     navigate(location.hash.replace(/^#\/?/, "") || "overview", false);
   });
 }
+const pending = /* @__PURE__ */ new Map();
+const views = /* @__PURE__ */ new Map();
+const selectors = {
+  adguard: ".ad-update,#ad-update-all,.ad-enable,.ad-edit,.ad-delete,#ad-add",
+  diversion: ".div-update,#div-update-all,[data-div-update-group],.div-enable,.div-edit,.div-delete,#div-add"
+};
+function syncRuleUpdateState(body2, collection, refresh) {
+  var _a2;
+  if (!(body2 == null ? void 0 : body2.isConnected) || body2.dataset.ruleCollection !== collection) return;
+  if (refresh) views.set(collection, { body: body2, refresh });
+  const operation = pending.get(collection);
+  for (const button of body2.querySelectorAll(selectors[collection])) {
+    const update = button.matches(".ad-update,.div-update,#ad-update-all,#div-update-all,[data-div-update-group]");
+    button.disabled = Boolean(operation);
+    if (!update) continue;
+    const row = button.closest("[data-id],[data-tag][data-name]");
+    const active2 = operation && (operation.kind === "all" || (operation.kind === "group" ? button.dataset.divUpdateGroup === operation.tag || (row == null ? void 0 : row.dataset.tag) === operation.tag : collection === "adguard" ? (row == null ? void 0 : row.dataset.id) === operation.id : (row == null ? void 0 : row.dataset.tag) === operation.tag && (row == null ? void 0 : row.dataset.name) === operation.name));
+    if (!button.dataset.idleLabel) button.dataset.idleLabel = button.textContent;
+    const label = active2 ? "更新中…" : button.dataset.idleLabel;
+    if (button.textContent !== label) button.textContent = label;
+    if (active2) button.setAttribute("aria-busy", "true");
+    else button.removeAttribute("aria-busy");
+  }
+  let note = body2.querySelector("[data-rule-update-status]");
+  if (!note) {
+    note = document.createElement("p");
+    note.className = "form-note";
+    note.dataset.ruleUpdateStatus = "";
+    note.setAttribute("role", "status");
+    (_a2 = body2.querySelector(".card-body")) == null ? void 0 : _a2.prepend(note);
+  }
+  const message = operation ? "正在下载并更新规则，最多等待 5 分钟，请勿重复提交。" : "下载更新最多等待 5 分钟。";
+  if (note.textContent !== message) note.textContent = message;
+}
+async function runRuleUpdate(body2, collection, operation, task) {
+  if (pending.has(collection)) return;
+  pending.set(collection, operation);
+  syncRuleUpdateState(body2, collection);
+  try {
+    return await task();
+  } finally {
+    pending.delete(collection);
+    const view = views.get(collection);
+    if ((view == null ? void 0 : view.body) !== body2 && (view == null ? void 0 : view.body.isConnected) && view.body.dataset.ruleCollection === collection) await view.refresh();
+    else syncRuleUpdateState(body2, collection);
+  }
+}
+const ruleUpdatePending = (collection) => pending.has(collection);
 const ruleGroups = [
   ["核心分流", [["whitelist", "白名单"], ["greylist", "灰名单"], ["blocklist", "黑名单"]]],
-  ["解析控制", [["force_realip", "强制 RealIP"], ["ddns_domains", "DDNS 域名"], ["direct_ip", "直连 IP"], ["rewrite", "重定向"]]],
+  ["解析控制", [["force_realip", "强制 RealIP"], ["ddns_domains", "DDNS 域名"], ["direct_ip", "直连 IP"], ["foreign_ip", "国外 IP 段"], ["rewrite", "重定向"]]],
   ["PCDN 抑制", [["pcdn_domains", "PCDN 域名"], ["pcdn_regex_v4", "PCDN IPv4 规则"], ["pcdn_regex_v6", "PCDN IPv6 规则"]]]
 ];
 const ruleProfiles = ruleGroups.flatMap(([, items]) => items);
-let ruleViews, activeTab = "lists", diversionUpdating = false;
-const updateRule = (path) => api.request(path, { method: "POST", timeout: 3e5 });
+let ruleViews, activeTab = "lists", ruleCounts = /* @__PURE__ */ new Map();
+const ruleEntryCount = (text2) => String(text2).split("\n").filter((line) => line.trim() && !line.trim().startsWith("#")).length;
+const updateRule = (path) => api.request(path, { method: "POST" });
 const updateUncertain = (error) => ["timeout", "network", "invalid-json"].includes(error == null ? void 0 : error.code);
 function updateError(error, label = "更新失败") {
   if (updateUncertain(error)) toast("更新结果待确认", "info", "未能收到完整更新结果，服务器可能仍在处理。请稍后刷新，查看更新时间和来源错误；请勿重复提交。");
   else toast(label, "error", error.message);
 }
-function syncDiversionUpdateState(body2) {
-  $$(".div-update,#div-update-all,[data-div-update-group]", body2).forEach((button2) => {
-    button2.disabled = diversionUpdating;
-  });
-  const button = $("#div-update-all", body2);
-  if (button) button.textContent = diversionUpdating ? "更新中…" : "更新全部";
-}
+const ruleModalOptions = { pendingLabel: "更新中…", onError: (error) => updateError(error, "保存失败") };
 async function renderRules(container, context) {
   const renderScope = context.scope, page2 = container;
   ruleViews = new LatestView(renderScope);
+  ruleCounts = /* @__PURE__ */ new Map();
   activeTab = "lists";
   rulesWorkbenchService.mount();
   mountToolbar();
@@ -11830,6 +13091,7 @@ async function renderRuleTab(tab, approved = false) {
   activeTab = tab;
   $$("[data-rule-tab]").forEach((y) => y.classList.toggle("active", y.dataset.ruleTab === tab));
   const body2 = $("#rule-tab-body");
+  body2.dataset.ruleCollection = tab;
   setHTML(body2, loadingPage());
   if (tab === "lists") return renderListRules(body2);
   if (tab === "adguard") return renderAdguard(body2);
@@ -11847,26 +13109,26 @@ async function renderListRules(body2) {
     if (renderScope.signal.aborted) return;
     loadError = e;
   }
+  const counts = ruleCounts;
+  if (!loadError) counts.set(tag, ruleEntryCount(text2));
   const activeGroup = ruleGroups.find(([, items]) => items.some(([t]) => t === tag)) || ruleGroups[0];
-  const menuOptions = esc$1(JSON.stringify(ruleProfiles.map(([t, n]) => ({ tag: t, label: n, group: (ruleGroups.find(([, items]) => items.some(([x]) => x === t)) || [""])[0] }))));
-  const cardHead = `<div class="card-header rule-card-header"><div class="card-title"><span class="icon">${icon$1("rules")}</span><div><h2>名单管理</h2><p>本地名单 · 启停与编辑先保留为草稿</p></div></div><div class="card-actions"><div class="rule-menu-level1" role="group" aria-label="规则分组">${ruleGroups.map(([gLabel]) => `<button type="button" class="rule-group-btn${gLabel === activeGroup[0] ? " active" : ""}" data-rule-group="${esc$1(gLabel)}">${esc$1(gLabel)}</button>`).join("")}</div></div></div>`;
-  const menu = `<div class="rule-menu" data-rule-options="${menuOptions}"><div class="rule-menu-items" role="group" aria-label="${esc$1(activeGroup[0])}名单">${activeGroup[1].map(([t, n]) => `<button type="button" data-rule-tag="${t}" class="${t === tag ? "active" : ""}"><span>${n}</span><span class="rule-count"></span></button>`).join("")}</div></div>`;
+  const cardHead = `<div class="card-header rule-card-header"><div class="card-title"><span class="icon">${icon$1("rules")}</span><h2>名单管理</h2><span class="rule-card-subtitle">本地名单 · 启停与编辑先保留为草稿</span></div><button type="button" class="workspace-text-button rule-devices-link" data-route="devices">客户端 IP 与分流模式已移至「设备」›</button></div>`;
+  const menu = `<div class="rule-menu rule-selector-bar"><div class="rule-menu-level1" role="group" aria-label="规则分组">${ruleGroups.map(([name]) => `<button type="button" class="rule-group-btn${name === activeGroup[0] ? " active" : ""}" data-rule-group="${esc$1(name)}" aria-pressed="${name === activeGroup[0]}">${esc$1(name)}</button>`).join("")}</div><span class="rule-menu-arrow" aria-hidden="true">${icon$1("chevron")}</span><div class="rule-menu-items" role="group" aria-label="${esc$1(activeGroup[0])}名单">${activeGroup[1].map(([t, n]) => `<button type="button" data-rule-tag="${t}" aria-pressed="${t === tag}" class="${t === tag ? "active" : ""}"><span class="rule-tone-dot" aria-hidden="true"></span><span>${n}</span><span class="rule-count" data-rule-count="${t}" title="启用规则">${counts.has(t) ? num(counts.get(t)) : "—"}</span></button>`).join("")}</div><span class="rule-menu-note">${esc$1(ruleDescriptions[tag] || "")}</span></div>`;
   const bindMenu = () => {
-    $$("[data-rule-tag]").forEach((x) => x.onclick = () => {
+    const selectTag = (next) => {
       const go = () => {
-        state.ruleTag = x.dataset.ruleTag;
+        shellInterfaceService == null ? void 0 : shellInterfaceService.rememberDraft();
+        state.ruleTag = next;
         renderListRules(body2);
       };
-      if ((rulesWorkbenchService == null ? void 0 : rulesWorkbenchService.canLeave(go)) !== false) go();
-    });
-    $$("[data-rule-group]").forEach((x) => x.onclick = () => {
-      const entry = ruleGroups.find(([g]) => g === x.dataset.ruleGroup);
-      if (!entry || !entry[1].length) return;
-      const go = () => {
-        state.ruleTag = entry[1][0][0];
-        renderListRules(body2);
-      };
-      if ((rulesWorkbenchService == null ? void 0 : rulesWorkbenchService.canLeave(go)) !== false) go();
+      if ((rulesWorkbenchService == null ? void 0 : rulesWorkbenchService.canLeave(go)) === false) return false;
+      go();
+      return true;
+    };
+    $$("[data-rule-tag]", body2).forEach((x) => x.onclick = () => selectTag(x.dataset.ruleTag));
+    $$("[data-rule-group]", body2).forEach((button) => button.onclick = () => {
+      const entry = ruleGroups.find(([name]) => name === button.dataset.ruleGroup);
+      if (entry == null ? void 0 : entry[1].length) selectTag(entry[1][0][0]);
     });
   };
   if (loadError) {
@@ -11879,6 +13141,16 @@ async function renderListRules(body2) {
   const trimmed = String(text2).trim();
   setHTML(body2, `<section class="card">${cardHead}<div class="rule-layout">${menu}<div class="rule-editor"><div class="section-header"><div><h2>${profile[1]}</h2><p>一行一条；完整读取后才允许保存</p></div><div class="section-header-actions"><button class="button small" id="rule-download">${icon$1("download")}下载列表</button><button class="button primary" id="rule-save">${icon$1("save")}保存</button></div></div><textarea id="rule-text" class="rule-textarea" spellcheck="false">${esc$1(trimmed)}</textarea><div class="rule-editor-footer"><span id="rule-lines">共 ${trimmed ? trimmed.split("\n").filter((line) => line.trim()).length : 0} 行</span></div></div></div></section>`);
   bindMenu();
+  activeGroup[1].forEach(([listTag]) => {
+    if (counts.has(listTag)) return;
+    api.request(`/plugins/${listTag}/show?all=1`, { signal: renderScope.signal }).then((value) => {
+      if (renderScope.signal.aborted) return;
+      counts.set(listTag, ruleEntryCount(value));
+      const count = $(`[data-rule-count="${listTag}"]`, body2);
+      if (count) count.textContent = num(counts.get(listTag));
+    }).catch(() => {
+    });
+  });
   $("#rule-text").oninput = () => $("#rule-lines").textContent = `共 ${$("#rule-text").value.split("\n").filter((line) => line.trim()).length} 行`;
   $("#rule-save").onclick = async () => {
     const button = $("#rule-save"), text3 = $("#rule-text"), value = text3.value, baseline = text3.dataset.original;
@@ -11886,6 +13158,9 @@ async function renderListRules(body2) {
     button.disabled = true;
     try {
       await ruleSaveService.save(tag, value, baseline, () => api.request(`/plugins/${tag}/show?all=1`), (values) => api.json(`/plugins/${tag}/post`, "POST", { values }));
+      counts.set(tag, ruleEntryCount(value));
+      const count = $(`[data-rule-count="${tag}"]`, body2);
+      if (count) count.textContent = num(counts.get(tag));
       shellInterfaceService == null ? void 0 : shellInterfaceService.ruleSaved(tag, value);
       toast(`${profile[1]}已保存`);
     } catch (e) {
@@ -11922,7 +13197,7 @@ async function renderAdguard(body2) {
       await renderAdguard(body2);
     } catch (e) {
       x.checked = !x.checked;
-      toast("状态保存失败", "error", e.message);
+      updateError(e, "状态保存失败");
     } finally {
       x.disabled = false;
     }
@@ -11930,16 +13205,15 @@ async function renderAdguard(body2) {
   $$(".ad-update").forEach((x) => x.onclick = async () => {
     const rule = findRule(x.closest("tr"));
     if (!rule) return;
-    x.disabled = true;
-    try {
-      const r = await updateRule(`/plugins/adguard/rules/${encodeURIComponent(rule.id)}/update`);
-      toast(`广告规则“${rule.name}”更新完成`, "success", `规则数：${num((r == null ? void 0 : r.rule_count) || 0)}`);
-      await renderAdguard(body2);
-    } catch (e) {
-      updateError(e, `“${rule.name}”更新失败`);
-    } finally {
-      x.disabled = false;
-    }
+    await runRuleUpdate(body2, "adguard", { kind: "single", id: String(rule.id) }, async () => {
+      try {
+        const r = await updateRule(`/plugins/adguard/rules/${encodeURIComponent(rule.id)}/update`);
+        toast((r == null ? void 0 : r.changed) === false ? `广告规则“${rule.name}”没有变化` : `广告规则“${rule.name}”更新完成`, "success", `规则数：${num((r == null ? void 0 : r.rule_count) || 0)}`);
+        await renderAdguard(body2);
+      } catch (e) {
+        updateError(e, `“${rule.name}”更新失败`);
+      }
+    });
   });
   $$(".ad-edit").forEach((x) => x.onclick = () => openAdguardModal(findRule(x.closest("tr")), body2));
   $$(".ad-delete").forEach((x) => x.onclick = async () => {
@@ -11951,15 +13225,12 @@ async function renderAdguard(body2) {
       toast("广告规则已删除");
       await renderAdguard(body2);
     } catch (e) {
-      toast("删除失败", "error", e.message);
+      updateError(e, "删除失败");
     } finally {
       x.disabled = false;
     }
   });
-  $("#ad-update-all").onclick = async () => {
-    const btn = $("#ad-update-all");
-    btn.disabled = true;
-    btn.textContent = "更新中…";
+  $("#ad-update-all").onclick = () => runRuleUpdate(body2, "adguard", { kind: "all" }, async () => {
     try {
       const r = await updateRule("/plugins/adguard/update");
       const errors = Array.isArray(r == null ? void 0 : r.errors) ? r.errors : [];
@@ -11969,12 +13240,10 @@ async function renderAdguard(body2) {
       await renderAdguard(body2);
     } catch (e) {
       updateError(e, "广告规则更新失败");
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "更新全部";
     }
-  };
+  });
   $("#ad-add").onclick = () => openAdguardModal(null, body2);
+  syncRuleUpdateState(body2, "adguard", () => renderAdguard(body2));
 }
 async function updateAdguard(rule, patch) {
   const next = Object.assign({}, rule, patch);
@@ -11995,7 +13264,7 @@ function openAdguardModal(rule, body2) {
     else await api.json("/plugins/adguard/rules", "POST", payload);
     toast(`广告规则已${rule.id ? "更新" : "添加"}`);
     await renderAdguard(body2);
-  });
+  }, true, ruleModalOptions);
 }
 const diversionDefs = [
   { tag: "custom_cn", type: "custom_cn", label: "国内规则", domainRules: true },
@@ -12075,7 +13344,7 @@ function openDiversionDatasetPrompt(rule, datasets, body2, original = rule) {
     if (saved && saved.savedButUnrecognized) toast("配置已保存，但来源尚未识别", "warning", "请检查订阅地址后重试更新。");
     else toast("识别与转换完成", "success", ruleConversionService.message(saved));
     await renderDiversion(body2);
-  });
+  }, true, ruleModalOptions);
 }
 async function updateDiversionRule(rule, body2) {
   var _a2;
@@ -12124,26 +13393,26 @@ async function renderDiversion(body2) {
   workspaceService.bindDiversion(body2);
   $$("[data-div-update-group]", body2).forEach((button) => button.onclick = async () => {
     var _a2;
-    if (diversionUpdating) return;
+    if (ruleUpdatePending("diversion")) return;
     const tag = button.dataset.divUpdateGroup, label = ((_a2 = diversionDefByTag(tag)) == null ? void 0 : _a2.label) || tag;
     if (!rows.some((r) => r.tag === tag && r.enabled && r.url)) {
       toast(`${label}没有可更新的已启用规则`, "info");
       return;
     }
-    diversionUpdating = true;
-    syncDiversionUpdateState(body2);
-    try {
-      const result = await updateRule(`/plugins/${tag}/update-all`);
-      const failed = Number((result == null ? void 0 : result.failed) || 0);
-      if (failed) toast(`${label}：${Number((result == null ? void 0 : result.updated) || 0)} 个来源已更新，${failed} 个失败`, "error", (result.errors || []).map((x) => `${x.name}：${x.error}`).join("；"));
-      else toast(`${label}：${Number((result == null ? void 0 : result.updated) || 0)} 个来源已更新`);
-      await renderDiversion(body2);
-    } catch (e) {
-      updateError(e, `${label} 更新失败`);
-    } finally {
-      diversionUpdating = false;
-      syncDiversionUpdateState(body2);
-    }
+    await runRuleUpdate(body2, "diversion", { kind: "group", tag }, async () => {
+      try {
+        const result = await updateRule(`/plugins/${tag}/update-all`);
+        const errors2 = Array.isArray(result == null ? void 0 : result.errors) ? result.errors : [];
+        const uncertain = errors2.filter((error) => error.transport === true).length;
+        const failed = Math.max(0, Number((result == null ? void 0 : result.failed) || 0) - uncertain);
+        if (uncertain) toast(`${label}：已更新 ${Number((result == null ? void 0 : result.updated) || 0)} 个来源，${uncertain} 个结果待确认${failed ? `，失败 ${failed} 个` : ""}`, failed ? "error" : "info", "服务器可能仍在处理，请稍后刷新查看更新时间，请勿重复提交。");
+        else if (failed) toast(`${label}：${Number((result == null ? void 0 : result.updated) || 0)} 个来源已更新，${failed} 个失败`, "error", errors2.map((x) => `${x.name}：${x.error}`).join("；"));
+        else toast(`${label}：${Number((result == null ? void 0 : result.updated) || 0)} 个来源已更新`);
+        await renderDiversion(body2);
+      } catch (e) {
+        updateError(e, `${label} 更新失败`);
+      }
+    });
   });
   if (staleOriginal) {
     const notice = document.createElement("div");
@@ -12163,7 +13432,7 @@ async function renderDiversion(body2) {
       }
     };
   }
-  syncDiversionUpdateState(body2);
+  syncRuleUpdateState(body2, "diversion", () => renderDiversion(body2));
   $$(".div-detail", body2).forEach((button) => button.onclick = () => {
     const el = button.closest("[data-tag][data-name]"), r = rows.find((r2) => r2.tag === el.dataset.tag && String(r2.name) === el.dataset.name);
     if (r) workspaceService.ruleDetails(r, () => openDiversionModal(r, body2), diversionFormatLabel);
@@ -12181,23 +13450,21 @@ async function renderDiversion(body2) {
       await renderDiversion(body2);
     } catch (e) {
       x.checked = !x.checked;
-      toast("状态保存失败", "error", e.message);
+      updateError(e, "状态保存失败");
     } finally {
       x.disabled = false;
     }
   });
   $$(".div-update").forEach((x) => x.onclick = async () => {
-    if (diversionUpdating) return;
     const rule = findRow(x.closest("[data-tag][data-name]"));
     if (!rule) return;
-    x.disabled = true;
-    try {
-      await updateDiversionRule(rule, body2);
-    } catch (e) {
-      updateError(e);
-    } finally {
-      x.disabled = false;
-    }
+    await runRuleUpdate(body2, "diversion", { kind: "single", tag: rule.tag, name: String(rule.name) }, async () => {
+      try {
+        await updateDiversionRule(rule, body2);
+      } catch (e) {
+        updateError(e);
+      }
+    });
   });
   $$(".div-edit").forEach((x) => x.onclick = () => {
     const rule = findRow(x.closest("[data-tag][data-name]"));
@@ -12212,22 +13479,20 @@ async function renderDiversion(body2) {
       toast("规则及对应配置已删除");
       await renderDiversion(body2);
     } catch (e) {
-      toast("删除失败", "error", e.message);
+      updateError(e, "删除失败");
     } finally {
       x.disabled = false;
     }
   });
   $("#div-add").onclick = () => openDiversionModal(null, body2);
   $("#div-update-all").onclick = async () => {
-    if (diversionUpdating) return;
+    if (ruleUpdatePending("diversion")) return;
     const targets = rows.filter((r) => r.enabled && r.url);
     if (!targets.length) {
       toast("没有可更新的已启用规则", "info");
       return;
     }
-    diversionUpdating = true;
-    syncDiversionUpdateState(body2);
-    try {
+    await runRuleUpdate(body2, "diversion", { kind: "all" }, async () => {
       const byTag = /* @__PURE__ */ new Map();
       targets.forEach((r) => {
         if (!byTag.has(r.tag)) byTag.set(r.tag, []);
@@ -12245,11 +13510,11 @@ async function renderDiversion(body2) {
       const result = await Promise.allSettled(jobs);
       let failed = 0, uncertain = 0, datasetNeeded = 0, completed = 0, details = [];
       result.forEach((x) => {
-        var _a2, _b2, _c, _d, _e, _f, _g, _h;
+        var _a2, _b2, _c2, _d, _e, _f, _g, _h;
         if (x.status === "rejected") {
           failed++;
           if (((_b2 = (_a2 = x.reason) == null ? void 0 : _a2.body) == null ? void 0 : _b2.code) === "dataset_required") datasetNeeded++;
-          details.push(((_c = x.reason) == null ? void 0 : _c.message) || "未知错误");
+          details.push(((_c2 = x.reason) == null ? void 0 : _c2.message) || "未知错误");
           return;
         }
         const item = x.value;
@@ -12281,10 +13546,7 @@ async function renderDiversion(body2) {
       else if (failed) toast(`更新任务完成，失败 ${failed} 条`, "error", detailText);
       else toast(`已更新 ${completed} 条在线分流规则`);
       await renderDiversion(body2);
-    } finally {
-      diversionUpdating = false;
-      syncDiversionUpdateState(body2);
-    }
+    });
   };
 }
 function openDiversionModal(rule, body2) {
@@ -12309,7 +13571,7 @@ function openDiversionModal(rule, body2) {
     if (saved && saved.savedButUnrecognized) toast("配置已保存，但来源尚未识别", "warning", "请检查订阅地址后重试更新。");
     else toast("保存与转换完成", "success", ruleConversionService.message(saved));
     await renderDiversion(body2);
-  });
+  }, true, ruleModalOptions);
   workspaceService.trackRuleDraft(original);
 }
 const rulesRoute = {
@@ -13294,12 +14556,12 @@ ${draft.preserved ? "已保留目标核心的控制地址和密钥。\n" : ""}${
     }
     const changes = tools.differences(base, editor.text());
     const element = dialog(forSave ? activeFile ? "确认保存并应用" : "确认保存备用配置" : "查看本次修改", `<div class="pc-compare-meta"><code>${esc(path)}</code><span>+${changes.added.length} / −${changes.removed.length} 行</span></div>${forSave && activeFile && core === "sing-box" ? '<p class="pc-note">sing-box 将重建运行实例，现有连接可能断开。应用后新连接使用新规则。</p>' : ""}<div class="pc-diff-tabs" role="group" aria-label="对比版本"><button aria-pressed="true" data-pc-side="original">原配置</button><button aria-pressed="false" data-pc-side="modified">当前修改</button></div><div class="pc-diff-grid" data-side="original"><section><h3>原配置</h3><div id="pc-original"></div></section><section><h3>当前修改</h3><div id="pc-modified"></div></section></div>`, `<button class="button" data-pc-close>返回编辑</button>${forSave ? `<button class="button primary" id="pc-confirm-save">${activeFile ? "保存并应用" : "保存文件"}</button>` : ""}`, true);
-    const views = [tools.makeEditor({ parent: element.querySelector("#pc-original"), doc: base, type: core, readOnly: true, changedLines: changes.removed, side: "removed" }), tools.makeEditor({ parent: element.querySelector("#pc-modified"), doc: editor.text(), type: core, readOnly: true, changedLines: changes.added, side: "added" })];
-    element.addEventListener("close", () => views.forEach((view) => view.destroy()), { once: true });
+    const views2 = [tools.makeEditor({ parent: element.querySelector("#pc-original"), doc: base, type: core, readOnly: true, changedLines: changes.removed, side: "removed" }), tools.makeEditor({ parent: element.querySelector("#pc-modified"), doc: editor.text(), type: core, readOnly: true, changedLines: changes.added, side: "added" })];
+    element.addEventListener("close", () => views2.forEach((view) => view.destroy()), { once: true });
     element.querySelectorAll("[data-pc-side]").forEach((button) => button.onclick = () => {
       element.querySelectorAll("[data-pc-side]").forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
       element.querySelector(".pc-diff-grid").dataset.side = button.dataset.pcSide;
-      views.forEach((view) => view.view.requestMeasure());
+      views2.forEach((view) => view.view.requestMeasure());
     });
     if (forSave) element.querySelector("#pc-confirm-save").onclick = async () => {
       element.close();
@@ -13671,21 +14933,21 @@ function structuralPath(el, root) {
 function focusSelectors(el, root) {
   if (!el || el === root || !root.contains(el)) return [];
   const tag = el.tagName.toLowerCase();
-  const selectors = [];
-  if (el.id) selectors.push(`[id=${quote(el.id)}]`);
+  const selectors2 = [];
+  if (el.id) selectors2.push(`[id=${quote(el.id)}]`);
   const data = [...el.attributes].filter((attribute) => attribute.name.startsWith("data-"));
-  if (data.length) selectors.push(tag + data.map((attribute) => `[${attribute.name}=${quote(attribute.value)}]`).join(""));
+  if (data.length) selectors2.push(tag + data.map((attribute) => `[${attribute.name}=${quote(attribute.value)}]`).join(""));
   const label = el.getAttribute("aria-label");
-  if (label) selectors.push(`${tag}[aria-label=${quote(label)}]`);
+  if (label) selectors2.push(`${tag}[aria-label=${quote(label)}]`);
   const path = structuralPath(el, root);
-  if (path) selectors.push(path);
-  return selectors;
+  if (path) selectors2.push(path);
+  return selectors2;
 }
-function restoreFocus(selectors, root) {
-  if (!selectors.length) return false;
+function restoreFocus(selectors2, root) {
+  if (!selectors2.length) return false;
   const active2 = document.activeElement;
   if (active2 && active2 !== document.body && active2 !== root && active2.isConnected) return false;
-  for (const selector of selectors) {
+  for (const selector of selectors2) {
     let matches;
     try {
       matches = root.querySelectorAll(selector);
@@ -13961,7 +15223,7 @@ function initialize$3() {
 function initialize$2() {
   "use strict";
   function setup() {
-    var _a2, _b2, _c, _d, _e, _f, _g, _h;
+    var _a2, _b2, _c2, _d, _e, _f, _g, _h;
     const panel = document.querySelector("#bg-customizer-popover");
     if (!panel || panel.querySelector(".appearance-tabs")) return;
     panel.classList.add("appearance-panel");
@@ -14041,7 +15303,7 @@ function initialize$2() {
         label.textContent = text2;
       }
     }
-    (_c = panel.querySelector('label[for="bg-url-input"]')) == null ? void 0 : _c.parentElement.classList.add("appearance-visually-hidden");
+    (_c2 = panel.querySelector('label[for="bg-url-input"]')) == null ? void 0 : _c2.parentElement.classList.add("appearance-visually-hidden");
     (_d = panel.querySelector("#bg-url-input")) == null ? void 0 : _d.setAttribute("placeholder", "在线图片 URL（https://…）");
     const verRow = (_e = panel.querySelector("#select-brand-ver")) == null ? void 0 : _e.closest(".bcp-row");
     if (verRow) {
@@ -14381,9 +15643,9 @@ initialize$k();
 initialize$g();
 initialize$p();
 initialize$f();
-initialize$e();
 initialize$d();
 initialize$c();
+initialize$e();
 initialize$a();
 initialize$b();
 initialize$9();

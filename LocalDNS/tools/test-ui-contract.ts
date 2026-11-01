@@ -3,12 +3,13 @@ import { LocalDnsServer } from '../src/server';
 import { Store } from '../src/store';
 
 /**
- * 新版上游 SPA（FJH7T / UI 2026.10.30.7）契约校验。
+ * 新版上游 SPA（FJHAI / UI 2026.11.01.1）契约校验。
  * 重点覆盖 UI normalizeResponse 对 GET 响应的严格类型校验，
- * 以及 upstream/config 的 group 字段兼容与 /api/v1/features 的 legacy 探测。
+ * 以及 upstream/config 的 group 字段兼容、/api/v1/features 的 legacy 探测、
+ * 独立缓存开关 (switch13/switch4) 与 国外 IP 段 (foreign_ip / foreign_cidrs)。
  */
 async function main() {
-  console.log('=== [LocalDNS] UI Contract Verification (FJH7T / UI 2026.10.30.7) ===');
+  console.log('=== [LocalDNS] UI Contract Verification (FJHAI / UI 2026.11.01.1) ===');
   let passed = 0;
   let failed = 0;
   const assert = (cond: boolean, desc: string) => {
@@ -32,8 +33,8 @@ async function main() {
 
   try {
     // 打包资源静态托管
-    const appJs = await fetch(`${base}/ui/assets/app-CrSEI1zm.js`);
-    assert(appJs.status === 200, `/ui/assets/app-CrSEI1zm.js returns 200 (got ${appJs.status})`);
+    const appJs = await fetch(`${base}/ui/assets/app-D0OSKPpj.js`);
+    assert(appJs.status === 200, `/ui/assets/app-D0OSKPpj.js returns 200 (got ${appJs.status})`);
     assert((appJs.headers.get('Content-Type') || '').includes('javascript'), 'app bundle Content-Type is javascript');
     const pulse = await fetch(`${base}/ui/assets/livepulse.js`);
     assert(pulse.status === 200, `/ui/assets/livepulse.js returns 200 (got ${pulse.status})`);
@@ -136,6 +137,24 @@ async function main() {
       body: JSON.stringify({ values: [] }),
     });
     assert(clientIpPost.status === 200, `plugins/client_ip/post returns 200 (got ${clientIpPost.status})`);
+
+    // FJHAI / UI 2026.11.01.1: 独立核心缓存与乐观过期开关 (switch13 & switch4)
+    const sw13 = await (await fetch(`${base}/plugins/switch13/show`)).text();
+    assert(sw13 === 'A' || sw13 === 'B', `switch13/show (核心缓存) returns A/B (got ${JSON.stringify(sw13)})`);
+    const sw4 = await (await fetch(`${base}/plugins/switch4/show`)).text();
+    assert(sw4 === 'A' || sw4 === 'B', `switch4/show (乐观过期) returns A/B (got ${JSON.stringify(sw4)})`);
+
+    // FJHAI / UI 2026.11.01.1: 解析控制新增「国外 IP 段」(foreign_ip 与 /api/v1/lists/foreign_cidrs)
+    const fipShow = await fetch(`${base}/plugins/foreign_ip/show`);
+    assert(fipShow.status === 200 && typeof (await fipShow.text()) === 'string', 'plugins/foreign_ip/show returns text');
+    const fipPost = await fetch(`${base}/plugins/foreign_ip/post`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: ['1.0.0.0/24'] }),
+    });
+    assert(fipPost.status === 200, `plugins/foreign_ip/post returns 200 (got ${fipPost.status})`);
+    const fipListGet = await fetch(`${base}/api/v1/lists/foreign_cidrs`);
+    assert(fipListGet.status === 200 && (await fipListGet.text()).includes('1.0.0.0/24'), 'api/v1/lists/foreign_cidrs maps to foreign_ip');
 
     // 缓存参数为可选能力：本移植端未实现时应 404，让 UI 自动隐藏该入口
     const cacheSettings = await fetch(`${base}/api/v1/cache/settings`);

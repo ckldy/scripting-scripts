@@ -372,6 +372,7 @@
       '    </div>',
       '    <div style="display:flex;gap:8px;flex-wrap:wrap">',
       '      <button type="button" class="button small" id="sw-btn-install-surge" style="background:#10B981;color:#fff">📲 导入至 Surge</button>',
+      '      <button type="button" class="button small" id="sw-btn-refresh-all-modules">🔄 全部更新</button>',
       '      <button type="button" class="button small primary" id="sw-btn-import-remote-mod">🌐 导入远程模块 (URL)</button>',
       '      <button type="button" class="button small" id="sw-btn-add-module-raw">+ 粘贴文本导入</button>',
       '    </div>',
@@ -395,9 +396,9 @@
       '    </div>',
       '    <div style="display:flex;gap:8px;flex-wrap:wrap">',
       '      <button type="button" class="button small primary" id="sw-btn-batch-rules" style="background:#8B5CF6;color:#fff;border-color:transparent">⚡️ 批量导入 Surge 规则 (一键清洗)</button>',
-      '      <button type="button" class="button small" id="sw-btn-import-remote-rules">🌐 导入远程规则集 (URL)</button>',
       '      <button type="button" class="button small" id="sw-btn-add-rule">+ 添加单条规则</button>',
       '      <button type="button" class="button small" id="sw-btn-create-group">+ 新建分流组</button>',
+      '      <button type="button" class="button small" id="sw-btn-refresh-remote-rules">🔄 更新远程规则集</button>',
       '      <button type="button" class="button small" id="sw-btn-export-conf" style="background:#0284C7;color:#fff;border-color:transparent">🚀 生成/导出 Surge 配置</button>',
       '    </div>',
       '  </div>',
@@ -409,6 +410,23 @@
       '      <span><strong>已启用分流组：</strong><span id="sw-stat-active-groups" style="color:#8B5CF6;font-weight:700">0</span> 组</span>',
       '    </div>',
       '    <div style="font-size:12px;opacity:0.75">💡 点击每个分流组卡片上的「📋 规则明细」即可搜索、修改或删除细则条目</div>',
+      '  </div>',
+      '  <!-- 外部规则集独立管理看板 -->',
+      '  <div class="glass-card" style="padding:16px;margin-bottom:14px;border:1px solid rgba(59,130,246,0.3)">',
+      '    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">',
+      '      <div style="display:flex;align-items:center;gap:8px">',
+      '        <strong style="font-size:15px">📦 已订阅外部规则集 (Remote Rule Sets)</strong>',
+      '        <span id="sw-stat-rulesets-count" style="font-size:12px;padding:2px 8px;background:rgba(59,130,246,0.15);color:#3B82F6;border-radius:10px;font-weight:700">0</span>',
+      '      </div>',
+      '      <div style="display:flex;gap:6px">',
+      '        <button type="button" class="button small primary" id="sw-btn-quick-add-ruleset" style="background:#10B981;color:#fff;border-color:transparent">+ 订阅外部规则集 (URL)</button>',
+      '        <button type="button" class="button small" id="sw-btn-quick-refresh-rulesets">🔄 一键更新全部规则集</button>',
+      '      </div>',
+      '    </div>',
+      '    <p style="font-size:12px;opacity:0.75;margin:0 0 12px">每一个外部规则集均保留原始直链与独占特有统计。删除规则集时<strong>自动识别多源重叠，仅清除独占特有规则，保留共有规则</strong>，实现无感安全瘦身！</p>',
+      '    <div id="sw-rulesets-list" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(330px, 1fr));gap:10px">',
+      '      <div style="padding:20px;text-align:center;opacity:0.6;grid-column:1/-1">正在读取已订阅外部规则集…</div>',
+      '    </div>',
       '  </div>',
       '  <div id="sw-groups-list" style="display:flex;flex-direction:column;gap:12px">',
       '    <div style="padding:20px;text-align:center;opacity:0.6">正在加载分流数据库…</div>',
@@ -491,15 +509,26 @@
 
   function renderGuideView() {
     var origin = location.origin;
-    var confUrl = origin + '/surge/localdns.conf';
-    var hubUrl = origin + '/surge/hub.sgmodule';
-    var directUrl = origin + '/rules/direct.list';
-    var proxyUrl = origin + '/rules/proxy.list';
-    var mediaUrl = origin + '/rules/media.list';
+    var host = location.hostname || '127.0.0.1';
+    var httpPort = (location.protocol === 'http:' && location.port) ? location.port : '9099';
+    var httpOrigin = 'http://' + host + ':' + httpPort;
+    var confUrl = httpOrigin + '/surge/localdns.conf';
+    var hubUrl = httpOrigin + '/surge/hub.sgmodule';
+    var blockUrl = httpOrigin + '/rules/block.list';
+    var directUrl = httpOrigin + '/rules/direct.list';
+    var proxyUrl = httpOrigin + '/rules/proxy.list';
+    var mediaUrl = httpOrigin + '/rules/media.list';
 
     var surgeGeneralSnippet = [
       '[General]',
-      '# 1. 开启 HTTP API (密钥可自定义，保持一致即可)',
+      '# 1. 安全 DoH 接管：将全机 DNS 交由 LocalDNS 过滤（18.5万条 AdGuard + 模块脱水秒级黑洞）',
+      'doh-server = https://127.0.0.1:9443/dns-query',
+      'skip-proxy = 127.0.0.1, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, localhost, *.local, captive.apple.com',
+      '',
+      '# 2. 拦截 QUIC（UDP 443）：逼迫 YouTube 等 App 回退 TCP，才能被 MitM 解密去广告',
+      'block-quic = true',
+      '',
+      '# 3. 开启 HTTP API (LocalDNS 与 Surge 实时双向调度中枢)',
       'http-api = localdnskey@0.0.0.0:6171',
       'http-api-tls = false',
       'http-api-web-dashboard = false'
@@ -507,10 +536,19 @@
 
     var surgeRulesSnippet = [
       '[Rule]',
-      '# LocalDNS 动态分流托管规则集',
+      '# 1. 拦截 QUIC（UDP 443），迫使其走 TCP 以便解密与脚本去广告',
+      'AND,((PROTOCOL,UDP),(DEST-PORT,443)),REJECT-NO-DROP',
+      '',
+      '# 2. LocalDNS 动态广告与黑洞拦截规则集（5.3万条规则，必须置于 [Rule] 最顶部）',
+      'RULE-SET,' + blockUrl + ',REJECT',
+      '',
+      '# 3. LocalDNS 动态分流托管规则集',
       'RULE-SET,' + directUrl + ',DIRECT',
       'RULE-SET,' + proxyUrl + ',PROXY',
       'RULE-SET,' + mediaUrl + ',PROXY',
+      '',
+      '# 4. 兜底规则',
+      'GEOIP,CN,DIRECT',
       'FINAL,PROXY,dns-failed'
     ].join('\n');
 
@@ -616,7 +654,8 @@
           '      🛡 提纯后的七层重写由 Surge 统一调度',
           '    </div>',
           '  </div>',
-          '  <div style="display:flex;justify-content:flex-end;margin-top:10px;gap:6px">',
+          '  <div style="display:flex;justify-content:flex-end;margin-top:10px;gap:6px;flex-wrap:wrap">',
+          (m.source_url ? '    <button type="button" class="button small sw-btn-refresh-mod" data-mod-id="' + m.id + '">🔄 更新</button>' : ''),
           '    <button type="button" class="button small sw-btn-edit-mod" data-mod-id="' + m.id + '" data-mod-name="' + m.name + '">✏️ 编辑代码</button>',
           '    <button type="button" class="button small sw-btn-del-mod" data-mod-id="' + m.id + '" style="color:#EF4444;border-color:rgba(239,68,68,0.3)">删除</button>',
           '  </div>',
@@ -635,6 +674,27 @@
             body: JSON.stringify({ enabled: en }),
           });
           toast('模块状态已更新', (en ? '已开启 ' : '已关闭 ') + id);
+          loadModules();
+        };
+      });
+
+      // 单个模块远程更新事件
+      qq('.sw-btn-refresh-mod', container).forEach(function (btn) {
+        btn.onclick = async function () {
+          var id = btn.dataset.modId;
+          var old = btn.textContent;
+          btn.disabled = true;
+          btn.textContent = '更新中…';
+          try {
+            var r = await fetch('/api/v1/surge/modules/' + encodeURIComponent(id) + '/refresh', { method: 'POST' });
+            var d = await r.json();
+            if (d.success) toast('模块已更新', '重新脱水 ' + (d.rules || 0) + ' 条规则 · 请到 Surge 中更新模块生效');
+            else alert('更新失败: ' + (d.error || '未知错误'));
+          } catch (e) {
+            alert('更新失败: ' + e.message);
+          }
+          btn.disabled = false;
+          btn.textContent = old;
           loadModules();
         };
       });
@@ -932,6 +992,17 @@
           var learnedBadge = r.is_auto_learned ? '<span class="sw-badge" style="background:rgba(245,158,11,0.15);color:#F59E0B;border:1px solid rgba(245,158,11,0.3);margin-left:6px">自愈学习</span>' : '';
           var hitBadge = (r.hit_count && r.hit_count > 0) ? '<span style="font-size:11px;opacity:0.7;margin-left:6px">🎯 ' + r.hit_count + '</span>' : '';
 
+          var srcBadge = '';
+          var srcList = r.sources || [];
+          if (srcList.includes('__manual__')) {
+            srcBadge = '<span class="sw-badge" style="background:rgba(148,163,184,0.15);color:#94A3B8;border:1px solid rgba(148,163,184,0.3);margin-left:6px" title="用户手动添加的独立规则">✍️ 手动</span>';
+          } else if (r.is_unique && srcList.length === 1) {
+            var sName = (srcList[0].split('/').pop() || '外部源').replace(/\.list$/i, '');
+            srcBadge = '<span class="sw-badge" style="background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.35);margin-left:6px" title="仅由该规则集独占: ' + srcList[0] + '">独占: ' + sName + '</span>';
+          } else if (srcList.length > 1) {
+            srcBadge = '<span class="sw-badge" style="background:rgba(59,130,246,0.15);color:#3B82F6;border:1px solid rgba(59,130,246,0.35);margin-left:6px" title="多源共享规则:\n' + srcList.join('\n') + '">多源共享 (' + srcList.length + ')</span>';
+          }
+
           return [
             '<div class="sw-rule-item" data-id="' + r.id + '">',
             '  <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">',
@@ -939,6 +1010,7 @@
             '    <code style="font-size:13px;font-weight:600;word-break:break-all">' + r.pattern + '</code>',
             '    ' + commentHtml,
             '    ' + learnedBadge,
+            '    ' + srcBadge,
             '    ' + hitBadge,
             '  </div>',
             '  <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">',
@@ -1519,8 +1591,163 @@
           }, '保存全部规则');
         };
       });
+      // 加载已订阅远程规则集看板
+      await loadRemoteRuleSets();
     } catch (e) {
       container.innerHTML = '<div style="color:#EF4444">加载分流组失败: ' + e.message + '</div>';
+    }
+  }
+
+  // 刷新已订阅远程规则集看板
+  async function loadRemoteRuleSets() {
+    var container = q('#sw-rulesets-list');
+    var statCount = q('#sw-stat-rulesets-count');
+    if (!container) return;
+    try {
+      var res = await fetch('/api/v1/surge/remote-rulesets');
+      var data = await res.json();
+      var sets = data.rule_sets || [];
+      if (statCount) statCount.textContent = sets.length;
+
+      if (sets.length === 0) {
+        container.innerHTML = '<div style="padding:24px;text-align:center;opacity:0.6;grid-column:1/-1">暂无已订阅的外部规则集。可点击上方「🌐 订阅外部规则集 (URL)」填入远程 .list 链接。</div>';
+        return;
+      }
+
+      container.innerHTML = sets.map(function (s) {
+        var sharedCount = Math.max(0, s.rule_count - (s.unique_count || 0));
+        var groupBadge = '<span class="sw-badge" style="background:rgba(59,130,246,0.12);color:#3B82F6;border:1px solid rgba(59,130,246,0.3)">' + s.group_id + '</span>';
+        var lastUpdate = s.updated_at ? new Date(s.updated_at).toLocaleString('zh-CN', { hour12: false }) : '未记录';
+        var errHtml = s.last_error ? '<div style="font-size:11px;color:#EF4444;margin-top:4px">⚠️ ' + s.last_error + '</div>' : '';
+        var isEnabled = s.enabled !== false;
+        var cardOpacity = isEnabled ? '1' : '0.68';
+        var cardBorder = isEnabled ? 'rgba(148,163,184,0.25)' : 'rgba(239,68,68,0.25)';
+        var statusHtml = isEnabled
+          ? '<span style="color:#10B981;font-weight:600">已启用生效</span>'
+          : '<span style="color:#94A3B8;font-weight:600">已关闭不生效</span>';
+
+        return [
+          '<div class="glass-card" style="padding:12px;display:flex;flex-direction:column;justify-content:space-between;border:1px solid ' + cardBorder + ';opacity:' + cardOpacity + ';transition:all .2s ease">',
+          '  <div>',
+          '    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">',
+          '      <strong style="font-size:13px;word-break:break-all">' + (s.name || '外部规则集') + '</strong>',
+          '      ' + groupBadge,
+          '    </div>',
+          '    <div style="margin-bottom:8px">',
+          '      <a href="' + s.url + '" target="_blank" style="font-size:11px;color:var(--primary, #3B82F6);word-break:break-all;text-decoration:none" title="' + s.url + '">🔗 ' + s.url + '</a>',
+          '    </div>',
+          '    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;font-size:11px">',
+          '      <span class="sw-badge" style="background:rgba(59,130,246,0.12);color:#3B82F6;border:1px solid rgba(59,130,246,0.3)">总计 ' + s.rule_count.toLocaleString() + ' 条</span>',
+          '      <span class="sw-badge" style="background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.35);font-weight:600" title="仅由本规则集提供的独占规则，删除时将被安全清理">独占 ' + (s.unique_count || 0).toLocaleString() + ' 条</span>',
+          '      <span class="sw-badge" style="background:rgba(148,163,184,0.12);color:#64748B;border:1px solid rgba(148,163,184,0.25)" title="与其他规则集或手动规则重叠的共有项，删除时完整保留">共享 ' + sharedCount.toLocaleString() + ' 条</span>',
+          '    </div>',
+          '    <div style="font-size:11px;opacity:0.65">更新时间: ' + lastUpdate + '</div>',
+          '    ' + errHtml,
+          '  </div>',
+          '  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:8px;border-top:1px solid rgba(148,163,184,0.15);flex-wrap:wrap;gap:8px">',
+          '    <label style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-size:12px;user-select:none" title="启用或关闭该条外部规则集，数据库与分流引擎同步生效">',
+          '      <input type="checkbox" class="sw-ruleset-toggle" data-url="' + encodeURIComponent(s.url) + '" ' + (isEnabled ? 'checked' : '') + ' />',
+          '      ' + statusHtml,
+          '    </label>',
+          '    <div style="display:flex;gap:6px">',
+          '      <button type="button" class="button small sw-btn-refresh-single-ruleset" data-url="' + encodeURIComponent(s.url) + '">🔄 更新</button>',
+          '      <button type="button" class="button small sw-btn-del-ruleset" data-url="' + encodeURIComponent(s.url) + '" data-name="' + (s.name || s.url) + '" data-total="' + s.rule_count + '" data-unique="' + (s.unique_count || 0) + '" data-shared="' + sharedCount + '" style="color:#EF4444;border-color:rgba(239,68,68,0.3)">🗑 安全移除</button>',
+          '    </div>',
+          '  </div>',
+          '</div>'
+        ].join('');
+      }).join('');
+
+      // 切换规则集启用/关闭状态
+      qq('.sw-ruleset-toggle', container).forEach(function (chk) {
+        chk.onchange = async function () {
+          var u = decodeURIComponent(chk.dataset.url);
+          var en = chk.checked;
+          chk.disabled = true;
+          try {
+            var r = await fetch('/api/v1/surge/remote-rulesets/toggle', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: u, enabled: en }),
+            });
+            var d = await r.json();
+            if (d.success) {
+              toast('外部规则集已' + (en ? '启用' : '关闭'), (en ? '已启用并恢复生效 ' : '已关闭并停用 ') + (d.affectedRules || 0) + ' 条规则');
+            } else {
+              alert('切换状态失败: ' + (d.error || '未知错误'));
+              chk.checked = !en;
+            }
+          } catch (e) {
+            alert('网络异常: ' + e.message);
+            chk.checked = !en;
+          }
+          chk.disabled = false;
+          loadDiversion();
+        };
+      });
+
+      // 单个刷新
+      qq('.sw-btn-refresh-single-ruleset', container).forEach(function (btn) {
+        btn.onclick = async function () {
+          var u = decodeURIComponent(btn.dataset.url);
+          var old = btn.textContent;
+          btn.disabled = true;
+          btn.textContent = '更新中…';
+          try {
+            var r = await fetch('/api/v1/surge/remote-rulesets/refresh', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: u }),
+            });
+            var d = await r.json();
+            if (d.success) toast('规则集已更新', u.split('/').pop());
+            else alert('更新失败: ' + (d.error || '未知错误'));
+          } catch (e) {
+            alert('更新失败: ' + e.message);
+          }
+          btn.disabled = false;
+          btn.textContent = old;
+          loadDiversion();
+        };
+      });
+
+      // 安全删除（带独占/共享提示）
+      qq('.sw-btn-del-ruleset', container).forEach(function (btn) {
+        btn.onclick = async function () {
+          var u = decodeURIComponent(btn.dataset.url);
+          var name = btn.dataset.name;
+          var total = btn.dataset.total;
+          var unique = btn.dataset.unique;
+          var shared = btn.dataset.shared;
+
+          var confirmMsg = [
+            '确定要移除外部规则集【' + name + '】吗？\n',
+            '⚡️ 该集合共包含 ' + total + ' 条规则：',
+            '  • 独占特有规则: ' + unique + ' 条（将被安全删除，释放空间）',
+            '  • 多源共享规则: ' + shared + ' 条（将被完整保留，绝不误伤其他规则集！）\n',
+            '移除后将即刻执行瘦身并同步生效。'
+          ].join('\n');
+
+          if (!confirm(confirmMsg)) return;
+
+          btn.disabled = true;
+          try {
+            var r = await fetch('/api/v1/surge/remote-rulesets/delete?url=' + encodeURIComponent(u), { method: 'POST' });
+            var d = await r.json();
+            if (d.success) {
+              toast('规则集已安全移除', '清除 ' + d.deletedUnique + ' 条独占规则，保留 ' + d.preservedShared + ' 条共享规则');
+            } else {
+              alert('删除失败: ' + (d.error || '未知错误'));
+            }
+          } catch (e) {
+            alert('删除失败: ' + e.message);
+          }
+          loadDiversion();
+        };
+      });
+
+    } catch (e) {
+      container.innerHTML = '<div style="color:#EF4444;grid-column:1/-1">加载已订阅规则集失败: ' + e.message + '</div>';
     }
   }
 
@@ -1694,17 +1921,51 @@
       };
     }
 
+    // 一键安装 Hub 模块解析 URL
+    function resolveHubUrl() {
+      var host = location.hostname || '127.0.0.1';
+      // Surge 安装远程模块时必须使用 HTTP 端口 9099，避免 HTTPS 9443 因本地证书强校验失败报错“无效模块”
+      var port = (location.protocol === 'http:' && location.port) ? location.port : '9099';
+      return 'http://' + host + ':' + port + '/surge/hub.sgmodule';
+    }
+
     // 一键安装 Hub 模块
     var installBtn = q('#sw-btn-install-surge');
     if (installBtn) {
       installBtn.onclick = function () {
-        var hubUrl = location.origin + '/surge/hub.sgmodule';
+        var hubUrl = resolveHubUrl();
+        copyText(hubUrl);
         location.href = 'surge:///install-module?url=' + encodeURIComponent(hubUrl);
-        toast('已调起 Surge 安装模块', '若未响应可复制: ' + hubUrl);
+        toast('已调起 Surge 安装模块', '模块链接已复制到剪贴板，如未弹窗可手动粘贴');
       };
     }
 
     // 导入远程模块 (URL)
+    var btnRefreshAllModules = q('#sw-btn-refresh-all-modules');
+    if (btnRefreshAllModules) {
+      btnRefreshAllModules.onclick = async function () {
+        var old = btnRefreshAllModules.textContent;
+        btnRefreshAllModules.disabled = true;
+        btnRefreshAllModules.textContent = '正在更新全部模块…';
+        try {
+          var r = await fetch('/api/v1/surge/modules/refresh-all', { method: 'POST' });
+          var d = await r.json();
+          if (d.success) {
+            var fail = (d.results || []).filter(function (x) { return !x.updated; });
+            toast('全部模块已更新', '成功 ' + d.updated + ' / ' + d.total + '，本地模块跳过 ' + d.skipped + (fail.length ? '，失败 ' + fail.length : ''));
+            if (fail.length) console.warn('更新失败模块:', fail);
+          } else {
+            alert('更新失败: ' + (d.error || '未知错误'));
+          }
+        } catch (e) {
+          alert('更新失败: ' + e.message);
+        }
+        btnRefreshAllModules.disabled = false;
+        btnRefreshAllModules.textContent = old;
+        loadModules();
+      };
+    }
+
     var btnImportRemoteMod = q('#sw-btn-import-remote-mod');
     if (btnImportRemoteMod) {
       btnImportRemoteMod.onclick = function () {
@@ -1873,63 +2134,95 @@
       };
     }
 
-    // 导入远程规则集
-    var btnImportRemoteRules = q('#sw-btn-import-remote-rules');
-    if (btnImportRemoteRules) {
-      btnImportRemoteRules.onclick = async function () {
-        var gRes = await fetch('/api/v1/surge/diversion/groups');
-        var gData = await gRes.json();
-        var groups = gData.groups || [];
+    // 订阅外部规则集
+    async function openImportRemoteRulesModal() {
+      var gRes = await fetch('/api/v1/surge/diversion/groups');
+      var gData = await gRes.json();
+      var groups = gData.groups || [];
 
-        var options = groups.map(function (g) {
-          return '<option value="' + g.id + '">' + g.name + ' (' + g.surge_policy + ')</option>';
-        }).join('');
+      var options = groups.map(function (g) {
+        return '<option value="' + g.id + '">' + g.name + ' (' + g.surge_policy + ')</option>';
+      }).join('');
 
-        var html = [
-          '<div style="margin-bottom:12px">',
-          '  <label>目标分流组</label>',
-          '  <select id="sw-rules-target-group" class="sw-select">' + options + '</select>',
-          '</div>',
-          '<div style="margin-bottom:12px">',
-          '  <label>远程规则集 URL (.list / .txt)</label>',
-          '  <input type="url" id="sw-rules-url" class="sw-input" placeholder="https://raw.githubusercontent.com/.../direct.list" />',
-          '</div>',
-          '<div>',
-          '  <label>导入模式</label>',
-          '  <div style="display:flex;gap:16px;margin-top:6px;font-size:13px">',
-          '    <label style="cursor:pointer;display:inline-flex;align-items:center;gap:4px"><input type="radio" name="sw-rules-mode" value="append" checked /> 追加到现有规则</label>',
-          '    <label style="cursor:pointer;display:inline-flex;align-items:center;gap:4px"><input type="radio" name="sw-rules-mode" value="replace" /> 覆盖全组已有规则</label>',
-          '  </div>',
-          '</div>'
-        ].join('');
+      var html = [
+        '<div style="margin-bottom:12px">',
+        '  <label>规则集名称 (选填)</label>',
+        '  <input type="text" id="sw-rules-name" class="sw-input" placeholder="留空则自动提取名称" />',
+        '</div>',
+        '<div style="margin-bottom:12px">',
+        '  <label>目标分流组</label>',
+        '  <select id="sw-rules-target-group" class="sw-select">' + options + '</select>',
+        '</div>',
+        '<div style="margin-bottom:12px">',
+        '  <label>远程规则集 URL (.list / .txt)</label>',
+        '  <input type="url" id="sw-rules-url" class="sw-input" placeholder="https://raw.githubusercontent.com/.../direct.list" />',
+        '</div>',
+        '<div>',
+        '  <label>导入模式</label>',
+        '  <div style="display:flex;gap:16px;margin-top:6px;font-size:13px">',
+        '    <label style="cursor:pointer;display:inline-flex;align-items:center;gap:4px"><input type="radio" name="sw-rules-mode" value="append" checked /> 追加到现有规则</label>',
+        '    <label style="cursor:pointer;display:inline-flex;align-items:center;gap:4px"><input type="radio" name="sw-rules-mode" value="replace" /> 覆盖全组已有规则</label>',
+        '  </div>',
+        '</div>'
+      ].join('');
 
-        openModal('🌐 导入远程规则集', html, async function () {
-          var gid = q('#sw-rules-target-group').value;
-          var url = q('#sw-rules-url').value.trim();
-          var mode = q('input[name="sw-rules-mode"]:checked').value;
-          if (!url) { alert('请输入远程规则集 URL'); return false; }
+      openModal('🌐 订阅外部规则集', html, async function () {
+        var name = q('#sw-rules-name').value.trim();
+        var gid = q('#sw-rules-target-group').value;
+        var url = q('#sw-rules-url').value.trim();
+        var mode = q('input[name="sw-rules-mode"]:checked').value;
+        if (!url) { alert('请输入远程规则集 URL'); return false; }
 
-          toast('正在抓取远程规则…');
-          try {
-            var res = await fetch('/api/v1/surge/diversion/rules/import-remote', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ group_id: gid, url: url, mode: mode }),
-            });
-            var data = await res.json();
-            if (data.success) {
-              toast('规则导入成功', '已导入 ' + data.importedCount + ' 条规则');
-              loadDiversion();
-              return true;
-            } else {
-              alert('导入失败: ' + (data.error || '未知错误'));
-              return false;
-            }
-          } catch (e) {
-            alert('网络异常: ' + e.message);
+        toast('正在抓取远程规则…', '可能需要数秒');
+        try {
+          var res = await fetch('/api/v1/surge/remote-rulesets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ group_id: gid, url: url, name: name }),
+          });
+          var data = await res.json();
+          if (data.success) {
+            toast('规则集订阅成功', '已导入并建立绑定 ' + (data.importedCount || 0) + ' 条规则');
+            loadDiversion();
+            return true;
+          } else {
+            alert('导入失败: ' + (data.error || '未知错误'));
             return false;
           }
-        }, '开始下载并导入');
+        } catch (e) {
+          alert('网络异常: ' + e.message);
+          return false;
+        }
+      }, '开始下载并订阅');
+    }
+
+    var btnImportRemoteRules = q('#sw-btn-import-remote-rules');
+    if (btnImportRemoteRules) {
+      btnImportRemoteRules.onclick = openImportRemoteRulesModal;
+    }
+
+    // 看板上的快捷添加与一键全部刷新规则集
+    var btnQuickAdd = q('#sw-btn-quick-add-ruleset');
+    if (btnQuickAdd) {
+      btnQuickAdd.onclick = openImportRemoteRulesModal;
+    }
+    var btnQuickRefreshAll = q('#sw-btn-quick-refresh-rulesets');
+    if (btnQuickRefreshAll) {
+      btnQuickRefreshAll.onclick = async function () {
+        var old = btnQuickRefreshAll.textContent;
+        btnQuickRefreshAll.disabled = true;
+        btnQuickRefreshAll.textContent = '正在刷新全部规则集…';
+        try {
+          var r = await fetch('/api/v1/surge/remote-rulesets/refresh', { method: 'POST' });
+          var d = await r.json();
+          if (d.success) toast('规则集已全部更新', '共 ' + d.total + ' 个集合，成功 ' + d.updated);
+          else alert('更新失败: ' + (d.error || '未知错误'));
+        } catch (e) {
+          alert('网络异常: ' + e.message);
+        }
+        btnQuickRefreshAll.disabled = false;
+        btnQuickRefreshAll.textContent = old;
+        loadDiversion();
       };
     }
 
@@ -2069,41 +2362,92 @@
     var btnCopyGeneral = q('#sw-guide-copy-general');
     if (btnCopyGeneral) {
       btnCopyGeneral.onclick = function () {
+        var host = location.hostname || '127.0.0.1';
+        var httpPort = (location.protocol === 'http:' && location.port) ? location.port : '9099';
+        var baseUrl = 'http://' + host + ':' + httpPort;
         var txt = [
           '[General]',
+          '# 1. 安全 DoH 接管（需安装并信任 LocalDNS Root CA）',
+          'doh-server = https://127.0.0.1:9443/dns-query',
+          'skip-proxy = 127.0.0.1, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, localhost, *.local, captive.apple.com',
+          '',
+          '# 2. 拦截 QUIC（UDP 443），迫使 YouTube 等 App 回退 TCP，才能被 MitM 解密去广告',
+          'block-quic = true',
+          '',
+          '# 3. 开启 HTTP API 联动',
           'http-api = localdnskey@0.0.0.0:6171',
           'http-api-tls = false',
           'http-api-web-dashboard = false'
         ].join('\n');
         copyText(txt);
+        toast('已复制 [General] 配置片段', '请粘贴至 Surge [General] 节点中');
       };
     }
 
     var btnOpenHub = q('#sw-guide-open-hub');
     if (btnOpenHub) {
       btnOpenHub.onclick = function () {
-        var hubUrl = location.origin + '/surge/hub.sgmodule';
+        var hubUrl = resolveHubUrl();
+        copyText(hubUrl);
         location.href = 'surge:///install-module?url=' + encodeURIComponent(hubUrl);
-        toast('已调起 Surge 安装模块', '若未响应可复制: ' + hubUrl);
+        toast('已调起 Surge 安装模块', '模块链接已复制到剪贴板，如未弹窗可手动粘贴');
       };
     }
 
     var btnCopyRules = q('#sw-guide-copy-rules');
     if (btnCopyRules) {
       btnCopyRules.onclick = function () {
-        var origin = location.origin;
+        var host = location.hostname || '127.0.0.1';
+        var httpPort = (location.protocol === 'http:' && location.port) ? location.port : '9099';
+        var baseUrl = 'http://' + host + ':' + httpPort;
         var txt = [
           '[Rule]',
-          'RULE-SET,' + origin + '/rules/direct.list,DIRECT',
-          'RULE-SET,' + origin + '/rules/proxy.list,PROXY',
-          'RULE-SET,' + origin + '/rules/media.list,PROXY',
+          '# 1. 拦截 QUIC（UDP 443），迫使其走 TCP 以便解密与脚本去广告',
+          'AND,((PROTOCOL,UDP),(DEST-PORT,443)),REJECT-NO-DROP',
+          '',
+          '# 2. LocalDNS 动态广告与黑洞拦截规则集（5.3万条规则，必须置于 [Rule] 最顶部）',
+          'RULE-SET,' + baseUrl + '/rules/block.list,REJECT',
+          '',
+          '# 3. LocalDNS 动态分流托管规则集',
+          'RULE-SET,' + baseUrl + '/rules/direct.list,DIRECT',
+          'RULE-SET,' + baseUrl + '/rules/proxy.list,PROXY',
+          'RULE-SET,' + baseUrl + '/rules/media.list,PROXY',
+          '',
+          '# 4. 兜底规则',
+          'GEOIP,CN,DIRECT',
           'FINAL,PROXY,dns-failed'
         ].join('\n');
         copyText(txt);
+        toast('已复制完整 [Rule] 规则模板', '已包含 block.list 广告拦截，请粘贴至 Surge [Rule] 区域顶部');
       };
     }
 
     // 导出 Surge 配置按钮 (分流治理面板)
+    var btnRefreshRemoteRules = q('#sw-btn-refresh-remote-rules');
+    if (btnRefreshRemoteRules) {
+      btnRefreshRemoteRules.onclick = async function () {
+        var old = btnRefreshRemoteRules.textContent;
+        btnRefreshRemoteRules.disabled = true;
+        btnRefreshRemoteRules.textContent = '正在更新远程规则集…';
+        try {
+          var r = await fetch('/api/v1/surge/remote-rulesets/refresh', { method: 'POST' });
+          var d = await r.json();
+          if (d.success) {
+            var fails = (d.details || []).filter(function (x) { return x.error; });
+            toast('远程规则集已更新', '共 ' + d.total + ' 个，成功 ' + d.updated + (fails.length ? '，失败 ' + fails.length : ''));
+            if (fails.length) console.warn('更新失败规则集:', fails);
+          } else {
+            alert('更新失败: ' + (d.error || '未知错误'));
+          }
+        } catch (e) {
+          alert('更新失败: ' + e.message);
+        }
+        btnRefreshRemoteRules.disabled = false;
+        btnRefreshRemoteRules.textContent = old;
+        if (typeof loadDiversion === 'function') loadDiversion();
+      };
+    }
+
     var btnExportConf = q('#sw-btn-export-conf');
     if (btnExportConf) {
       btnExportConf.onclick = function () {

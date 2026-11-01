@@ -66,7 +66,15 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
   // 1. 统一调度模块端点: /surge/hub.sgmodule 或 /api/v1/surge/hub.sgmodule
   if (path === '/surge/hub.sgmodule' || path === '/api/v1/surge/hub.sgmodule') {
     if (method === 'GET') {
-      const moduleContent = await service.compileUnifiedHubModule();
+      // 以当前请求 Host 作为内置脚本的 script-path 基地址（默认回环 9099）
+      let host = '127.0.0.1:9099';
+      try {
+        const hdrs: any = req.headers || {};
+        for (const k of Object.keys(hdrs)) {
+          if (k.toLowerCase() === 'host' && hdrs[k]) { host = String(hdrs[k]); break; }
+        }
+      } catch {}
+      const moduleContent = await service.compileUnifiedHubModule(`http://${host}`);
       return textResponse(moduleContent, 200, 'text/plain; charset=utf-8');
     }
   }
@@ -209,6 +217,13 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
       return jsonResponse({ success: true, id: modId, enabled: Boolean(body.enabled) });
     }
 
+    // 从远程源重新下载并脱水该模块
+    if (parts.length === 2 && parts[1] === 'refresh' && method === 'POST') {
+      const r = await service.refreshModule(modId);
+      if (!r.updated) return jsonResponse({ success: false, id: modId, error: r.error }, 400);
+      return jsonResponse({ success: true, id: modId, rules: r.rules });
+    }
+
     if (parts.length === 1) {
       if (method === 'GET') {
         const mod = await db.getModule(modId);
@@ -255,6 +270,77 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
       });
     } catch (e: any) {
       return jsonResponse({ error: e?.message || 'Remote module import failed' }, 502);
+    }
+  }
+
+  // 3.3 一键更新全部远程模块: /api/v1/surge/modules/refresh-all
+  if (path === '/api/v1/surge/modules/refresh-all' && method === 'POST') {
+    try {
+      const res = await service.refreshAllModules();
+      return jsonResponse({ success: true, ...res });
+    } catch (e: any) {
+      return jsonResponse({ error: e?.message || 'Refresh all modules failed' }, 502);
+    }
+  }
+
+  // 3.4 远程分流规则集登记、导入、刷新与安全删除
+  if (path === '/api/v1/surge/remote-rulesets' || path === '/api/v1/surge/remote-rulesets/') {
+    if (method === 'GET') {
+      const sets = await db.listRemoteRuleSets();
+      return jsonResponse({ success: true, count: sets.length, rule_sets: sets });
+    }
+    if (method === 'POST') {
+      const body = parseJsonBody(req);
+      if (!body.url || !body.group_id) {
+        return jsonResponse({ error: 'Missing url or group_id' }, 400);
+      }
+      try {
+        const res = await service.importRemoteRules(body.group_id, body.url, 'append', body.name);
+        return jsonResponse({ success: true, ...res });
+      } catch (e: any) {
+        return jsonResponse({ error: e?.message || 'Import failed' }, 502);
+      }
+    }
+  }
+
+  if (path === '/api/v1/surge/remote-rulesets/refresh' && method === 'POST') {
+    const body = parseJsonBody(req);
+    try {
+      const res = await service.refreshRemoteRuleSets(body.url);
+      return jsonResponse({ success: true, ...res });
+    } catch (e: any) {
+      return jsonResponse({ error: e?.message || 'Refresh remote rule sets failed' }, 502);
+    }
+  }
+
+  if (path === '/api/v1/surge/remote-rulesets/delete' && (method === 'POST' || method === 'DELETE')) {
+    const body = parseJsonBody(req);
+    const getParam = (k: string) => req.queryParams?.find((p) => p.key === k)?.value;
+    const url = body.url || getParam('url');
+    if (!url) {
+      return jsonResponse({ error: 'Missing url' }, 400);
+    }
+    try {
+      const res = await service.safeDeleteRemoteRuleSet(url);
+      return jsonResponse({ success: true, url, ...res });
+    } catch (e: any) {
+      return jsonResponse({ error: e?.message || 'Safe delete failed' }, 500);
+    }
+  }
+
+  if (path === '/api/v1/surge/remote-rulesets/toggle' && method === 'POST') {
+    const body = parseJsonBody(req);
+    const getParam = (k: string) => req.queryParams?.find((p) => p.key === k)?.value;
+    const url = body.url || getParam('url');
+    if (!url) {
+      return jsonResponse({ error: 'Missing url' }, 400);
+    }
+    const enabled = body.enabled !== undefined ? Boolean(body.enabled) : true;
+    try {
+      const res = await service.setRemoteRuleSetEnabled(url, enabled);
+      return jsonResponse({ success: true, url, enabled, ...res });
+    } catch (e: any) {
+      return jsonResponse({ error: e?.message || 'Toggle failed' }, 500);
     }
   }
 
@@ -512,10 +598,50 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
       const recentLinks = await db.getRecentTopologyLinks(20);
       const healedCount = recentLinks.filter((l) => l.is_self_healed).length;
 
+      // 聚合全链路出站与回环清洗统计数据
+      const detailedStats = AuditManager.get().getDetailedStats();
+      const directQueries = detailedStats.domestic || 0;
+      const proxyQueries = (detailedStats.foreign || 0) + (detailedStats.foreign_ecs || 0) + (detailedStats.proxy || 0);
+      const blockedQueries = detailedStats.blocked || 0;
+      const totalOutbound = directQueries + proxyQueries + blockedQueries;
+
+      const directPct = totalOutbound > 0 ? ((directQueries / totalOutbound) * 100).toFixed(1) + '%' : '0.0%';
+      const proxyPct = totalOutbound > 0 ? ((proxyQueries / totalOutbound) * 100).toFixed(1) + '%' : '0.0%';
+      const blockPct = totalOutbound > 0 ? ((blockedQueries / totalOutbound) * 100).toFixed(1) + '%' : '0.0%';
+
+      // 从本地数据库读取脱水规则统计（脱水回环清洗条数）
+      const activeBlockRules = await db.getActiveDnsBlockRules();
+      const cleanedRulesCount = activeBlockRules.length;
+
       // 拓扑数据
       return jsonResponse({
         success: true,
         surge: surgeStatus,
+        outbound: {
+          total: totalOutbound,
+          direct: {
+            count: directQueries,
+            pct: directPct,
+            status: '直连',
+          },
+          proxy: {
+            count: proxyQueries,
+            pct: proxyPct,
+            status: surgeStatus.online ? '加速' : '就绪',
+            node: surgeStatus.activePolicy || 'PROXY',
+          },
+          block: {
+            count: blockedQueries,
+            pct: blockPct,
+            status: '阻断',
+          },
+          loopback: {
+            cleaned_rules: cleanedRulesCount,
+            healed_count: healedCount,
+            active_cycles: detailedStats.total_queries || 0,
+            status: '闭环运转中',
+          },
+        },
         modules: {
           total: modules.length,
           enabled: enabledModules.length,

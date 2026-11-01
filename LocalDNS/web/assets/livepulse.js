@@ -228,18 +228,21 @@
       '  background: rgba(148, 163, 184, 0.6);',
       '}',
       '.topo-stage-wrap {',
-      '  min-width: 1380px !important;',
-      '  width: 1380px !important;',
+      '  position: relative !important;',
+      '  min-width: 1420px !important;',
+      '  width: 1420px !important;',
+      '  padding: 30px 10px 42px 10px !important;',
+      '  box-sizing: border-box !important;',
       '  transform-origin: top left !important;',
       '  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;',
       '}',
       '.topo-grid {',
-      '  grid-template-columns: repeat(6, minmax(205px, 1fr)) !important;',
-      '  gap: 22px !important;',
+      '  grid-template-columns: repeat(6, minmax(210px, 1fr)) !important;',
+      '  gap: 24px !important;',
       '  overflow: visible !important;',
       '}',
       '.topo-col {',
-      '  min-width: 205px !important;',
+      '  min-width: 210px !important;',
       '}',
       '.topo-col-body {',
       '  display: flex !important;',
@@ -313,6 +316,42 @@
       '  background: rgba(148, 163, 184, 0.25) !important;',
       '  border-color: var(--color-primary, #B45309) !important;',
       '}',
+      '.t-node.t-loopback-node {',
+      '  border: 1px dashed rgba(245, 158, 11, 0.45) !important;',
+      '  background: rgba(245, 158, 11, 0.06) !important;',
+      '  position: relative !important;',
+      '  overflow: hidden !important;',
+      '}',
+      '.t-node.t-loopback-node:hover {',
+      '  border-color: rgba(245, 158, 11, 0.9) !important;',
+      '  background: rgba(245, 158, 11, 0.12) !important;',
+      '}',
+      '@keyframes topoDashLoop {',
+      '  from { stroke-dashoffset: 0; }',
+      '  to { stroke-dashoffset: -24px; }',
+      '}',
+      '.topo-particle.is-loopback {',
+      '  fill: none !important;',
+      '  stroke-width: 2.2 !important;',
+      '  stroke-dasharray: 6 18 !important;',
+      '  animation: topoDashLoop 1.6s linear infinite !important;',
+      '}',
+      '.topo-edge.is-loopback {',
+      '  stroke-dasharray: 4 6 !important;',
+      '  stroke-opacity: 0.55 !important;',
+      '  stroke-width: 1.8 !important;',
+      '}',
+      '.topo-stage-wrap.is-compact .loopback-badge-group {',
+      '  opacity: 0.35 !important;',
+      '}',
+      '.loopback-ribbon-text {',
+      '  font-family: var(--font-sans, system-ui);',
+      '  font-size: 10.5px !important;',
+      '  font-weight: 600 !important;',
+      '  letter-spacing: 0.03em !important;',
+      '  user-select: none !important;',
+      '  pointer-events: none !important;',
+      '}',
       '.t-node[data-zero-flow="true"].is-hidden-zero {',
       '  display: none !important;',
       '}'
@@ -324,7 +363,7 @@
     if (!card || !wrap) return;
     if (isFitView) {
       var availableW = card.clientWidth - 40;
-      var naturalW = 1380;
+      var naturalW = 1420;
       var ratio = Math.max(0.25, Math.min(1, availableW / naturalW));
       var naturalH = wrap.offsetHeight || 520;
       wrap.style.transform = 'scale(' + ratio + ')';
@@ -443,6 +482,7 @@
       btnCompact.onclick = function () {
         hideZeroFlow = !hideZeroFlow;
         btnCompact.classList.toggle('active', hideZeroFlow);
+        wrap.classList.toggle('is-compact', hideZeroFlow);
         qq('.t-node[data-zero-flow="true"]', card).forEach(function (node) {
           node.classList.toggle('is-hidden-zero', hideZeroFlow);
         });
@@ -450,6 +490,10 @@
       };
     }
   }
+
+  var cachedTopologyData = null;
+  var observedSvgEl = null;
+  var isRenderingLoop = false;
 
   function updateDynamicTopology() {
     var card = q('.topology-glass-card');
@@ -462,7 +506,7 @@
     injectTopologyEnhanceStyles();
     setupTopologyControls(card, wrap);
 
-    // 1. 动态注入阶段 06：出站执行 (Surge 节点与阻断)
+    // 1. 动态注入阶段 06：出站执行 (Surge 节点与阻断) 及 回环清洗自愈节点
     var col6 = q('.topo-col[data-col="6"]');
     if (!col6) {
       col6 = document.createElement('div');
@@ -471,35 +515,45 @@
       col6.innerHTML = [
         '<div class="topo-col-title"><span>06</span>出站执行 (Surge)</div>',
         '<div class="topo-col-body">',
-        '  <div class="t-node" data-node-id="out_direct" data-outbound="direct" title="国内直连出站，不经代理">',
+        '  <div class="t-node" data-node-id="out_direct" data-outbound="direct" title="国内直连服务/直连 IP 直达运营商出口">',
         '    <div class="tn-left">',
         '      <div class="tn-icon-box" style="color:#10B981;background:rgba(16,185,129,0.12)">⚡️</div>',
         '      <div class="tn-meta">',
         '        <div class="tn-name">DIRECT 直连</div>',
-        '        <div class="tn-sub" id="topo-direct-sub">大陆服务 · 本地直出</div>',
+        '        <div class="tn-sub" id="topo-direct-sub">0 次 (0.0%) · 本地直出</div>',
         '      </div>',
         '    </div>',
-        '    <span class="tn-val" style="color:#10B981">直连</span>',
+        '    <span class="tn-val" id="topo-direct-val" style="color:#10B981">直连 0%</span>',
         '  </div>',
-        '  <div class="t-node" data-node-id="out_proxy" data-outbound="proxy" title="Surge 代理通道，支持智能选路">',
+        '  <div class="t-node" data-node-id="out_proxy" data-outbound="proxy" title="Surge 代理通道，支持智能选路与节点动态加速">',
         '    <div class="tn-left">',
         '      <div class="tn-icon-box" style="color:#3B82F6;background:rgba(59,130,246,0.12)">✈️</div>',
         '      <div class="tn-meta">',
         '        <div class="tn-name" id="topo-surge-node-name">PROXY 代理</div>',
-        '        <div class="tn-sub" id="topo-surge-node-sub">Surge 节点出站</div>',
+        '        <div class="tn-sub" id="topo-surge-node-sub">0 次 (0.0%) · 模式: RULE</div>',
         '      </div>',
         '    </div>',
-        '    <span class="tn-val" id="topo-surge-node-val" style="color:#3B82F6">加速</span>',
+        '    <span class="tn-val" id="topo-surge-node-val" style="color:#3B82F6">加速 0%</span>',
         '  </div>',
-        '  <div class="t-node" data-node-id="out_block" data-outbound="block" title="0.0.0.0 阻断，主动掐断活跃长连接">',
+        '  <div class="t-node" data-node-id="out_block" data-outbound="block" title="0.0.0.0 纳秒阻断，主动调用 Surge HTTP API 掐断活跃长连接">',
         '    <div class="tn-left">',
         '      <div class="tn-icon-box" style="color:#EF4444;background:rgba(239,68,68,0.12)">🛑</div>',
         '      <div class="tn-meta">',
         '        <div class="tn-name">BLK 拦截</div>',
-        '        <div class="tn-sub" id="topo-block-sub">连接掐断 · 零消耗</div>',
+        '        <div class="tn-sub" id="topo-block-sub">0 次 (0.0%) · 纳秒拦截</div>',
         '      </div>',
         '    </div>',
-        '    <span class="tn-val" style="color:#EF4444">阻断</span>',
+        '    <span class="tn-val" id="topo-block-val" style="color:#EF4444">阻断 0%</span>',
+        '  </div>',
+        '  <div class="t-node t-loopback-node" data-node-id="out_loopback" data-outbound="loopback" title="回环清洗与自愈：Surge 模块广告规则沉淀入库为本地 DNS 拦截；出站故障自动反哺自愈学习">',
+        '    <div class="tn-left">',
+        '      <div class="tn-icon-box" style="color:#F59E0B;background:rgba(245,158,11,0.14)">🔄</div>',
+        '      <div class="tn-meta">',
+        '        <div class="tn-name">回环清洗与自愈</div>',
+        '        <div class="tn-sub" id="topo-loop-sub">脱水 0 规则 · 自愈 0 域名</div>',
+        '      </div>',
+        '    </div>',
+        '    <span class="tn-val" id="topo-loop-val" style="color:#F59E0B">闭环运转</span>',
         '  </div>',
         '</div>'
       ].join('');
@@ -508,25 +562,50 @@
       window.dispatchEvent(new CustomEvent('localdns:layoutchange'));
     }
 
-    // 2. 拉取后端动态拓扑数据，更新阶段 06 状态与自愈标记
+    // 2. 拉取后端动态拓扑与真实出站数据，更新阶段 06 状态与自愈标记
     fetch('/api/v1/topology/flow', { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (!data || !data.success) return;
+        cachedTopologyData = data;
 
-        // 更新 Surge 节点信息
-        if (data.surge) {
-          var s = data.surge;
-          if (s.online) {
-            setText(q('#topo-surge-node-name'), 'PROXY · 在线');
-            setText(q('#topo-surge-node-sub'), '模式: ' + (s.mode || 'rule').toUpperCase());
-            setText(q('#topo-surge-node-val'), '就绪');
-          } else {
-            setText(q('#topo-surge-node-name'), 'Surge (未连接)');
-            setText(q('#topo-surge-node-sub'), '可开启 HTTP API 联动');
-            setText(q('#topo-surge-node-val'), '离线');
-          }
+        // 更新真实出站与 Surge 状态数据
+        var ob = data.outbound;
+        var s = data.surge || { online: false, mode: 'rule', activePolicy: 'PROXY' };
+
+        if (ob && ob.direct) {
+          setText(q('#topo-direct-sub'), fmtNum(ob.direct.count) + ' 次 (' + ob.direct.pct + ') · 本地直出');
+          setText(q('#topo-direct-val'), '直连 ' + ob.direct.pct);
         }
+        if (ob && ob.proxy) {
+          var proxySub = fmtNum(ob.proxy.count) + ' 次 (' + ob.proxy.pct + ') · ' + (s.online ? ('模式: ' + (s.mode || 'rule').toUpperCase()) : '代理通道');
+          setText(q('#topo-surge-node-sub'), proxySub);
+          setText(q('#topo-surge-node-name'), s.online ? 'PROXY · 在线' : 'PROXY 代理');
+          setText(q('#topo-surge-node-val'), (s.online ? '加速 ' : '就绪 ') + ob.proxy.pct);
+        }
+        if (ob && ob.block) {
+          setText(q('#topo-block-sub'), fmtNum(ob.block.count) + ' 次 (' + ob.block.pct + ') · 0.0.0.0 拦截');
+          setText(q('#topo-block-val'), '阻断 ' + ob.block.pct);
+        }
+        if (ob && ob.loopback) {
+          var cleanTxt = '脱水 ' + fmtNum(ob.loopback.cleaned_rules) + ' 规则 · 自愈 ' + fmtNum(ob.loopback.healed_count) + ' 域名';
+          setText(q('#topo-loop-sub'), cleanTxt);
+          setText(q('#topo-loop-val'), ob.loopback.status || '闭环运转');
+        }
+
+        // 零流量标记与「仅看活跃」折叠联动
+        var zeroMap = {
+          out_direct: !(ob && ob.direct && ob.direct.count > 0),
+          out_proxy: !(ob && ob.proxy && ob.proxy.count > 0),
+          out_block: !(ob && ob.block && ob.block.count > 0),
+          out_loopback: !(ob && ob.loopback && ob.loopback.cleaned_rules > 0)
+        };
+        Object.keys(zeroMap).forEach(function (nid) {
+          var node = wrap.querySelector('[data-node-id="' + nid + '"]');
+          if (!node) return;
+          node.setAttribute('data-zero-flow', zeroMap[nid] ? 'true' : 'false');
+          node.classList.toggle('is-hidden-zero', hideZeroFlow && zeroMap[nid]);
+        });
 
         // 更新自愈信息
         if (data.self_healing && data.self_healing.healed_recent_count > 0) {
@@ -534,43 +613,174 @@
           if (healedNode) setText(healedNode, '已自愈 ' + data.self_healing.healed_recent_count + ' 域名');
         }
 
-        // 3. 动态绘制延伸至阶段 06 的贝塞尔连线
-        drawStage6Curves(wrap, svg);
+        // 3. 动态绘制延伸至阶段 06 出站及闭环反哺回环的贝塞尔流光连线
+        renderStage6AndLoopback(wrap, svg);
       })
-      .catch(function () {});
+      .catch(function () {
+        renderStage6AndLoopback(wrap, svg);
+      });
   }
 
-  function drawStage6Curves(wrap, svg) {
-    if (!wrap || !svg) return;
-    var wrapRect = wrap.getBoundingClientRect();
-    if (!wrapRect.width || !wrapRect.height) return;
+  function renderStage6AndLoopback(wrap, svg) {
+    if (!wrap || !svg || isRenderingLoop) return;
+    isRenderingLoop = true;
+    try {
+      var wrapRect = wrap.getBoundingClientRect();
+      if (!wrapRect.width || !wrapRect.height) return;
 
-    var s6Edges = [
-      { from: 'alidns_ip', to: 'out_direct', color: '#10B981' },
-      { from: 'alidns_doh', to: 'out_direct', color: '#10B981' },
-      { from: 'dnspod_doh', to: 'out_direct', color: '#10B981' },
-      { from: 'cloudflare_ip', to: 'out_proxy', color: '#3B82F6' },
-      { from: 'cloudflare_ecs', to: 'out_proxy', color: '#3B82F6' },
-      { from: 'google_proxy', to: 'out_proxy', color: '#3B82F6' },
-      { from: 'google_doh', to: 'out_proxy', color: '#3B82F6' },
-    ];
+    var layer = svg.querySelector('#topo-s6-loopback-layer');
+    if (!layer) {
+      layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      layer.id = 'topo-s6-loopback-layer';
+      svg.appendChild(layer);
+    }
 
-    var pathsHtml = '';
-    s6Edges.forEach(function (e, idx) {
-      var fEl = wrap.querySelector('[data-node-id="' + e.from + '"]') || wrap.querySelector('.t-node');
-      var tEl = wrap.querySelector('[data-node-id="' + e.to + '"]');
-      if (!fEl || !tEl) return;
-      var r1 = fEl.getBoundingClientRect(), r2 = tEl.getBoundingClientRect();
-      var x1 = r1.right - wrapRect.left, y1 = r1.top + r1.height / 2 - wrapRect.top;
-      var x2 = r2.left - wrapRect.left, y2 = r2.top + r2.height / 2 - wrapRect.top;
-      var dx = (x2 - x1) * 0.54;
-      var d = 'M ' + x1.toFixed(1) + ' ' + y1.toFixed(1) + ' C ' + (x1 + dx).toFixed(1) + ' ' + y1.toFixed(1) + ', ' + (x2 - dx).toFixed(1) + ' ' + y2.toFixed(1) + ', ' + x2.toFixed(1) + ' ' + y2.toFixed(1);
-      pathsHtml += '<path class="topo-edge s6-edge" data-s6-idx="' + idx + '" d="' + d + '" stroke="' + e.color + '" stroke-opacity="0.4" fill="none" stroke-width="1.6" />';
-    });
+    var html = '';
 
-    var existingS6 = svg.querySelectorAll('.s6-edge');
-    for (var i = 0; i < existingS6.length; i++) existingS6[i].remove();
-    svg.insertAdjacentHTML('beforeend', pathsHtml);
+    function makePath(x1, y1, x2, y2, color, isLoop, loopDirection, label, labelColor) {
+      if (isNaN(x1) || isNaN(y1) || isNaN(x2) || isNaN(y2)) return;
+      var d = '';
+      if (!isLoop) {
+        var dx = (x2 - x1) * 0.54;
+        d = 'M ' + x1.toFixed(1) + ' ' + y1.toFixed(1) + ' C ' + (x1 + dx).toFixed(1) + ' ' + y1.toFixed(1) + ', ' + (x2 - dx).toFixed(1) + ' ' + y2.toFixed(1) + ', ' + x2.toFixed(1) + ' ' + y2.toFixed(1);
+      } else if (loopDirection === 'top') {
+        var topY = 16;
+        d = 'M ' + x1.toFixed(1) + ' ' + y1.toFixed(1) + ' C ' + (x1 - 180).toFixed(1) + ' ' + topY + ', ' + (x2 + 180).toFixed(1) + ' ' + topY + ', ' + x2.toFixed(1) + ' ' + y2.toFixed(1);
+      } else {
+        var botY = Math.max(wrapRect.height - 18, y1 + 35);
+        d = 'M ' + x1.toFixed(1) + ' ' + y1.toFixed(1) + ' C ' + (x1 - 200).toFixed(1) + ' ' + botY + ', ' + (x2 + 200).toFixed(1) + ' ' + botY + ', ' + x2.toFixed(1) + ' ' + y2.toFixed(1);
+      }
+
+      var loopCls = isLoop ? ' is-loopback' : '';
+      html += '<path class="topo-halo' + loopCls + '" d="' + d + '" stroke="' + color + '" />';
+      html += '<path class="topo-glow' + loopCls + '" d="' + d + '" stroke="' + color + '" />';
+      html += '<path class="topo-particle' + loopCls + '" d="' + d + '" stroke="' + color + '" />';
+      html += '<path class="topo-edge' + loopCls + '" d="' + d + '" stroke="' + color + '" stroke-opacity="' + (isLoop ? '0.75' : '0.45') + '" fill="none" stroke-width="' + (isLoop ? '1.8' : '1.5') + '" />';
+      html += '<circle class="topo-dot-halo" cx="' + x1.toFixed(1) + '" cy="' + y1.toFixed(1) + '" r="3.6" fill="' + color + '" />';
+      html += '<circle class="topo-dot" cx="' + x1.toFixed(1) + '" cy="' + y1.toFixed(1) + '" r="2.2" fill="' + color + '" />';
+      html += '<circle class="topo-dot-halo" cx="' + x2.toFixed(1) + '" cy="' + y2.toFixed(1) + '" r="3.6" fill="' + color + '" />';
+      html += '<circle class="topo-dot" cx="' + x2.toFixed(1) + '" cy="' + y2.toFixed(1) + '" r="2.2" fill="' + color + '" />';
+
+      if (label) {
+        var lx = (x1 + x2) / 2;
+        var ly = loopDirection === 'top' ? 16 : (wrapRect.height - 18);
+        var pillW = 220, pillH = 22;
+        var pillX = lx - pillW / 2;
+        var pillY = ly - pillH / 2;
+        html += '<g class="loopback-badge-group">' +
+          '<rect x="' + pillX.toFixed(1) + '" y="' + pillY.toFixed(1) + '" width="' + pillW + '" height="' + pillH + '" rx="' + (pillH / 2) + '" fill="rgba(15,23,42,0.92)" stroke="' + (labelColor || color) + '" stroke-width="1.2" />' +
+          '<text x="' + lx.toFixed(1) + '" y="' + (pillY + 14.5).toFixed(1) + '" text-anchor="middle" fill="' + (labelColor || color) + '" class="loopback-ribbon-text">' + label + '</text>' +
+          '</g>';
+      }
+    }
+
+    var outDirect = wrap.querySelector('[data-node-id="out_direct"]');
+    var outProxy = wrap.querySelector('[data-node-id="out_proxy"]');
+    var outBlock = wrap.querySelector('[data-node-id="out_block"]');
+    var outLoopback = wrap.querySelector('[data-node-id="out_loopback"]');
+    if (!outDirect || !outProxy || !outBlock) return;
+
+    var rd = outDirect.getBoundingClientRect();
+    var rp = outProxy.getBoundingClientRect();
+    var rb = outBlock.getBoundingClientRect();
+    var rl = outLoopback ? outLoopback.getBoundingClientRect() : null;
+
+    var directLeft = { x: rd.left - wrapRect.left, y: rd.top + rd.height / 2 - wrapRect.top };
+    var proxyLeft = { x: rp.left - wrapRect.left, y: rp.top + rp.height / 2 - wrapRect.top };
+    var blockLeft = { x: rb.left - wrapRect.left, y: rb.top + rb.height / 2 - wrapRect.top };
+
+    // 1. Stage 05 (上游 DNS 节点) ➔ Stage 06 出站执行 (DIRECT / PROXY)
+    var serverNodes = wrap.querySelectorAll('.topo-col[data-col="5"] .t-node');
+    if (serverNodes.length > 0) {
+      var mid = Math.ceil(serverNodes.length / 2);
+      serverNodes.forEach(function (sNode, idx) {
+        var sr = sNode.getBoundingClientRect();
+        if (!sr.width || !sr.height) return;
+        var sx = sr.right - wrapRect.left;
+        var sy = sr.top + sr.height / 2 - wrapRect.top;
+        if (idx < mid) {
+          // 国内策略上游 ➔ DIRECT 直连
+          makePath(sx, sy, directLeft.x, directLeft.y, '#10B981', false);
+        } else {
+          // 国外/代理上游 ➔ PROXY 代理
+          makePath(sx, sy, proxyLeft.x, proxyLeft.y, '#3B82F6', false);
+        }
+      });
+    }
+
+    // 2. Stage 03 拦截规则 (r6 / 广告黑名单) ➔ Stage 06 BLK 阻断
+    var ruleBlock = wrap.querySelector('[data-node-id="r6"]') || wrap.querySelector('.topo-col[data-col="3"] .t-node:last-child');
+    if (ruleBlock) {
+      var rbr = ruleBlock.getBoundingClientRect();
+      if (rbr.width && rbr.height) {
+        var rbx = rbr.right - wrapRect.left;
+        var rby = rbr.top + rbr.height / 2 - wrapRect.top;
+        makePath(rbx, rby, blockLeft.x, blockLeft.y, '#EF4444', false);
+      }
+    }
+
+    // 3. Stage 06 汇聚至回环控制节点
+    if (rl && outLoopback) {
+      var loopLeft = { x: rl.left - wrapRect.left, y: rl.top + rl.height / 2 - wrapRect.top };
+      var dirRight = { x: rd.right - wrapRect.left, y: rd.top + rd.height / 2 - wrapRect.top };
+      var prxRight = { x: rp.right - wrapRect.left, y: rp.top + rp.height / 2 - wrapRect.top };
+      var blkRight = { x: rb.right - wrapRect.left, y: rb.top + rb.height / 2 - wrapRect.top };
+
+      makePath(dirRight.x, dirRight.y, loopLeft.x, loopLeft.y, '#10B981', false);
+      makePath(prxRight.x, prxRight.y, loopLeft.x, loopLeft.y, '#3B82F6', false);
+      makePath(blkRight.x, blkRight.y, loopLeft.x, loopLeft.y, '#EF4444', false);
+    }
+
+    // 4. 顶部回环清洗链路：06 出站 ➔ 02 核心引擎 / 03 规则拦截 (脱水清洗 · 沉淀入库)
+    var eCore = wrap.querySelector('[data-node-id="e_core"]');
+    if (eCore) {
+      var ecr = eCore.getBoundingClientRect();
+      if (ecr.width && ecr.height) {
+        var ecTop = { x: ecr.left + ecr.width / 2 - wrapRect.left, y: ecr.top - wrapRect.top };
+        var srcBlock = rl ? { x: rl.right - wrapRect.left, y: rl.top - wrapRect.top } : { x: rb.right - wrapRect.left, y: rb.top - wrapRect.top };
+        makePath(srcBlock.x, srcBlock.y, ecTop.x, ecTop.y, '#EF4444', true, 'top', '⚡️ 06 ➔ 02 回环清洗 · 沉淀入库 (DNS拦截)', '#EF4444');
+      }
+    }
+
+    // 5. 底部闭环交付链路：06 出站 ➔ 01 客户端来源 (闭环完成 · 数据交付)
+    var c1Node = wrap.querySelector('.topo-col[data-col="1"] .t-node');
+    if (c1Node) {
+      var c1r = c1Node.getBoundingClientRect();
+      if (c1r.width && c1r.height) {
+        var c1Bot = { x: c1r.left + c1r.width / 2 - wrapRect.left, y: c1r.bottom - wrapRect.top };
+        var srcDirect = rl ? { x: rl.right - wrapRect.left, y: rl.bottom - wrapRect.top } : { x: rd.right - wrapRect.left, y: rd.bottom - wrapRect.top };
+        makePath(srcDirect.x, srcDirect.y, c1Bot.x, c1Bot.y, '#10B981', true, 'bottom', '🔄 06 ➔ 01 闭环交付 · 数据回传完成', '#10B981');
+      }
+    }
+
+    // 6. 自愈反哺链路：06 PROXY ➔ 03 r4 灰名单自愈
+    if (cachedTopologyData && cachedTopologyData.self_healing && cachedTopologyData.self_healing.healed_recent_count > 0) {
+      var r4Node = wrap.querySelector('[data-node-id="r4"]');
+      if (r4Node) {
+        var r4r = r4Node.getBoundingClientRect();
+        if (r4r.width && r4r.height) {
+          var r4Top = { x: r4r.left + r4r.width / 2 - wrapRect.left, y: r4r.top - wrapRect.top };
+          var prxTop = { x: rp.right - wrapRect.left, y: rp.top - wrapRect.top };
+          makePath(prxTop.x, prxTop.y, r4Top.x, r4Top.y, '#F59E0B', true, 'top', '🔄 06 ➔ 03 自愈反哺 · 动态容灾', '#F59E0B');
+        }
+      }
+    }
+
+    layer.innerHTML = html;
+
+    // 防止 SPA 重绘抹除图层：按当前 SVG 元素绑定（SPA 重绘会替换 #topo-svg）
+    if (observedSvgEl !== svg) {
+      observedSvgEl = svg;
+      var obs = new MutationObserver(function () {
+        if (svg.isConnected && !svg.querySelector('#topo-s6-loopback-layer')) {
+          renderStage6AndLoopback(wrap, svg);
+        }
+      });
+      obs.observe(svg, { childList: true });
+    }
+    } finally {
+      isRenderingLoop = false;
+    }
   }
 
   function run() {

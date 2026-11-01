@@ -324,6 +324,25 @@ export class LocalDnsServer {
         }
       }
 
+      // Built-in Surge scripts for modules: /scripts/*
+      if (path.startsWith('/scripts/') && (method === 'GET' || method === 'HEAD')) {
+        let sub = path.slice('/scripts/'.length).split('?')[0];
+        if (sub && !sub.includes('..')) {
+          const fullPath = Path.join(webDir, 'scripts', sub);
+          if ((await FileManager.exists(fullPath)) && !(await FileManager.isDirectory(fullPath))) {
+            const file = FileEntity.openForReading(fullPath);
+            return HttpResponse.raw(200, 'OK', {
+              headers: {
+                'Content-Type': 'application/javascript; charset=utf-8',
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Access-Control-Allow-Origin': '*',
+              },
+              body: file,
+            });
+          }
+        }
+      }
+
       // CA Root Certificate download: /ca.crt
       if (path === '/ca.crt' && method === 'GET') {
         const caPath = Path.join(Script.directory, 'cert/ca.crt');
@@ -508,7 +527,7 @@ export class LocalDnsServer {
 
       return jsonResponse({
         status: 'online',
-        version: 'FJH7T',
+        version: 'FJHAI',
         upstream_stats: upstreamStats,
         rules: {
           geosite_cn: fileCounts.geosite_cn || 0,
@@ -529,7 +548,7 @@ export class LocalDnsServer {
       }
       if (method === 'POST') {
         const body = parseJsonBody(req);
-        // FJH7T 使用 group 字段，旧核心使用 plugin_tag；两者都接受。
+        // FJHAI / FJH7T 使用 group 字段，旧核心使用 plugin_tag；两者都接受。
         const group = body.group || body.plugin_tag;
         if (group && Array.isArray(body.upstreams)) {
           store.setUpstreamGroup(group, body.upstreams);
@@ -710,6 +729,42 @@ export class LocalDnsServer {
       return jsonResponse({ success: true, message: 'Restart scheduled' });
     }
 
+    // 11.5 /api/v1/lists/:name (FJHAI 国外 IP 段 foreign_cidrs 与各类名单兼容)
+    if (cleanPath.startsWith('/api/v1/lists/')) {
+      const listName = cleanPath.replace('/api/v1/lists/', '');
+      const listTagMap: Record<string, string> = {
+        foreign_cidrs: 'foreign_ip',
+        direct_cidrs: 'direct_ip',
+        clients: 'client_ip',
+        realip: 'force_realip',
+        ddns: 'ddns_domains',
+        pcdn: 'pcdn_domains',
+        pcdn_v4: 'pcdn_regex_v4',
+        pcdn_v6: 'pcdn_regex_v6',
+      };
+      const ruleTag = listTagMap[listName] || listName;
+      if (method === 'GET') {
+        const text = store.getRule(ruleTag);
+        return textResponse(text);
+      }
+      if (method === 'PUT' || method === 'POST') {
+        const body = parseJsonBody(req);
+        let content = '';
+        if (typeof body === 'string') {
+          content = body;
+        } else if (Array.isArray(body)) {
+          content = body.join('\n');
+        } else if (Array.isArray(body?.values)) {
+          content = body.values.join('\n');
+        } else if (typeof body?.content === 'string') {
+          content = body.content;
+        }
+        store.setRule(ruleTag, content);
+        this.reloadRuleEngines();
+        return jsonResponse({ success: true, count: content.split('\n').filter(Boolean).length });
+      }
+    }
+
     // 12. /api/resolve (JSON DNS resolve for Surge DNS script or debug)
     if (cleanPath.startsWith('/api/resolve') && method === 'GET') {
       let domain = '';
@@ -822,7 +877,7 @@ $httpClient.get({
     if (cleanPath.startsWith('/api/proxy-config')) {
       const subConfigPath = cleanPath.replace('/api/proxy-config', '');
 
-      // 代理配置编辑器兼容层：上游 UI 2026.10.30.7 要求核心同时提供
+      // 代理配置编辑器兼容层：上游 UI 2026.11.01.1 要求核心同时提供
       // available / exists / mode / path / roots，且读取结果必须带 path/revision。
       // LocalDNS 不启动 mihomo / sing-box，这里提供两份可编辑的本地虚拟配置，
       // 保存只写入 Storage，不会启动或重载任何代理核心。
@@ -1052,7 +1107,7 @@ $httpClient.get({
           return jsonResponse({ error: 'Only http(s) URLs without credentials are allowed' }, 400);
         }
         try {
-          const res = await fetch(target.href, { headers: { 'User-Agent': 'LocalDNS/FJH7T' } });
+          const res = await fetch(target.href, { headers: { 'User-Agent': 'LocalDNS/FJHAI' } });
           if (!res.ok) {
             return jsonResponse({ error: `HTTP ${res.status}` }, 502);
           }
@@ -1329,7 +1384,7 @@ $httpClient.get({
       // Handle Local List Rules (e.g. whitelist, blocklist, greylist, force_realip, etc.)
       const values = Array.isArray(body.values) ? body.values : [];
       store.setRule(tag, values.join('\n'));
-      DiversionEngine.get().reloadLocalRules();
+      this.reloadRuleEngines();
       return jsonResponse({ success: true, count: values.length });
     }
 

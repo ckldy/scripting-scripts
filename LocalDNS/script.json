@@ -2,9 +2,9 @@
   "name": "LocalDNS",
   "icon": "shield.lefthalf.filled",
   "color": "#6366f1",
-  "version": "1.11.0",
+  "version": "1.13.0",
   "author": "vcncv",
-  "description": "本地 DNS 与安全服务系统，v1.11.0 支持 LocalDNS × Surge 联动控制分流与动态解析路径：SQLite 模块与分流资产数据库、Surge 模块解析脱水（域名入库 DNS 拦截、七层动态编译单一 hub.sgmodule）、统一动态 RULE-SET 导出、Surge HTTP API 双向调度、全链路 DNS 解析路径动态拓扑（阶段 06 出站执行、自愈路径高亮）。对齐上游 FJH7T / UI 2026.10.30.7，保留 18.5 万条 AdGuard 拦截与 SmartDNS 测速选优。由 vcncv 移植构建。",
+  "description": "本地 DNS 与安全服务系统，v1.13.0 将「DNS 解析路径」重构为全链路闭环拓扑：阶段 01~06 正向执行 + 06→02 回环清洗与 06→01 闭环交付双回环链路，阶段 06 出站执行 (Surge) 接入实时直连/代理/拦截数据与流光粒子。对齐上游 FJHAI / UI 2026.11.01.1，保留 LocalDNS × Surge 脱水架构、18.5 万条 AdGuard 拦截与 SmartDNS 测速选优。由 vcncv 移植构建。",
   "remoteResource": {
     "url": "https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/LocalDNS.zip"
   }

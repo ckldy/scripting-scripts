@@ -1,10 +1,29 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.11.0 (Build 20261031)`  
+> **当前版本**：`v1.13.0 (Build 20261101)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.10.30.7` / 内核 `FJH7T`）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.11.01.1` / 内核 `FJHAI`）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地高性能 DNS 服务与安全管理系统。
+
+### v1.13.0 「DNS 解析路径」重构为全链路闭环拓扑
+- **阶段 06 出站执行数据活化**：此前阶段 06 三个节点（DIRECT / PROXY / BLK）只有静态文案，既无真实流量也无流光。现由 `/api/v1/topology/flow` 下发 `outbound` 实时聚合数据——直连次数与占比、代理次数与占比（含 Surge 在线状态/出站模式）、拦截次数与占比，节点副标题与右侧数值徽章逐帧刷新。
+- **正向链路完整化**：05 上游 DNS 节点 → 06 DIRECT / PROXY（按策略组自动着色）；03 拦截规则（r6）→ 06 BLK；06 三路汇聚 → 「回环清洗与自愈」节点，并在 05/06 之间补齐此前完全缺失的贝塞尔连线。
+- **两条返程回环，把运行图闭合成环**：
+  * **顶部回环清洗链路（06 ➔ 02/03）**：Surge 模块广告规则沉淀入库、出站故障反哺自愈学习，反向弧线自右向左流过画布顶部，配「回环清洗 · 沉淀入库」胶囊标签；
+  * **底部闭环交付链路（06 ➔ 01）**：解析结果回传客户端，弧线沿画布底部合拢，配「闭环交付 · 数据回传完成」胶囊标签；
+  * 回环路径按 06→目标 方向绘制，叠加 `topoDashLoop` 反向流光，视觉上自右向左回流，形成 01 ➔ 06 ➔ 01 的完整闭环。
+- **流光修复**：旧实现只给阶段 06 画了裸 `topo-edge`，没有 `topo-halo / topo-glow / topo-particle` 三件套，所以永远不会有流光。现所有阶段 06 与回环连线均补齐完整四层路径与端点光点，并遵守「流光开关」「减少动态效果」与悬停态。
+- **不再被 SPA 重绘抹除**：回环图层 `#topo-s6-loopback-layer` 作为独立 `<g>` 挂载，配合按元素绑定的 `MutationObserver` 与重入保护，上游 `drawTopoCurves` 全量重写 SVG 后能立即自愈补回。
+- **零流量节点自动降级**：阶段 06 节点按真实条数写入 `data-zero-flow`，「⚡️ 仅看活跃」折叠与零流量隐藏首次覆盖出站节点，回环标签同步收敛。
+- **画布扩容**：`topo-stage-wrap` 宽度 1380 ➔ 1420px，并补 `padding: 30px 10px 42px`，为顶部/底部回环弧线与胶囊标签留出专属通道，不与节点卡片重叠。
+
+### v1.12.0 同步上游 FJHAI / UI 2026.11.01.1
+- **前端全量跟随上游打包 SPA**：`app-D0OSKPpj.js` + `index-DCmM8ALJ.css`（772KB / 624KB），精确替换打包资源，同步更新 Noto SC 字体子集。
+- **概览缓存控制拆分为独立开关**：对齐上游 2026.11.01.1，概览「快捷控制」将「核心缓存 / 乐观过期」由共用单选分段控件拆为两个独立 `.switch` 开关（名称在左、轨道在右、附「开 / 关」文字），绑定 `change` 事件与提交防连点，失败自动回滚；后端 `switch13` / `switch4` 接口保持无缝契约。
+- **名单管理解析控制新增「国外 IP 段」**：对齐 FJHAI 内核架构，解析控制列表新增「国外 IP 段」(`foreign_ip`，对应 `/api/v1/lists/foreign_cidrs`)，支持指定 IP 或 CIDR 网段优先按国外地址分流，原文编辑即时持久化。
+- **核心族探测与旧版插件兼容**：继续保持 `/api/v1/features` 优雅 404 探测机制，UI 自动无缝降级运行于本地定制 Legacy 插件模式。
+- **本地深度定制全面保留**：`web/assets/livepulse.js`（1s 浮动脉冲与 KPI / 2s 进程真实 CPU·内存就地更新）、`web/assets/surge-workbench.js`（Surge 深度治理工作台）、同源 `proxyConfigBase` 配置均完整保留。
 
 ### v1.11.0 LocalDNS × Surge 联动控制分流与动态解析路径
 - **SQLite 结构化数据中枢**：引入 Scripting 原生 `SQLite`（`surge_link.db`），解耦管理态与运行态。支持 App 净化模块、分流规则组、七层重写/脚本以及全链路动态拓扑记录，提供独立开关可控。

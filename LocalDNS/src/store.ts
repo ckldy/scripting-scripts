@@ -77,6 +77,7 @@ export class Store {
       pcdn_regex_v6: '',
       client_ip: '# 客户端 IP 列表\n',
       direct_ip: '# 直连 IP 列表\n',
+      foreign_ip: '# 国外 IP/CIDR 网段列表\n',
       rewrite: '# 重定向列表: 域名 目标IP\n# dev.local 127.0.0.1\n',
       ignore_ip: '# 忽略的 IP/CIDR（结果中剔除）\n',
       blacklist_ip: '# 黑名单 IP/CIDR（结果中剔除）\n',

@@ -36,6 +36,9 @@ export interface HttpRule {
   target: string;
   requires_body: boolean;
   max_size: number;
+  binary_body?: boolean;
+  engine?: string;
+  argument?: string;
   enabled: boolean;
 }
 
@@ -57,6 +60,18 @@ export interface DiversionGroup {
   rule_count?: number;
 }
 
+export interface RemoteRuleSet {
+  url: string;
+  name?: string | null;
+  group_id: string;
+  enabled: boolean;
+  rule_count: number;
+  unique_count: number;
+  last_error: string | null;
+  updated_at: number;
+  created_at?: number;
+}
+
 export interface DiversionRule {
   id?: number;
   group_id: string;
@@ -67,6 +82,9 @@ export interface DiversionRule {
   is_auto_learned: boolean;
   hit_count?: number;
   last_hit_at?: number | null;
+  source_url?: string | null;
+  sources?: string[];
+  is_unique?: boolean;
 }
 
 export interface SurgeConfig {
@@ -139,6 +157,30 @@ export class SurgeDatabase {
       }
 
       await this.createTables();
+      try {
+        await this.db.execute('ALTER TABLE module_http_rules ADD COLUMN binary_body INTEGER DEFAULT 0;');
+      } catch {}
+      try {
+        await this.db.execute('ALTER TABLE module_http_rules ADD COLUMN engine TEXT;');
+      } catch {}
+      try {
+        await this.db.execute('ALTER TABLE module_http_rules ADD COLUMN argument TEXT;');
+      } catch {}
+      try {
+        await this.db.execute('ALTER TABLE diversion_rules ADD COLUMN source_url TEXT;');
+      } catch {}
+      try {
+        await this.db.execute('ALTER TABLE remote_rule_sets ADD COLUMN name TEXT;');
+      } catch {}
+      try {
+        await this.db.execute('ALTER TABLE remote_rule_sets ADD COLUMN unique_count INTEGER DEFAULT 0;');
+      } catch {}
+      try {
+        await this.db.execute('ALTER TABLE remote_rule_sets ADD COLUMN enabled INTEGER DEFAULT 1;');
+      } catch {}
+      try {
+        await this.db.execute('UPDATE remote_rule_sets SET enabled = 1 WHERE enabled IS NULL;');
+      } catch {}
       await this.seedDefaults();
       this.initialized = true;
     })();
@@ -188,6 +230,9 @@ export class SurgeDatabase {
         target TEXT NOT NULL,
         requires_body INTEGER DEFAULT 0,
         max_size INTEGER DEFAULT 1048576,
+        binary_body INTEGER DEFAULT 0,
+        engine TEXT,
+        argument TEXT,
         enabled INTEGER DEFAULT 1,
         FOREIGN KEY(module_id) REFERENCES app_modules(id) ON DELETE CASCADE
       );
@@ -220,9 +265,32 @@ export class SurgeDatabase {
         is_auto_learned INTEGER DEFAULT 0,
         hit_count INTEGER DEFAULT 0,
         last_hit_at INTEGER,
+        source_url TEXT,
         FOREIGN KEY(group_id) REFERENCES diversion_groups(id) ON DELETE CASCADE
       );
       CREATE INDEX IF NOT EXISTS idx_div_rules ON diversion_rules(group_id, pattern);
+
+      CREATE TABLE IF NOT EXISTS remote_rule_sets (
+        url TEXT PRIMARY KEY,
+        name TEXT,
+        group_id TEXT NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        rule_count INTEGER DEFAULT 0,
+        unique_count INTEGER DEFAULT 0,
+        last_error TEXT,
+        updated_at INTEGER,
+        created_at INTEGER
+      );
+
+      CREATE TABLE IF NOT EXISTS rule_source_bindings (
+        rule_id INTEGER NOT NULL,
+        source_url TEXT NOT NULL,
+        created_at INTEGER,
+        PRIMARY KEY (rule_id, source_url),
+        FOREIGN KEY (rule_id) REFERENCES diversion_rules(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_rsb_src ON rule_source_bindings(source_url);
+      CREATE INDEX IF NOT EXISTS idx_rsb_rule ON rule_source_bindings(rule_id);
 
       CREATE TABLE IF NOT EXISTS surge_config (
         id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -402,9 +470,21 @@ export class SurgeDatabase {
     }
     for (const hr of httpRules) {
       await this.getDb().execute(
-        `INSERT INTO module_http_rules (module_id, rule_type, sub_type, pattern, target, requires_body, max_size, enabled)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [moduleId, hr.rule_type, hr.sub_type, hr.pattern, hr.target, hr.requires_body ? 1 : 0, hr.max_size || 1048576, hr.enabled !== false ? 1 : 0]
+        `INSERT INTO module_http_rules (module_id, rule_type, sub_type, pattern, target, requires_body, max_size, binary_body, engine, argument, enabled)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          moduleId,
+          hr.rule_type,
+          hr.sub_type,
+          hr.pattern,
+          hr.target,
+          hr.requires_body ? 1 : 0,
+          hr.max_size !== undefined ? hr.max_size : 1048576,
+          hr.binary_body ? 1 : 0,
+          hr.engine || null,
+          hr.argument || null,
+          hr.enabled !== false ? 1 : 0,
+        ]
       );
     }
     for (const gs of generalSettings) {
@@ -445,6 +525,9 @@ export class SurgeDatabase {
       target: r.target,
       requires_body: Boolean(r.requires_body),
       max_size: r.max_size,
+      binary_body: Boolean(r.binary_body),
+      engine: r.engine || undefined,
+      argument: r.argument || undefined,
       enabled: Boolean(r.enabled),
     }));
   }
@@ -632,17 +715,40 @@ export class SurgeDatabase {
       [...params, limit, offset]
     );
 
-    const rules: DiversionRule[] = rows.map((r: any) => ({
-      id: r.id,
-      group_id: r.group_id,
-      match_type: r.match_type,
-      pattern: r.pattern,
-      enabled: Boolean(r.enabled),
-      comment: r.comment,
-      is_auto_learned: Boolean(r.is_auto_learned),
-      hit_count: r.hit_count,
-      last_hit_at: r.last_hit_at,
-    }));
+    const ruleIds = rows.map((r: any) => r.id);
+    const sourceMap = new Map<number, string[]>();
+    if (ruleIds.length > 0) {
+      try {
+        const idList = ruleIds.join(',');
+        const bindingRows = await this.getDb().fetchAll<any>(
+          `SELECT rule_id, source_url FROM rule_source_bindings WHERE rule_id IN (${idList})`
+        );
+        for (const b of bindingRows) {
+          const rid = Number(b.rule_id);
+          if (!sourceMap.has(rid)) sourceMap.set(rid, []);
+          sourceMap.get(rid)!.push(b.source_url);
+        }
+      } catch {}
+    }
+
+    const rules: DiversionRule[] = rows.map((r: any) => {
+      const srcList = sourceMap.get(r.id) || (r.source_url ? [r.source_url] : ['__manual__']);
+      const isUnique = srcList.length === 1 && !srcList.includes('__manual__') && !srcList.includes('__auto_learned__');
+      return {
+        id: r.id,
+        group_id: r.group_id,
+        match_type: r.match_type,
+        pattern: r.pattern,
+        enabled: Boolean(r.enabled),
+        comment: r.comment,
+        is_auto_learned: Boolean(r.is_auto_learned),
+        hit_count: r.hit_count,
+        last_hit_at: r.last_hit_at,
+        source_url: r.source_url,
+        sources: srcList,
+        is_unique: isUnique,
+      };
+    });
 
     return { total, rules };
   }
@@ -758,43 +864,268 @@ export class SurgeDatabase {
 
   public async appendGroupRules(
     groupId: string,
-    rules: Array<{ match_type: DiversionRule['match_type']; pattern: string; comment?: string }>
+    rules: Array<{ match_type: DiversionRule['match_type']; pattern: string; comment?: string }>,
+    sourceUrl?: string
   ): Promise<number> {
     await this.init();
     if (!rules || rules.length === 0) return 0;
+    const finalSource = sourceUrl || '__manual__';
+    const now = Date.now();
 
-    // 一次性查出该组已存在的所有 pattern 进行 O(1) 查重
-    const existingRows = await this.getDb().fetchAll<{ pattern: string }>(
-      'SELECT pattern FROM diversion_rules WHERE group_id = ?',
+    // 查出该组已存在的所有 pattern 映射其 ID
+    const existingRows = await this.getDb().fetchAll<{ id: number; pattern: string }>(
+      'SELECT id, pattern FROM diversion_rules WHERE group_id = ?',
       [groupId]
     );
-    const existingSet = new Set<string>();
-    for (const r of existingRows) existingSet.add(r.pattern.toLowerCase());
+    const patternToId = new Map<string, number>();
+    for (const r of existingRows) patternToId.set(r.pattern.toLowerCase(), r.id);
 
-    const toInsert: Array<{ match_type: string; pattern: string; comment: string | null }> = [];
+    const toInsertRules: Array<{ match_type: string; pattern: string; comment: string | null }> = [];
+    const bindingSteps: Array<{ rule_id: number; source_url: string }> = [];
+
     for (const r of rules) {
       const p = String(r.pattern || '').trim().toLowerCase();
-      if (!p || existingSet.has(p)) continue;
-      existingSet.add(p);
-      toInsert.push({
-        match_type: r.match_type || 'DOMAIN-SUFFIX',
-        pattern: p,
-        comment: r.comment || null,
-      });
+      if (!p) continue;
+      const existingId = patternToId.get(p);
+      if (existingId !== undefined) {
+        // 重合共有项：不重复插入底表，但记录对该来源的绑定
+        bindingSteps.push({ rule_id: existingId, source_url: finalSource });
+      } else {
+        // 新规则：插入底表
+        toInsertRules.push({
+          match_type: r.match_type || 'DOMAIN-SUFFIX',
+          pattern: p,
+          comment: r.comment || null,
+        });
+      }
     }
 
-    if (toInsert.length === 0) return 0;
+    // 1. 批量插入新规则
+    if (toInsertRules.length > 0) {
+      const batchSize = 1000;
+      for (let i = 0; i < toInsertRules.length; i += batchSize) {
+        const chunk = toInsertRules.slice(i, i + batchSize);
+        const steps: SQLite.TransactionStep[] = chunk.map((item) => ({
+          sql: 'INSERT INTO diversion_rules (group_id, match_type, pattern, enabled, comment, is_auto_learned, source_url) VALUES (?, ?, ?, 1, ?, 0, ?)',
+          args: [groupId, item.match_type, item.pattern, item.comment, finalSource],
+        }));
+        await this.getDb().transaction(steps);
+      }
 
-    const batchSize = 2000;
-    for (let i = 0; i < toInsert.length; i += batchSize) {
-      const chunk = toInsert.slice(i, i + batchSize);
-      const steps: SQLite.TransactionStep[] = chunk.map((item) => ({
-        sql: 'INSERT INTO diversion_rules (group_id, match_type, pattern, enabled, comment, is_auto_learned) VALUES (?, ?, ?, 1, ?, 0)',
-        args: [groupId, item.match_type, item.pattern, item.comment],
-      }));
-      await this.getDb().transaction(steps);
+      // 重新查出新插入的规则 ID 并建立绑定
+      const newRows = await this.getDb().fetchAll<{ id: number; pattern: string }>(
+        'SELECT id, pattern FROM diversion_rules WHERE group_id = ? AND source_url = ?',
+        [groupId, finalSource]
+      );
+      for (const nr of newRows) {
+        bindingSteps.push({ rule_id: nr.id, source_url: finalSource });
+      }
     }
-    return toInsert.length;
+
+    // 2. 批量写入绑定关系
+    if (bindingSteps.length > 0) {
+      const bSize = 1500;
+      for (let i = 0; i < bindingSteps.length; i += bSize) {
+        const chunk = bindingSteps.slice(i, i + bSize);
+        const steps: SQLite.TransactionStep[] = chunk.map((b) => ({
+          sql: 'INSERT OR IGNORE INTO rule_source_bindings (rule_id, source_url, created_at) VALUES (?, ?, ?)',
+          args: [b.rule_id, b.source_url, now],
+        }));
+        await this.getDb().transaction(steps);
+      }
+    }
+
+    if (sourceUrl) {
+      await this.recalculateRuleSetCounts(sourceUrl);
+    }
+    return toInsertRules.length + bindingSteps.length;
+  }
+
+  // ==================== 远程规则集登记与刷新 ====================
+
+  public async upsertRemoteRuleSet(url: string, groupId: string, ruleCount: number, lastError?: string | null, name?: string): Promise<void> {
+    await this.init();
+    const now = Date.now();
+    const existing = await this.getDb().fetchOne<any>('SELECT url, name FROM remote_rule_sets WHERE url = ?', [url]);
+    const finalName = name || existing?.name || (url.split('/').pop() || '远程规则集');
+    if (existing) {
+      await this.getDb().execute(
+        'UPDATE remote_rule_sets SET group_id = ?, name = ?, rule_count = ?, last_error = ?, updated_at = ? WHERE url = ?',
+        [groupId, finalName, ruleCount, lastError || null, now, url]
+      );
+    } else {
+      await this.getDb().execute(
+        'INSERT INTO remote_rule_sets (url, name, group_id, enabled, rule_count, unique_count, last_error, updated_at, created_at) VALUES (?, ?, ?, 1, ?, 0, ?, ?, ?)',
+        [url, finalName, groupId, ruleCount, lastError || null, now, now]
+      );
+    }
+  }
+
+  public async recalculateRuleSetCounts(targetUrl?: string): Promise<void> {
+    await this.init();
+    const sets = targetUrl
+      ? [{ url: targetUrl }]
+      : await this.getDb().fetchAll<any>('SELECT url FROM remote_rule_sets');
+
+    for (const s of sets) {
+      const u = s.url;
+      const totalRow = await this.getDb().fetchOne<any>(
+        'SELECT count(*) as c FROM rule_source_bindings WHERE source_url = ?',
+        [u]
+      );
+      const totalCount = Number(totalRow?.c || 0);
+
+      const uniqueRow = await this.getDb().fetchOne<any>(
+        `SELECT count(*) as c
+         FROM rule_source_bindings b1
+         WHERE b1.source_url = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM rule_source_bindings b2
+             WHERE b2.rule_id = b1.rule_id AND b2.source_url != b1.source_url
+           )`,
+        [u]
+      );
+      const uniqueCount = Number(uniqueRow?.c || 0);
+
+      await this.getDb().execute(
+        'UPDATE remote_rule_sets SET rule_count = ?, unique_count = ? WHERE url = ?',
+        [totalCount, uniqueCount, u]
+      );
+    }
+  }
+
+  public async safeDeleteRemoteRuleSet(url: string): Promise<{ deletedUnique: number; preservedShared: number }> {
+    await this.init();
+    const totalRow = await this.getDb().fetchOne<any>(
+      'SELECT count(*) as c FROM rule_source_bindings WHERE source_url = ?',
+      [url]
+    );
+    const totalCount = Number(totalRow?.c || 0);
+
+    const uniqueRow = await this.getDb().fetchOne<any>(
+      `SELECT count(*) as c
+       FROM rule_source_bindings b1
+       WHERE b1.source_url = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM rule_source_bindings b2
+           WHERE b2.rule_id = b1.rule_id AND b2.source_url != b1.source_url
+         )`,
+      [url]
+    );
+    const uniqueCount = Number(uniqueRow?.c || 0);
+    const preservedShared = Math.max(0, totalCount - uniqueCount);
+
+    // 1. 解除该规则集的所有来源绑定
+    await this.getDb().execute('DELETE FROM rule_source_bindings WHERE source_url = ?', [url]);
+
+    // 2. 级联清理孤儿规则（完全失去任何来源绑定的特有规则，绝不伤及手动规则或自愈规则）
+    await this.getDb().execute(`
+      DELETE FROM diversion_rules
+      WHERE id NOT IN (SELECT DISTINCT rule_id FROM rule_source_bindings)
+        AND is_auto_learned = 0
+    `);
+
+    // 3. 删除登记表记录
+    await this.getDb().execute('DELETE FROM remote_rule_sets WHERE url = ?', [url]);
+
+    // 4. 重新计算其余规则集的统计
+    await this.recalculateRuleSetCounts();
+
+    return { deletedUnique: uniqueCount, preservedShared };
+  }
+
+  public async listRemoteRuleSets(): Promise<RemoteRuleSet[]> {
+    await this.init();
+    const rows = await this.getDb().fetchAll<any>('SELECT * FROM remote_rule_sets ORDER BY rule_count DESC, updated_at DESC');
+    return rows.map((r: any) => ({
+      url: r.url,
+      name: r.name || (r.url.split('/').pop() || '远程规则集'),
+      group_id: r.group_id,
+      enabled: r.enabled !== 0 && r.enabled !== false && r.enabled !== null,
+      rule_count: Number(r.rule_count || 0),
+      unique_count: Number(r.unique_count || 0),
+      last_error: r.last_error || null,
+      updated_at: Number(r.updated_at || 0),
+      created_at: Number(r.created_at || 0),
+    }));
+  }
+
+  public async setRemoteRuleSetEnabled(
+    url: string,
+    enabled: boolean
+  ): Promise<{ affectedRules: number; enabledCount: number }> {
+    await this.init();
+    const db = this.getDb();
+    const enVal = enabled ? 1 : 0;
+
+    // 1. 更新 remote_rule_sets 表的 enabled 字段
+    await db.execute('UPDATE remote_rule_sets SET enabled = ? WHERE url = ?', [enVal, url]);
+
+    // 2. 同步更新 diversion_rules 表中的 enabled 状态
+    let affectedRules = 0;
+    if (enabled) {
+      // 开启：所有属于该规则集的规则全部恢复生效
+      const res = await db.execute(
+        `UPDATE diversion_rules
+         SET enabled = 1
+         WHERE id IN (
+           SELECT rule_id
+           FROM rule_source_bindings
+           WHERE source_url = ?
+         )`,
+        [url]
+      );
+      affectedRules = (res as any)?.changes || 0;
+    } else {
+      // 关闭：凡是绑定了该规则集，且没有其他有效来源（无其他已开启规则集，且非手动 __manual__、非自愈 __auto_learned__）的规则，置为不生效
+      const res = await db.execute(
+        `UPDATE diversion_rules
+         SET enabled = 0
+         WHERE id IN (
+           SELECT b.rule_id
+           FROM rule_source_bindings b
+           WHERE b.source_url = ?
+         )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM rule_source_bindings b2
+           WHERE b2.rule_id = diversion_rules.id
+             AND (
+               b2.source_url = '__manual__'
+               OR b2.source_url = '__auto_learned__'
+               OR b2.source_url IN (SELECT url FROM remote_rule_sets WHERE enabled = 1)
+             )
+         )
+         AND is_auto_learned = 0`,
+        [url]
+      );
+      affectedRules = (res as any)?.changes || 0;
+    }
+
+    const countRow = await db.fetchOne<any>(
+      `SELECT count(*) as c
+       FROM diversion_rules
+       WHERE id IN (SELECT rule_id FROM rule_source_bindings WHERE source_url = ?)
+         AND enabled = 1`,
+      [url]
+    );
+    const enabledCount = Number(countRow?.c || 0);
+
+    return { affectedRules, enabledCount };
+  }
+
+  public async ensureRemoteRuleSet(url: string, groupId: string, name?: string): Promise<void> {
+    await this.init();
+    const finalName = name || (url.split('/').pop() || '远程规则集');
+    await this.getDb().execute(
+      'INSERT OR IGNORE INTO remote_rule_sets (url, name, group_id, enabled, rule_count, unique_count, updated_at, created_at) VALUES (?, ?, ?, 1, 0, 0, ?, ?)',
+      [url, finalName, groupId, Date.now(), Date.now()]
+    );
+  }
+
+  public async deleteRulesBySource(url: string): Promise<number> {
+    const res = await this.safeDeleteRemoteRuleSet(url);
+    return res.deletedUnique;
   }
 
   public async recordRuleHit(id: number): Promise<void> {

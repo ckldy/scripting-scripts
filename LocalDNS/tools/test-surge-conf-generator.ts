@@ -37,7 +37,7 @@ async function run() {
     console.log('  ✅ PASS: 配置文件包含 Surge 全部标准核心段落 ([General], [Replica], [Proxy], [Proxy Group], [Rule], [Host])');
 
     // 校验核心配置项
-    if (!confText.includes('dns-server = 127.0.0.1') || !confText.includes('http-api = ')) {
+    if ((!confText.includes('doh-server = https://127.0.0.1:9443/dns-query') && !confText.includes('dns-server = 127.0.0.1')) || !confText.includes('http-api = ')) {
       throw new Error('缺少 LocalDNS 专属 DNS 或 http-api 控制配置');
     }
     if (!confText.includes('RULE-SET,http://') || !confText.includes('/rules/direct.list,DIRECT')) {

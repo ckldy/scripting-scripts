@@ -31,6 +31,121 @@ export interface SurgePolicyGroupItem {
   options: string[];
 }
 
+function isValidSurgeMitmHost(host: string): boolean {
+  if (!host) return false;
+  const h = host.startsWith('-') ? host.slice(1).trim() : host.trim();
+  if (!h) return false;
+  // 排除包含空白、斜杠、冒号、问号等非法字符
+  if (/\s|\/|:|\?/.test(h)) return false;
+  // Surge 仅支持前缀通配符 *.example.com，不支持通配顶级域（.*）或中间通配符（如 5dy*、nivod*.tv）
+  if (h.includes('*')) {
+    if (!h.startsWith('*.')) return false;
+    if (h.slice(2).includes('*')) return false;
+  }
+  if (!h.includes('.')) return false;
+  if (h.endsWith('.') || h.startsWith('.')) return false;
+  return true;
+}
+
+function parseSurgeScriptParams(paramsStr: string): {
+  type: string;
+  pattern: string;
+  scriptPath: string;
+  requiresBody: boolean;
+  maxSize: number;
+  binaryBody: boolean;
+  engine?: string;
+  argument?: string;
+} {
+  let type = 'http-response';
+  let pattern = '';
+  let scriptPath = '';
+  let requiresBody = false;
+  let maxSize = 1048576;
+  let binaryBody = false;
+  let engine: string | undefined;
+  let argument: string | undefined;
+
+  let i = 0;
+  const n = paramsStr.length;
+
+  while (i < n) {
+    while (i < n && (paramsStr[i] === ' ' || paramsStr[i] === '\t' || paramsStr[i] === ',')) i++;
+    if (i >= n) break;
+
+    const kStart = i;
+    while (i < n && paramsStr[i] !== '=' && paramsStr[i] !== ',' && paramsStr[i] !== ' ' && paramsStr[i] !== '\t') {
+      i++;
+    }
+    const key = paramsStr.slice(kStart, i).trim().toLowerCase();
+
+    // argument 参数特殊处理：其值是含引号与逗号的 JSON，必须吞掉剩余整行内容
+    if (key === 'argument') {
+      let rest = paramsStr.slice(i).trim();
+      if (rest.startsWith('=')) rest = rest.slice(1).trim();
+      const reqIdx = rest.indexOf('#!REQUIREMENT');
+      if (reqIdx !== -1) rest = rest.slice(0, reqIdx).trim();
+      if (rest.startsWith('"') && rest.endsWith('"') && rest.length >= 2) {
+        rest = rest.slice(1, -1);
+      } else if (rest.startsWith('"')) {
+        rest = rest.slice(1);
+      }
+      argument = rest.trim();
+      i = n;
+      break;
+    }
+
+    while (i < n && (paramsStr[i] === ' ' || paramsStr[i] === '\t')) i++;
+
+    if (i < n && paramsStr[i] === '=') {
+      i++; // skip '='
+      while (i < n && (paramsStr[i] === ' ' || paramsStr[i] === '\t')) i++;
+
+      let val = '';
+      if (i < n && (paramsStr[i] === '"' || paramsStr[i] === "'")) {
+        const quote = paramsStr[i];
+        i++; // skip open quote
+        const vStart = i;
+        while (i < n && paramsStr[i] !== quote) {
+          if (paramsStr[i] === '\\' && i + 1 < n) {
+            i += 2;
+          } else {
+            i++;
+          }
+        }
+        val = paramsStr.slice(vStart, i);
+        if (i < n && paramsStr[i] === quote) i++; // skip close quote
+      } else {
+        const vStart = i;
+        while (i < n && paramsStr[i] !== ',') {
+          i++;
+        }
+        val = paramsStr.slice(vStart, i).trim();
+      }
+
+      if (key === 'type') type = val;
+      else if (key === 'pattern') pattern = val;
+      else if (key === 'script-path') scriptPath = val;
+      else if (key === 'requires-body') requiresBody = val === '1' || val.toLowerCase() === 'true';
+      else if (key === 'binary-body-mode') binaryBody = val === '1' || val.toLowerCase() === 'true';
+      else if (key === 'engine') engine = val;
+      else if (key === 'argument') argument = val;
+      else if (key === 'max-size') {
+        const parsedSize = parseInt(val, 10);
+        if (!isNaN(parsedSize)) maxSize = parsedSize;
+      }
+    } else {
+      if (key === 'requires-body') requiresBody = true;
+      if (key === 'binary-body-mode') binaryBody = true;
+    }
+
+    while (i < n && (paramsStr[i] === ' ' || paramsStr[i] === '\t')) i++;
+    if (i < n && paramsStr[i] === ',') i++;
+  }
+
+  return { type, pattern, scriptPath, requiresBody, maxSize, binaryBody, engine, argument };
+}
+
 export class SurgeService {
   private static instance: SurgeService;
   private db: SurgeDatabase;
@@ -55,6 +170,118 @@ export class SurgeService {
    */
   public async init(): Promise<void> {
     await this.db.init();
+    await this.reloadDnsBlockCache();
+    await this.autoRepairCorruptedRules();
+  }
+
+  /**
+   * 自动修复历史误截断的损坏规则并重新脱水入库
+   */
+  public async autoRepairCorruptedRules(): Promise<void> {
+    try {
+      const dbAny = (this.db as any).getDb();
+      const versionRow = (await dbAny.fetchOne('PRAGMA user_version')) as Record<string, any> | null;
+      const version = versionRow ? Number(Object.values(versionRow)[0] || 0) : 0;
+
+      if (version < 2) {
+        console.log('[SurgeService] Migrating module rules to schema v2 (binary-body / engine / argument), reparsing all modules...');
+        await this.reparseAllModules();
+        await dbAny.execute('PRAGMA user_version = 2');
+      }
+
+      if (version < 3) {
+        // 将历史上保留下来的 RULE-SET 远程引用登记为可更新条目
+        const refs = (await dbAny.fetchAll(
+          "SELECT DISTINCT group_id, pattern FROM diversion_rules WHERE match_type = 'RULE-SET' AND (pattern LIKE 'http://%' OR pattern LIKE 'https://%')"
+        )) as Array<{ group_id: string; pattern: string }>;
+        for (const r of refs) {
+          try {
+            await this.db.ensureRemoteRuleSet(r.pattern, r.group_id);
+          } catch {}
+        }
+        await dbAny.execute('PRAGMA user_version = 3');
+      }
+
+      if (version < 4) {
+        console.log('[SurgeService] Migrating to schema v4 (multi-ownership rule_source_bindings)...');
+        await dbAny.execute(`
+          CREATE TABLE IF NOT EXISTS rule_source_bindings (
+            rule_id INTEGER NOT NULL,
+            source_url TEXT NOT NULL,
+            created_at INTEGER,
+            PRIMARY KEY (rule_id, source_url),
+            FOREIGN KEY (rule_id) REFERENCES diversion_rules(id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_rsb_src ON rule_source_bindings(source_url);
+          CREATE INDEX IF NOT EXISTS idx_rsb_rule ON rule_source_bindings(rule_id);
+        `);
+
+        try {
+          await dbAny.execute('ALTER TABLE remote_rule_sets ADD COLUMN name TEXT;');
+        } catch {}
+        try {
+          await dbAny.execute('ALTER TABLE remote_rule_sets ADD COLUMN unique_count INTEGER DEFAULT 0;');
+        } catch {}
+
+        const AEGIS_MAP: Array<{ keyword: string; name: string; url: string; group: string }> = [
+          { keyword: '网络欺诈拦截', name: '网络欺诈拦截 (Aegis)', url: 'https://raw.githubusercontent.com/Thoseyearsbrian/Aegis/main/rules/Scam_Block.list', group: 'block' },
+          { keyword: '成人识别', name: '成人识别拦截 (Aegis)', url: 'https://raw.githubusercontent.com/Thoseyearsbrian/Aegis/main/rules/AdultDomain.list', group: 'block' },
+          { keyword: '恶意软件 IOC', name: '恶意软件 IOC 拦截 (Aegis)', url: 'https://raw.githubusercontent.com/Thoseyearsbrian/Aegis/main/rules/Malware_IOC_Block.list', group: 'block' },
+          { keyword: 'Pegasus', name: 'Pegasus 间谍软件拦截 (Aegis)', url: 'https://raw.githubusercontent.com/Thoseyearsbrian/Aegis/main/rules/Pegasus_Block.list', group: 'block' },
+          { keyword: '广告识别', name: '广告识别 (Aegis)', url: 'https://raw.githubusercontent.com/Thoseyearsbrian/Aegis/main/rules/AdDomain.list', group: 'block' },
+          { keyword: '行为分析与遥测', name: '遥测节点识别 (Aegis)', url: 'https://raw.githubusercontent.com/Thoseyearsbrian/Aegis/main/rules/BehaviorDomain.list', group: 'block' },
+          { keyword: 'GlobalMedia.list', name: '海外流媒体 (GlobalMedia)', url: 'https://raw.githubusercontent.com/DivineEngine/Profiles/master/Surge/Ruleset/StreamingMedia/Streaming.list', group: 'media' },
+          { keyword: '网络钓鱼拦截', name: '网络钓鱼拦截 (Aegis)', url: 'https://raw.githubusercontent.com/Thoseyearsbrian/Aegis/main/rules/Phishing_Block.list', group: 'block' },
+          { keyword: '后门控制与植入', name: '后门控制节点拦截 (Aegis)', url: 'https://raw.githubusercontent.com/Thoseyearsbrian/Aegis/main/rules/Backdoor_Block.list', group: 'block' },
+          { keyword: 'PCDN', name: 'PCDN 节点识别 (Aegis)', url: 'https://raw.githubusercontent.com/Thoseyearsbrian/Aegis/main/rules/PCDNDomain.list', group: 'block' },
+          { keyword: '僵尸网络', name: '僵尸网络控制节点 (Aegis)', url: 'https://raw.githubusercontent.com/Thoseyearsbrian/Aegis/main/rules/Botnet_Block.list', group: 'block' },
+          { keyword: '风险通信观察列表', name: '风险通信观察列表 (Aegis)', url: 'https://raw.githubusercontent.com/Thoseyearsbrian/Aegis/main/rules/Quarantine_Block.list', group: 'block' },
+        ];
+
+        const now = Date.now();
+        for (const m of AEGIS_MAP) {
+          await dbAny.execute(
+            'INSERT OR REPLACE INTO remote_rule_sets (url, name, group_id, enabled, rule_count, unique_count, last_error, updated_at, created_at) VALUES (?, ?, ?, 1, 0, 0, NULL, ?, ?)',
+            [m.url, m.name, m.group, now, now]
+          );
+          await dbAny.execute(`
+            INSERT OR IGNORE INTO rule_source_bindings (rule_id, source_url, created_at)
+            SELECT id, '${m.url}', ${now}
+            FROM diversion_rules
+            WHERE comment LIKE '%${m.keyword}%'
+          `);
+        }
+
+        await dbAny.execute(`
+          INSERT OR IGNORE INTO rule_source_bindings (rule_id, source_url, created_at)
+          SELECT id, CASE WHEN is_auto_learned = 1 THEN '__auto_learned__' ELSE '__manual__' END, ${now}
+          FROM diversion_rules
+          WHERE id NOT IN (SELECT DISTINCT rule_id FROM rule_source_bindings)
+        `);
+
+        // 清理无效的 0 条重名记录
+        await dbAny.execute("DELETE FROM remote_rule_sets WHERE url = 'https://raw.githubusercontent.com/thoseyearsbrian/aegis/main/rules/addomain.list'");
+
+        await this.db.recalculateRuleSetCounts();
+        await dbAny.execute('PRAGMA user_version = 4');
+        console.log('[SurgeService] Schema v4 migration completed.');
+      }
+    } catch (e) {
+      console.warn('[SurgeService] Auto repair check error:', e);
+    }
+  }
+
+  /**
+   * 重新解析并脱水全部模块
+   */
+  public async reparseAllModules(): Promise<void> {
+    const modules = await this.db.getModules();
+    for (const m of modules) {
+      if (m.raw_content) {
+        const parsed = this.parseModuleText(m.id, m.raw_content);
+        await this.db.saveModuleRules(m.id, parsed.dnsRules, parsed.mitmHosts, parsed.httpRules, parsed.generalSettings);
+      }
+    }
     await this.reloadDnsBlockCache();
   }
 
@@ -121,6 +348,21 @@ export class SurgeService {
     const mitmHosts = new Set<string>();
     const httpRules: HttpRule[] = [];
     const generalSettings: GeneralSetting[] = [];
+
+    // 预解析模块默认参数 (#!arguments=k1:v1,k2:v2)，用于填充脚本 argument 中的 {{{key}}} 占位符
+    const defaultArgs = new Map<string, string>();
+    for (const l of lines) {
+      const trimmed = l.trim();
+      if (trimmed.startsWith('#!arguments=')) {
+        const rawArgs = trimmed.replace('#!arguments=', '').trim();
+        for (const pair of rawArgs.split(',')) {
+          const parts = pair.split(':');
+          const k = parts[0]?.trim();
+          const v = parts.slice(1).join(':').trim();
+          if (k && v !== undefined) defaultArgs.set(k, v);
+        }
+      }
+    }
 
     for (let rawLine of lines) {
       const line = rawLine.trim();
@@ -208,19 +450,27 @@ export class SurgeService {
         if (eqIdx !== -1) {
           const scriptName = line.slice(0, eqIdx).trim();
           const params = line.slice(eqIdx + 1).trim();
-          const reqBody = /requires-body\s*=\s*(?:1|true)/i.test(params);
-          const patternMatch = params.match(/pattern\s*=\s*([^,]+)/);
-          const typeMatch = params.match(/type\s*=\s*([^,]+)/);
-          const pathMatch = params.match(/script-path\s*=\s*([^,]+)/);
+          const sp = parseSurgeScriptParams(params);
+
+          // 自动填充模块参数占位符 {{{key}}}，防止运行时 JSON Parse 异常
+          let resolvedArgument = sp.argument;
+          if (resolvedArgument) {
+            for (const [k, v] of defaultArgs.entries()) {
+              resolvedArgument = resolvedArgument.replace(new RegExp(`\\{\\{\\{${k}\\}\\}\\}`, 'g'), v);
+            }
+          }
 
           httpRules.push({
             module_id: moduleId,
             rule_type: 'script',
-            sub_type: typeMatch ? typeMatch[1].trim() : 'http-response',
-            pattern: patternMatch ? patternMatch[1].trim() : scriptName,
-            target: pathMatch ? pathMatch[1].trim() : params,
-            requires_body: reqBody,
-            max_size: 1048576,
+            sub_type: sp.type || 'http-response',
+            pattern: sp.pattern || scriptName,
+            target: sp.scriptPath || params,
+            requires_body: sp.requiresBody,
+            max_size: sp.maxSize,
+            binary_body: sp.binaryBody,
+            engine: sp.engine,
+            argument: resolvedArgument,
             enabled: true,
           });
         }
@@ -294,17 +544,23 @@ export class SurgeService {
 
   /**
    * 编译已激活模块的纯七层聚合模块文本
+   * @param baseUrl LocalDNS 服务对外基地址（用于内置脚本 script-path）
    */
-  public async compileUnifiedHubModule(): Promise<string> {
+  public async compileUnifiedHubModule(baseUrl = 'http://127.0.0.1:9099'): Promise<string> {
     await this.init();
     const mitmHosts = await this.db.getActiveMitmHosts();
     const httpRules = await this.db.getActiveHttpRules();
     const genSettings = await this.db.getActiveGeneralSettings();
 
+    // 内置必需 MITM 域名（YouTube 网页版端点）
+    const mitmSet = new Set<string>(mitmHosts);
+    mitmSet.add('www.youtube.com');
+    mitmSet.add('m.youtube.com');
+
     const sections: string[] = [
       '#!name=LocalDNS Unified Hub',
       '#!desc=由 LocalDNS 智能中枢自动脱水与动态聚合编译的纯七层调度模块。域名拦截已全部在 LocalDNS 本地秒级阻断，仅向 Surge 注入必要之 MITM 解密与 URL 重写。',
-      '#!system=ios,mac',
+      '#!category=LocalDNS',
       '',
     ];
 
@@ -318,19 +574,35 @@ export class SurgeService {
     }
 
     // [MITM]
-    if (mitmHosts.length > 0) {
+    const validMitmHosts = Array.from(mitmSet).filter(isValidSurgeMitmHost);
+    if (validMitmHosts.length > 0) {
       sections.push('[MITM]');
-      // 聚合去重与规范输出
-      sections.push(`hostname = %APPEND% ${mitmHosts.join(', ')}`);
+      // 聚合去重与规范输出，分批每 25 个域名一行，防止单行 13KB+ 超长导致 Surge 解析器缓冲区溢出/截断
+      const chunkSize = 25;
+      for (let i = 0; i < validMitmHosts.length; i += chunkSize) {
+        const chunk = validMitmHosts.slice(i, i + chunkSize);
+        sections.push(`hostname = %APPEND% ${chunk.join(', ')}`);
+      }
       sections.push('');
     }
 
     // [URL Rewrite]
     const rewrites = httpRules.filter((r) => r.rule_type === 'rewrite');
-    if (rewrites.length > 0) {
+    const existingRewritePatterns = new Set(rewrites.map((r) => r.pattern));
+
+    // 内置兜底：YouTube 网页版广告端点（仅按完全相同的 pattern 去重，确保 http / m.youtube.com 也被覆盖）
+    const builtinRewrites: Array<[string, string]> = [
+      ['^https?://(www|m)[.]youtube[.]com/(pagead|pcs)/', '- reject'],
+      ['^https?://(www|m)[.]youtube[.]com/api/stats/ads', '- reject'],
+    ];
+
+    if (rewrites.length > 0 || builtinRewrites.length > 0) {
       sections.push('[URL Rewrite]');
       for (const rw of rewrites) {
         sections.push(`${rw.pattern} ${rw.target}`);
+      }
+      for (const [p, t] of builtinRewrites) {
+        if (!existingRewritePatterns.has(p)) sections.push(`${p} ${t}`);
       }
       sections.push('');
     }
@@ -351,17 +623,60 @@ export class SurgeService {
       sections.push('[Script]');
       let idx = 1;
       for (const sc of scripts) {
+        // 关键安全校验：Surge 远程订阅模块中，script-path 必须为 http:// 或 https:// 协议
+        // 过滤无法下载的相对路径测试脚本，避免 Surge 安装时报“无效模块/无法下载脚本”
+        if (!sc.target || (!sc.target.startsWith('http://') && !sc.target.startsWith('https://'))) {
+          continue;
+        }
+
         const scName = `localdns_hub_sc_${idx++}`;
-        const parts = [
-          `type=${sc.sub_type}`,
-          `pattern=${sc.pattern}`,
-          `script-path=${sc.target}`,
-        ];
+        const parts = [`type=${sc.sub_type}`];
+        if (sc.pattern) {
+          const cleanPattern = sc.pattern.replace(/^["']|["']$/g, '');
+          // 若 pattern 中包含逗号、空格或引号，必须包裹双引号，防止 Surge INI 解析器按逗号分割导致语法损坏
+          if (cleanPattern.includes(',') || cleanPattern.includes(' ') || cleanPattern.includes('"')) {
+            parts.push(`pattern="${cleanPattern.replace(/"/g, '\\"')}"`);
+          } else {
+            parts.push(`pattern=${cleanPattern}`);
+          }
+        }
+        parts.push(`script-path=${sc.target}`);
         if (sc.requires_body) parts.push('requires-body=1');
-        if (sc.max_size) parts.push(`max-size=${sc.max_size}`);
+        if (sc.max_size !== undefined) parts.push(`max-size=${sc.max_size}`);
+        if (sc.binary_body) parts.push('binary-body-mode=1');
+        if (sc.engine) parts.push(`engine=${sc.engine}`);
+        if (sc.argument) {
+          const rawArg = sc.argument.trim();
+          const inner = rawArg.startsWith('"') && rawArg.endsWith('"') && rawArg.length >= 2
+            ? rawArg.slice(1, -1)
+            : rawArg;
+          parts.push(`argument="${inner}"`);
+        }
         sections.push(`${scName} = ${parts.join(',')}`);
       }
+
+      // 内置：YouTube 网页版 JSON 广告清理脚本（LocalDNS 本地托管，不依赖 GitHub）
+      const builtinYtPattern = '^https?://(www|m)[.]youtube[.]com/youtubei/v1/(?:player|next|browse|search|guide|reel/reel_watch_sequence)(?:[?].*)?$';
+      const hasBuiltinYt = scripts.some((s) => (s.target || '').includes('/scripts/youtube-web.js'));
+      if (!hasBuiltinYt) {
+        sections.push(
+          `localdns_builtin_yt_web = type=http-response,pattern="${builtinYtPattern}",script-path=${baseUrl}/scripts/youtube-web.js,requires-body=1,max-size=2097152,engine=jsc`
+        );
+      }
       sections.push('');
+    }
+
+    // 兜底注入：确保内置 YouTube 网页版去广告脚本始终存在
+    if (!sections.some((s) => s.includes('localdns_builtin_yt_web'))) {
+      const builtinLine = 'localdns_builtin_yt_web = type=http-response,pattern=^https?://(www|m)[.]youtube[.]com/youtubei/v1/(?:player|next|browse|search|guide|reel/reel_watch_sequence)(?:[?].*)?$,script-path=' + baseUrl + '/scripts/youtube-web.js,requires-body=1,max-size=2097152,engine=jsc';
+      const lastScIdx = sections.map((s, i) => (s.startsWith('localdns_hub_sc_') ? i : -1)).filter((i) => i >= 0).pop();
+      if (lastScIdx !== undefined) {
+        sections.splice(lastScIdx + 1, 0, builtinLine);
+      } else {
+        const tailIdx = sections.lastIndexOf('');
+        if (tailIdx >= 0) sections.splice(tailIdx, 0, '[Script]', builtinLine);
+        else sections.push('[Script]', builtinLine);
+      }
     }
 
     return sections.join('\n');
@@ -377,7 +692,7 @@ export class SurgeService {
     const baseUrl = config.api_url.replace(/\/+$/, '');
     const url = `${baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
     const headers: Record<string, string> = {
-      'User-Agent': 'LocalDNS/FJH7T',
+      'User-Agent': 'LocalDNS/FJHAI',
       'Accept': 'application/json',
     };
     if (config.api_key) {
@@ -550,7 +865,7 @@ export class SurgeService {
       const timer = setTimeout(() => ctrl.abort(), 8000);
       try {
         const resp = await fetch(u, {
-          headers: { 'User-Agent': 'LocalDNS/FJH7T (Surge-Hub)' },
+          headers: { 'User-Agent': 'LocalDNS/FJHAI (Surge-Hub)' },
           signal: ctrl.signal,
         });
         clearTimeout(timer);
@@ -593,7 +908,7 @@ export class SurgeService {
 
     try {
       const headers: Record<string, string> = {
-        'User-Agent': 'LocalDNS/FJH7T',
+        'User-Agent': 'LocalDNS/FJHAI',
         'Accept': 'application/json',
       };
       if (apiKey) headers['X-Key'] = apiKey;
@@ -720,7 +1035,8 @@ export class SurgeService {
   public async importRemoteRules(
     groupId: string,
     url: string,
-    mode: 'append' | 'replace' = 'append'
+    mode: 'append' | 'replace' = 'append',
+    name?: string
   ): Promise<{ importedCount: number; finalUrl: string }> {
     await this.init();
     const { text, finalUrl } = await this.fetchRemoteText(url);
@@ -729,10 +1045,135 @@ export class SurgeService {
     if (mode === 'replace') {
       count = await this.db.replaceGroupRules(groupId, rules);
     } else {
-      count = await this.db.appendGroupRules(groupId, rules);
+      count = await this.db.appendGroupRules(groupId, rules, finalUrl || url);
     }
+    const finalName = name || (url.split('/').pop() || '远程规则集');
+    await this.db.upsertRemoteRuleSet(finalUrl || url, groupId, count, null, finalName);
     this.scheduleSurgeSync();
     return { importedCount: count, finalUrl };
+  }
+
+  /**
+   * 安全删除远程规则集：仅清除独占特有规则，保留重合共有规则与手动规则
+   */
+  public async safeDeleteRemoteRuleSet(url: string): Promise<{ deletedUnique: number; preservedShared: number }> {
+    await this.init();
+    const res = await this.db.safeDeleteRemoteRuleSet(url);
+    await this.reloadDnsBlockCache();
+    this.scheduleSurgeSync();
+    return res;
+  }
+
+  /**
+   * 切换外部规则集启用/关闭状态：
+   * 开启则该集合内规则生效，关闭则集合内独占规则在数据库及运行态中同时置为不生效
+   */
+  public async setRemoteRuleSetEnabled(
+    url: string,
+    enabled: boolean
+  ): Promise<{ affectedRules: number; enabledCount: number }> {
+    await this.init();
+    const res = await this.db.setRemoteRuleSetEnabled(url, enabled);
+    await this.reloadDnsBlockCache();
+    this.scheduleSurgeSync();
+    return res;
+  }
+
+  /**
+   * 从远程源重新下载并脱水单个模块（保留名称/分类/启用状态）
+   */
+  public async refreshModule(id: string): Promise<{ updated: boolean; rules: number; error?: string }> {
+    const mod = await this.db.getModule(id);
+    if (!mod) return { updated: false, rules: 0, error: '模块不存在' };
+    if (!mod.source_url) return { updated: false, rules: 0, error: '本地模块无远程更新源' };
+    try {
+      const { text, finalUrl } = await this.fetchRemoteText(mod.source_url);
+      const parsed = this.parseModuleText(id, text);
+      const moduleObj: AppModule = {
+        ...mod,
+        source_url: finalUrl || mod.source_url,
+        raw_content: text,
+        updated_at: Date.now(),
+      };
+      await this.db.saveModule(moduleObj);
+      await this.db.saveModuleRules(id, parsed.dnsRules, parsed.mitmHosts, parsed.httpRules, parsed.generalSettings);
+      await this.reloadDnsBlockCache();
+      this.scheduleSurgeSync();
+      return { updated: true, rules: parsed.httpRules.length + parsed.dnsRules.length };
+    } catch (e: any) {
+      return { updated: false, rules: 0, error: String(e?.message || e) };
+    }
+  }
+
+  /**
+   * 一键更新全部远程订阅模块
+   */
+  public async refreshAllModules(): Promise<{
+    total: number;
+    updated: number;
+    skipped: number;
+    results: Array<{ id: string; name: string; updated: boolean; error?: string }>;
+  }> {
+    await this.init();
+    const modules = await this.db.getModules();
+    const results: Array<{ id: string; name: string; updated: boolean; error?: string }> = [];
+    let updated = 0;
+    let skipped = 0;
+    for (const m of modules) {
+      if (!m.source_url) {
+        skipped++;
+        continue;
+      }
+      const r = await this.refreshModule(m.id);
+      if (r.updated) updated++;
+      results.push({ id: m.id, name: m.name, updated: r.updated, error: r.error });
+    }
+    return { total: modules.length, updated, skipped, results };
+  }
+
+  /**
+   * 刷新已登记的远程分流规则集（解除旧绑定，重拉写入新规则并清理孤儿规则）
+   */
+  public async refreshRemoteRuleSets(targetUrl?: string): Promise<{
+    total: number;
+    updated: number;
+    details: Array<{ url: string; group: string; count: number; error?: string }>;
+  }> {
+    await this.init();
+    const allSets = await this.db.listRemoteRuleSets();
+    const sets = targetUrl ? allSets.filter(s => s.url === targetUrl) : allSets;
+    const details: Array<{ url: string; group: string; count: number; error?: string }> = [];
+    let updated = 0;
+    const dbAny = (this.db as any).getDb();
+
+    for (const s of sets) {
+      try {
+        const { text } = await this.fetchRemoteText(s.url);
+        const rules = this.parseRulesList(text);
+        // 1. 解除该来源在绑定表中的全部旧关联
+        await dbAny.execute('DELETE FROM rule_source_bindings WHERE source_url = ?', [s.url]);
+        // 2. 重新写入新规则并绑定
+        const count = await this.db.appendGroupRules(s.group_id, rules, s.url);
+        // 3. 级联清理上游废弃后失去全部引用的孤儿规则
+        await dbAny.execute(`
+          DELETE FROM diversion_rules
+          WHERE id NOT IN (SELECT DISTINCT rule_id FROM rule_source_bindings)
+            AND is_auto_learned = 0
+        `);
+        await this.db.recalculateRuleSetCounts(s.url);
+        if (!s.enabled) {
+          await this.db.setRemoteRuleSetEnabled(s.url, false);
+        }
+        updated++;
+        details.push({ url: s.url, group: s.group_id, count });
+      } catch (e: any) {
+        await this.db.upsertRemoteRuleSet(s.url, s.group_id, s.rule_count, String(e?.message || e), s.name || undefined);
+        details.push({ url: s.url, group: s.group_id, count: 0, error: String(e?.message || e) });
+      }
+    }
+    await this.reloadDnsBlockCache();
+    this.scheduleSurgeSync();
+    return { total: sets.length, updated, details };
   }
 
   /**
@@ -812,11 +1253,11 @@ export class SurgeService {
     let proxyCount = 0;
     let otherCount = 0;
 
-    const groupRulesMap = new Map<string, Array<{ match_type: any; pattern: string; comment?: string }>>();
+    const groupRulesMap = new Map<string, Array<{ match_type: any; pattern: string; comment?: string; sourceUrl?: string }>>();
     const details: string[] = [];
     let lastComment = '';
 
-    const addRuleToGroup = (groupId: string, rule: { match_type: any; pattern: string; comment?: string }) => {
+    const addRuleToGroup = (groupId: string, rule: { match_type: any; pattern: string; comment?: string; sourceUrl?: string }) => {
       if (!groupRulesMap.has(groupId)) {
         groupRulesMap.set(groupId, []);
       }
@@ -1009,8 +1450,10 @@ export class SurgeService {
                 match_type: cp.type,
                 pattern: cp.pattern,
                 comment: r.comment || t.comment || `来自 ${t.url.split('/').pop()}`,
+                sourceUrl: t.url,
               });
             }
+            await this.db.upsertRemoteRuleSet(t.url, t.targetGroupId, extracted.length);
 
             if (t.isReject) {
               rejectCount += extracted.length;
@@ -1029,6 +1472,7 @@ export class SurgeService {
               pattern: t.url,
               comment: (t.comment ? t.comment + ' · ' : '') + `抓取失败，保留引用: ${e?.message || e}`,
             });
+            await this.db.upsertRemoteRuleSet(t.url, t.targetGroupId, 0, String(e?.message || e));
             details.push(`RULE-SET [${t.url.split('/').pop()}]: 下载失败 (${e?.message || e})，已保留原引用`);
           }
         }
@@ -1038,11 +1482,19 @@ export class SurgeService {
       await Promise.all(workers);
     }
 
-    // 3. 批量持久化写入数据库
+    // 3. 批量持久化写入数据库（按来源 URL 分组写入，便于后续单独刷新）
     const groupsUpdated: string[] = [];
     for (const [gid, rules] of groupRulesMap.entries()) {
       if (rules.length > 0) {
-        await this.db.appendGroupRules(gid, rules);
+        const bySource = new Map<string, Array<{ match_type: any; pattern: string; comment?: string }>>();
+        for (const r of rules) {
+          const key = r.sourceUrl || '';
+          if (!bySource.has(key)) bySource.set(key, []);
+          bySource.get(key)!.push({ match_type: r.match_type, pattern: r.pattern, comment: r.comment });
+        }
+        for (const [src, list] of bySource.entries()) {
+          await this.db.appendGroupRules(gid, list, src || undefined);
+        }
         groupsUpdated.push(gid);
       }
     }
@@ -1103,9 +1555,9 @@ export class SurgeService {
       '',
       '[General]',
       '# --- LocalDNS 专属智能解析与基础接管 ---',
-      'dns-server = 127.0.0.1, 223.5.5.5, 119.29.29.29',
-      '# 加密 DNS (若开启本地 DoH，可取消注释)',
-      `# encrypted-dns-server = https://${host}/dns-query`,
+      'dns-server = 223.5.5.5, 119.29.29.29',
+      '# 加密 DNS：将全机 DNS 交由 LocalDNS（需安装并信任 LocalDNS Root CA）',
+      'doh-server = https://127.0.0.1:9443/dns-query',
       'read-etc-hosts = true',
       'loglevel = notify',
       'bypass-tun = 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12',
@@ -1117,6 +1569,8 @@ export class SurgeService {
       'internet-test-url = http://connectivitycheck.platform.hicloud.com/generate_204',
       'proxy-test-url = http://cp.cloudflare.com/generate_204',
       'show-error-page-for-reject = true',
+      '# 拦截 QUIC (UDP 443)，强迫客户端走 TCP HTTP/2 以便解密去广告',
+      'block-quic = true',
       '',
       '# --- HTTP API 控制通道（LocalDNS 与 Surge 实时联动与拓扑自愈核心） ---',
       `http-api = ${apiKey}@0.0.0.0:6171`,
@@ -1150,6 +1604,12 @@ export class SurgeService {
     }
 
     lines.push('', '[Rule]');
+    lines.push('# 拦截 QUIC (UDP 443)，迫使 YouTube 等流媒体回退 TCP 以便解密与脚本去广告');
+    lines.push('AND,((PROTOCOL,UDP),(DEST-PORT,443)),REJECT-NO-DROP');
+    lines.push('');
+    lines.push('# LocalDNS 动态广告黑洞拦截集（最高优先级，必须置于规则最顶部）');
+    lines.push(`RULE-SET,http://${host}/rules/block.list,REJECT`);
+    lines.push('');
     lines.push('# LocalDNS 运行环境与局域网保护（避免回环）');
     lines.push('IP-CIDR,127.0.0.0/8,DIRECT,no-resolve');
     lines.push('IP-CIDR,192.168.0.0/16,DIRECT,no-resolve');
