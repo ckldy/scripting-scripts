@@ -1,10 +1,15 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.13.0 (Build 20261101)`  
+> **当前版本**：`v1.14.1 (Build 20261102)`  
 > **移植作者**：`vcncv`  
 > **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.11.01.1` / 内核 `FJHAI`）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地高性能 DNS 服务与安全管理系统。
+
+### v1.14.1 Hub 生效性自检 + 版本号单一真源
+- **`GET /api/v1/surge/hub-health`**：把「模块看起来启用了、实际 MITM 没生效」这类隐性故障变成可查询的硬指标——期望值取自 `compileUnifiedHubModule()` 编译产物，实际值取自 Surge `/v1/profiles/current`，逐项比对 MITM 域名与 Script 条目，输出 `healthy` / `surge_api_offline` / `hub_module_disabled` / `mitm_not_applied` / `scripts_not_applied` 五类判定与处置建议。
+- **修复版本号漂移**：界面原先硬编码 `APP_VERSION = 'v1.12.0'`，与 `script.json` 的 1.14.x 严重脱节。现改为启动时从 `script.json` 读取，`script.json` 成为唯一真源。
+- **B 站 gRPC 通道加固**：`biliapi.net` / `biliapi.com` / `bilivideo.cn` / `hdslb.com` 纳入国内直连判定，避免 `direct-list` 订阅失效时 `grpc.biliapi.net` 被误判为国外解析，拖垮播放与弹幕。
 
 ### v1.13.0 「DNS 解析路径」重构为全链路闭环拓扑
 - **阶段 06 出站执行数据活化**：此前阶段 06 三个节点（DIRECT / PROXY / BLK）只有静态文案，既无真实流量也无流光。现由 `/api/v1/topology/flow` 下发 `outbound` 实时聚合数据——直连次数与占比、代理次数与占比（含 Surge 在线状态/出站模式）、拦截次数与占比，节点副标题与右侧数值徽章逐帧刷新。

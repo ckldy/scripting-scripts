@@ -42,8 +42,16 @@ declare namespace Safari {
   function openURL(url: string): Promise<void>;
 }
 
-const APP_VERSION = 'v1.12.0';
-const APP_BUILD = '20261101';
+// 版本号唯一真源：直接读 script.json，避免清单与界面常量漂移（曾出现清单 1.14.1、界面仍显示 1.12.0）
+const APP_VERSION = (() => {
+  try {
+    const raw = FileManager.readAsStringSync(`${Script.directory}/script.json`);
+    const v = JSON.parse(raw)?.version;
+    if (typeof v === 'string' && v) return `v${v}`;
+  } catch {}
+  return 'v1.14.1';
+})();
+const APP_BUILD = '20261102';
 const APP_AUTHOR = 'vcncv';
 const UPSTREAM_REPO = 'https://github.com/yyhoworks/LocalDNS';
 
