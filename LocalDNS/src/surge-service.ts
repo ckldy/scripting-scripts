@@ -1118,6 +1118,128 @@ export class SurgeService {
     return success;
   }
 
+  /**
+   * Hub 生效性自检：验证 Surge 侧是否真的应用了 Hub 的 MITM 域名与脚本。
+   * 典型故障：Surge MITM 引擎卡死（模块开关/热重载都救不回来），只有重启 Surge 才恢复。
+   * 该自检用于把“徽章在、功能没了”这种隐性故障显性化。
+   */
+  public async checkHubHealth(): Promise<{
+    ok: boolean;
+    verdict: 'healthy' | 'surge_api_offline' | 'hub_module_disabled' | 'mitm_not_applied' | 'scripts_not_applied';
+    advice: string;
+    expectedHosts: number;
+    appliedHosts: number;
+    missingHosts: string[];
+    missingScripts: string[];
+  }> {
+    const miss = {
+      ok: false,
+      verdict: 'surge_api_offline' as const,
+      advice: 'Surge HTTP API 不可达：请确认 Surge 正在运行，且「设置 → 通用 → HTTP API」已开启；必要时重启 Surge。',
+      expectedHosts: 0,
+      appliedHosts: 0,
+      missingHosts: [] as string[],
+      missingScripts: [] as string[],
+    };
+
+    const ping = await this.callSurgeApi('/v1/outbound');
+    if (!ping.ok) return miss;
+
+    // 1. Hub 模块是否启用
+    const modRes = await this.callSurgeApi('/v1/modules');
+    const enabledList: string[] = Array.isArray(modRes.data?.enabled) ? modRes.data.enabled : [];
+    const hubEnabled = enabledList.some(
+      (n) => n.toLowerCase().includes('localdns') || n.toLowerCase().includes('hub.sgmodule')
+    );
+    if (!hubEnabled) {
+      return { ...miss, verdict: 'hub_module_disabled', advice: 'Hub 模块在 Surge 中处于未启用状态，请到 Surge 模块列表启用「LocalDNS Unified Hub」。' };
+    }
+
+    // 2. 期望值：直接从 Hub 编译产物里提取
+    const hubText = await this.compileUnifiedHubModule();
+    const expectedHosts = new Set<string>();
+    const expectedScripts: string[] = [];
+    let inMitm = false;
+    for (const rawLine of hubText.split('\n')) {
+      const line = rawLine.trim();
+      if (line.startsWith('[') && line.endsWith(']')) {
+        inMitm = line.toLowerCase() === '[mitm]';
+        continue;
+      }
+      if (inMitm && line.toLowerCase().startsWith('hostname')) {
+        const val = line.slice(line.indexOf('=') + 1).replace('%APPEND%', '');
+        for (const h of val.split(',')) {
+          const host = h.trim();
+          if (host) expectedHosts.add(host);
+        }
+        continue;
+      }
+      const m = line.match(/^([^\s=]+)\s*=\s*type=(?:http|dns)-/);
+      if (m) expectedScripts.push(m[1]);
+    }
+
+    // 3. 实际值：Surge 当前生效 profile
+    const profRes = await this.callSurgeApi('/v1/profiles/current');
+    const profile: string = typeof profRes.data?.profile === 'string' ? profRes.data.profile : '';
+    if (!profile) {
+      return { ...miss, expectedHosts: expectedHosts.size, verdict: 'mitm_not_applied', advice: '无法读取 Surge 生效配置，请重启 Surge 后重试。' };
+    }
+
+    const appliedHosts = new Set<string>();
+    let inMitmSec = false;
+    for (const rawLine of profile.split('\n')) {
+      const line = rawLine.trim();
+      if (line.startsWith('[') && line.endsWith(']')) {
+        inMitmSec = line.toLowerCase() === '[mitm]';
+        continue;
+      }
+      if (inMitmSec && line.toLowerCase().startsWith('hostname')) {
+        const val = line.slice(line.indexOf('=') + 1).replace('%APPEND%', '');
+        for (const h of val.split(',')) {
+          const host = h.trim();
+          if (host) appliedHosts.add(host);
+        }
+      }
+    }
+
+    const missingHosts = [...expectedHosts].filter((h) => !appliedHosts.has(h));
+    const missingScripts = expectedScripts.filter((name) => !profile.includes(`${name} = type=`));
+
+    if (missingHosts.length > 0) {
+      return {
+        ok: false,
+        verdict: 'mitm_not_applied',
+        advice: `Surge 生效配置缺失 ${missingHosts.length} 个 MITM 域名。此类故障重启 Surge 才能彻底恢复（仅开关模块/热重载无效）。`,
+        expectedHosts: expectedHosts.size,
+        appliedHosts: appliedHosts.size,
+        missingHosts: missingHosts.slice(0, 20),
+        missingScripts: missingScripts.slice(0, 20),
+      };
+    }
+
+    if (missingScripts.length > 0) {
+      return {
+        ok: false,
+        verdict: 'scripts_not_applied',
+        advice: `Surge 生效配置缺失 ${missingScripts.length} 个脚本，请先执行「重载 Hub」，仍无效则重启 Surge。`,
+        expectedHosts: expectedHosts.size,
+        appliedHosts: appliedHosts.size,
+        missingHosts: [],
+        missingScripts: missingScripts.slice(0, 20),
+      };
+    }
+
+    return {
+      ok: true,
+      verdict: 'healthy',
+      advice: 'Hub 域名与脚本均已生效。',
+      expectedHosts: expectedHosts.size,
+      appliedHosts: appliedHosts.size,
+      missingHosts: [],
+      missingScripts: [],
+    };
+  }
+
   public async killActiveRequestsByHost(host: string): Promise<number> {
     const res = await this.callSurgeApi('/v1/requests/active');
     if (!res.ok || !Array.isArray(res.data?.requests)) return 0;

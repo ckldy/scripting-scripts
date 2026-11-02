@@ -623,6 +623,12 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
     return jsonResponse(status);
   }
 
+  // 5.0.1 Hub 生效性自检（MITM 域名 + 脚本是否真的被 Surge 应用）
+  if (path === '/api/v1/surge/hub-health' && method === 'GET') {
+    const health = await service.checkHubHealth();
+    return jsonResponse(health);
+  }
+
   // 5.1 连通性主动测试: /api/v1/surge/test-connection
   if (path === '/api/v1/surge/test-connection' && method === 'POST') {
     const body = parseJsonBody(req);

@@ -227,7 +227,11 @@ export class DiversionEngine {
       isDomainMatch(d, 'tmall.com') ||
       isDomainMatch(d, 'jd.com') ||
       isDomainMatch(d, 'bilibili.com') ||
+      isDomainMatch(d, 'biliapi.net') ||
+      isDomainMatch(d, 'biliapi.com') ||
       isDomainMatch(d, 'bilivideo.com') ||
+      isDomainMatch(d, 'bilivideo.cn') ||
+      isDomainMatch(d, 'hdslb.com') ||
       isDomainMatch(d, 'bytedance.com') ||
       isDomainMatch(d, 'douyin.com') ||
       isDomainMatch(d, 'toutiao.com') ||
