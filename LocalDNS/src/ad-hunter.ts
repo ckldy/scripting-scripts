@@ -856,25 +856,60 @@ export class AdHunterService {
 
   /**
    * 一键下发规则到 LocalDNS / Surge 模块
+   * 1. 纯域名规则 (DOMAIN / DOMAIN-SUFFIX): 立即写入 LocalDNS diversion_rules (group='block') 纳秒级拦截并实时供给 Surge /rules/block.list 外部订阅
+   * 2. 七层零域名规则 (URL-REGEX): 写入 mod_adhunter 并重新编译 Unified Hub 模块
+   * 3. 实时冲刷本地 DNS 缓存并向 Surge 下发热重载指令
    */
   public async deployToSurge(report: AdFeatureReport): Promise<{ success: boolean; rulesAdded: number; message: string }> {
     const db = SurgeDatabase.get();
     await db.init();
+    const surgeService = SurgeService.get();
 
-    const added = await db.addAdHunterRules(report.synthesizedRules.surgeUrlRegex);
+    const rules = report.synthesizedRules.surgeUrlRegex || [];
+    const domainRulesToBlock: Array<{ match_type: any; pattern: string; comment?: string }> = [];
+    const urlRegexToModule: string[] = [];
 
-    // 2. 触发 LocalDNS 重新编译 Hub 模块并通知 Surge 热重载
-    try {
-      const surgeService = SurgeService.get();
-      await surgeService.reloadSurgeHubModule();
-    } catch (e) {
-      console.warn('Surge reload notice failed:', e);
+    for (const r of rules) {
+      if (r.startsWith('DOMAIN-SUFFIX,') || r.startsWith('DOMAIN,')) {
+        const parts = r.split(',').map((p) => p.trim());
+        const matchType = parts[0] as any;
+        const pattern = parts[1];
+        if (pattern) {
+          domainRulesToBlock.push({
+            match_type: matchType,
+            pattern,
+            comment: `AdHunter 智能提纯 [${report.cmsFamily?.name || report.domain}]`,
+          });
+        }
+      } else {
+        urlRegexToModule.push(r);
+      }
     }
 
+    // 1. 纯域名规则：立即写入 diversion_rules 的 'block' 分组（最高优先级拦截 + /rules/block.list 输出）
+    let blockAdded = 0;
+    if (domainRulesToBlock.length > 0) {
+      blockAdded = await db.appendGroupRules('block', domainRulesToBlock, '__adhunter__');
+    }
+
+    // 2. 七层零域名规则：写入 mod_adhunter
+    const modAdded = await db.addAdHunterRules(urlRegexToModule);
+
+    // 3. 即时冲刷本地 DNS 拦截缓存与通知 Surge 全量热载
+    try {
+      await surgeService.reloadDnsBlockCache();
+      await surgeService.reloadSurgeHubModule();
+      await surgeService.flushSurgeDns();
+      await surgeService.updateSurgeExternalResources();
+    } catch (e) {
+      console.warn('[AdHunter] Surge reload notice failed:', e);
+    }
+
+    const totalAdded = blockAdded + modAdded;
     return {
       success: true,
-      rulesAdded: added,
-      message: `已成功部署 ${added} 条零域名 URL-REGEX 规则到 LocalDNS Unified Hub，并触发 Surge 重新加载！`,
+      rulesAdded: totalAdded,
+      message: `已全端下沉生效：${blockAdded} 个广告域名入库 LocalDNS 本地 DNS 纳秒拦截并更新 Surge block.list；${modAdded} 条七层规则注入 Unified Hub 模块并已触发热重载！`,
     };
   }
 
