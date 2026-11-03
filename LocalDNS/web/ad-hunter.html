@@ -404,6 +404,7 @@
         <span class="preset-label">快速预设:</span>
         <span class="preset-chip" onclick="applyPreset('https://i4p76.sancpkvy.cc/')">🍉 黑料网首页</span>
         <span class="preset-chip" onclick="applyPreset('https://i4p76.sancpkvy.cc/archives/123759/')">📝 黑料网详情页</span>
+        <span class="preset-chip" onclick="applyPreset('https://kanav.ad/')">🔞 KanAV 影视 (kanav.ad)</span>
         <span class="preset-chip" onclick="applyPreset('https://javtiful.com/zh/video/115315/ipzz-995-reducing-mosaic')">🎬 Javtiful 视频页</span>
         <span class="preset-chip" onclick="applyPreset('https://m.youtube.com/')">▶️ YouTube 视频页</span>
       </div>
@@ -595,26 +596,44 @@
 
       try {
         let reportData = null;
+        let lastErr = null;
         try {
           const res = await fetch('/api/v1/ad-hunter/analyze', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url })
           });
-          if (res.ok) {
-            const data = await res.json();
-            if (data.success && data.report) {
-              reportData = data.report;
-            }
+          const data = await res.json();
+          if (res.ok && data.success && data.report) {
+            reportData = data.report;
+          } else {
+            lastErr = new Error(data.error || `HTTP ${res.status}`);
           }
-        } catch (_) {}
+        } catch (e) {
+          lastErr = e;
+        }
 
-        // 前端无缝兜底分析引擎（若后端处于旧实例或离线时自适应运行）
+        // 前端多重跨网穿透与降级引擎
         if (!reportData) {
-          const directRes = await fetch(url, { headers: { 'Accept': 'text/html,*/*' } });
-          const html = await directRes.text();
-          const targetHost = new URL(url).hostname;
-          reportData = clientSideAnalyze(url, targetHost, html);
+          let html = '';
+          try {
+            const directRes = await fetch(url, { headers: { 'Accept': 'text/html,*/*' } });
+            if (directRes.ok) html = await directRes.text();
+          } catch (_) {}
+
+          if (!html || html.length < 200) {
+            try {
+              const jinaRes = await fetch(`https://r.jina.ai/${url}`, { headers: { 'X-Return-Format': 'html' } });
+              if (jinaRes.ok) html = await jinaRes.text();
+            } catch (_) {}
+          }
+
+          if (html && html.length > 200) {
+            const targetHost = new URL(url).hostname;
+            reportData = clientSideAnalyze(url, targetHost, html);
+          } else {
+            throw lastErr || new Error('目标网页连接中断或不可达，请检查网址或切换到「Surge 抓包会话」模式分析');
+          }
         }
 
         currentReport = reportData;

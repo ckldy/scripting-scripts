@@ -47,6 +47,14 @@ const KNOWN_AD_DOMAINS: Array<{ suffix: string; name: string }> = [
   { suffix: 'clickadu.com', name: 'Clickadu 网页横幅与弹窗' },
   { suffix: 'propellerads.com', name: 'PropellerAds 推送与插屏广告' },
   { suffix: 'hilltopads.com', name: 'HilltopAds 弹窗与横幅广告' },
+  { suffix: 'magsrv.com', name: 'ExoClick 核心广告投放网络' },
+  { suffix: 'pemsrv.com', name: 'ExoClick 弹窗广告引擎' },
+  { suffix: 'realsrv.com', name: 'ExoClick 静态广告资源' },
+  { suffix: 'epidermispushupvariable.com', name: 'PushUp 强弹与暗刷引擎' },
+  { suffix: 'oxgokpozzajz.in', name: '恶意跳转广告网关' },
+  { suffix: '11yun.xyz', name: 'Umami 商业统计追踪' },
+  { suffix: 'tsyndicate.com', name: 'TrafficStars 广告联盟' },
+  { suffix: 'adtng.com', name: 'TrafficJunky 核心引擎' },
 ];
 
 // 安全词白名单（防止误杀正常网页框架、内容与布局）
@@ -61,8 +69,9 @@ const FALSE_POSITIVE_WORDS = new Set([
 function isAdToken(raw: string): boolean {
   const s = raw.toLowerCase().trim();
   if (s.length < 2 || s.length > 50 || FALSE_POSITIVE_WORDS.has(s)) return false;
-  // 1. 精确广告根词
-  if (/^(ads?|banner|guanggao|gg|sponsor(ed)?|popunder|floating[-_]?ad|fixed[-_]?ad|couplet|adv)$/i.test(s)) return true;
+  // 1. 精确广告根词与联盟组件前缀
+  if (/^(ads?|banner|guanggao|gg|sponsor(ed)?|popunder|floating[-_]?ad|fixed[-_]?ad|couplet|adv|exo|popunder\d*)$/i.test(s)) return true;
+  if (s.includes('exo-native') || s.includes('msg-native') || s.includes('native-widget')) return true;
   // 2. 广告复合词
   if (/^(ad|banner|gg|adv|sponsor)[-_](box|slot|card|container|wrapper|placement|item|content|area|zone|frame|header|footer|sidebar|top|bottom|left|right|float|fixed|popup|overlay|layer|module|block|wrap|view|list|pic|img)$/i.test(s)) return true;
   if (/^([a-z0-9]+)[-_](ad|ads|banner|gg|guanggao|sponsor|adv)$/i.test(s)) return true;
@@ -149,10 +158,11 @@ export class AdHunterService {
       throw new Error('无效的 URL 地址');
     }
 
-    // 使用真实移动端 Safari UA 请求目标页面
+    // 1. 尝试直连抓取目标页面
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 12000);
+    const timer = setTimeout(() => ctrl.abort(), 8000);
     let html = '';
+    let fetchError: any = null;
     try {
       const res = await fetch(parsed.href, {
         headers: {
@@ -163,13 +173,37 @@ export class AdHunterService {
         signal: ctrl.signal,
       });
       clearTimeout(timer);
-      if (!res.ok) {
-        throw new Error(`目标网站响应错误: HTTP ${res.status}`);
+      if (res.ok) {
+        html = await res.text();
+      } else {
+        fetchError = new Error(`HTTP ${res.status} ${res.statusText}`);
       }
-      html = await res.text();
     } catch (e: any) {
       clearTimeout(timer);
-      throw new Error(`抓取目标网页失败: ${e?.message || '网络连接超时'}`);
+      fetchError = e;
+    }
+
+    // 2. 若直连被墙（网络连接中断/超时/空回包），自动无缝启用镜像通道跨网穿透
+    if (!html || html.length < 200) {
+      try {
+        const jinaRes = await fetch(`https://r.jina.ai/${parsed.href}`, {
+          headers: {
+            'X-Return-Format': 'html',
+            'User-Agent': 'LocalDNS/FJMOS AdHunter/1.15',
+          },
+          signal: AbortSignal.timeout(12000),
+        });
+        if (jinaRes.ok) {
+          const jinaText = await jinaRes.text();
+          if (jinaText && jinaText.length > 200) {
+            html = jinaText;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (!html) {
+      throw new Error(`抓取目标网页失败: ${fetchError?.message || '网络连接中断或目标网站不可达'}`);
     }
 
     return this.inspectHtml(parsed.href, parsed.hostname, html);
