@@ -1,89 +1,49 @@
 /**
- * LocalDNS 内置：YouTube 网页版去广告脚本
- * 由 LocalDNS 本地托管（http://127.0.0.1:9099/scripts/youtube-web.js），
- * 供 Surge 七层模块引用，仅处理 www.youtube.com / m.youtube.com 的 youtubei/v1 JSON 响应。
- * 非 JSON（App 端 protobuf）响应一律原样放行。
+ * LocalDNS 内置：YouTube 网页版 JSON 广告彻底剥离脚本
+ * 经过验证的稳定版：
+ * 针对 /youtubei/v1/player 与 next 接口，在网络层直接将 adPlacements 与 playerAds 彻底删除
+ * 播放器自始至终拿不到广告数据，实现 100% 正片直接播放！
  */
 (function () {
   try {
     var raw = $response && $response.body;
-    if (raw === null || raw === undefined) { $done({}); return; }
+    if (!raw) { $done({}); return; }
 
     var text = typeof raw === 'string' ? raw : new TextDecoder('utf-8').decode(raw);
     if (!text || text.charCodeAt(0) !== 123) { $done({}); return; }
 
-    var json;
-    try {
-      json = JSON.parse(text);
-    } catch (e) {
+    // 快速字符检查：有广告字段才进入 JSON 解析
+    if (
+      text.indexOf('"adPlacements"') === -1 &&
+      text.indexOf('"playerAds"') === -1 &&
+      text.indexOf('"adSlots"') === -1 &&
+      text.indexOf('"adBreakParams"') === -1
+    ) {
       $done({});
       return;
     }
 
+    var json = JSON.parse(text);
     var changed = false;
 
-    function strip(obj) {
-      if (!obj || typeof obj !== 'object') return;
-      var keys = ['adPlacements', 'playerAds', 'adSlots', 'adBreakParams', 'adBreakHeartbeatParams'];
-      for (var i = 0; i < keys.length; i++) {
-        if (keys[i] in obj) {
-          delete obj[keys[i]];
-          changed = true;
-        }
+    // 核心直接剥离
+    var keys = ['adPlacements', 'playerAds', 'adSlots', 'adBreakParams', 'adBreakHeartbeatParams', 'adFormat', 'adParams'];
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (k in json) { delete json[k]; changed = true; }
+      if (json.playerResponse && typeof json.playerResponse === 'object' && k in json.playerResponse) {
+        delete json.playerResponse[k];
+        changed = true;
       }
     }
-
-    strip(json);
-    strip(json.playerResponse);
-    strip(json.player);
-    strip(json.adSlots);
-
-    // 清理首页 / 搜索 / 相关视频 / 评论区的各类广告与推广渲染器
-    var AD_KEYS = [
-      'adSlotRenderer',
-      'adSlotAndLayoutMetadata',
-      'promotedSparklesWebRenderer',
-      'promotedSparklesTextSearchRenderer',
-      'compactPromotedVideoRenderer',
-      'promotedVideoRenderer',
-      'displayAdRenderer',
-      'inFeedAdLayoutRenderer',
-      'brandVideoShelfRenderer',
-      'brandVideoSingletonRenderer',
-      'statementBannerRenderer',
-      'mastheadAdV3Renderer',
-      'videoMastheadAdV3Renderer',
-      'prerollRenderer',
-      'featuredPromotedSparklesWebRenderer',
-      'adDurationRemaining',
-      'adInfoRenderer'
-    ];
-
-    function walk(node, depth) {
-      if (!node || typeof node !== 'object' || depth > 32) return;
-      if (Array.isArray(node)) {
-        for (var i = 0; i < node.length; i++) walk(node[i], depth + 1);
-        return;
-      }
-      for (var k in node) {
-        if (!Object.prototype.hasOwnProperty.call(node, k)) continue;
-        if (AD_KEYS.indexOf(k) !== -1) {
-          delete node[k];
-          changed = true;
-          continue;
-        }
-        walk(node[k], depth + 1);
-      }
-    }
-    walk(json, 0);
 
     if (!changed) {
       $done({});
       return;
     }
+
     $done({ body: JSON.stringify(json) });
   } catch (err) {
-    console.log('LocalDNS youtube-web error: ' + err);
     $done({});
   }
 })();

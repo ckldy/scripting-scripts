@@ -148,66 +148,77 @@ export class SurgeDatabase {
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = (async () => {
-      const appGroup = (FileManager as any).appGroupDocumentsDirectory;
-      const baseDir = appGroup ? Path.join(appGroup, 'LocalDNS') : Script.directory;
       try {
-        if (!(await FileManager.exists(baseDir))) {
-          await FileManager.createDirectory(baseDir, true);
+        const appGroup = (FileManager as any).appGroupDocumentsDirectory;
+        const baseDir = appGroup ? Path.join(appGroup, 'LocalDNS') : Script.directory;
+        try {
+          if (!(await FileManager.exists(baseDir))) {
+            await FileManager.createDirectory(baseDir, true);
+          }
+        } catch (e) {
+          console.warn('Failed to ensure directory for SQLite:', e);
         }
-      } catch (e) {
-        console.warn('Failed to ensure directory for SQLite:', e);
-      }
 
-      const dbPath = Path.join(baseDir, 'surge_link.db');
-      this.db = SQLite.open(dbPath);
-      try {
-        await this.db.execute('PRAGMA busy_timeout = 5000;');
-      } catch (e) {
-        console.warn('Failed to set busy_timeout for SQLite:', e);
-      }
+        const dbPath = Path.join(baseDir, 'surge_link.db');
+        this.db = SQLite.open(dbPath);
+        try {
+          await this.db.execute('PRAGMA busy_timeout = 10000;');
+        } catch {}
+        try {
+          await this.db.execute('PRAGMA synchronous = NORMAL;');
+        } catch {}
+        try {
+          await this.db.execute('PRAGMA journal_mode = WAL;');
+        } catch {}
 
-      await this.createTables();
-      try {
-        await this.db.execute('ALTER TABLE module_http_rules ADD COLUMN binary_body INTEGER DEFAULT 0;');
-      } catch {}
-      try {
-        await this.db.execute('ALTER TABLE module_http_rules ADD COLUMN engine TEXT;');
-      } catch {}
-      try {
-        await this.db.execute('ALTER TABLE module_http_rules ADD COLUMN argument TEXT;');
-      } catch {}
-      try {
-        await this.db.execute('ALTER TABLE module_http_rules ADD COLUMN timeout INTEGER;');
-      } catch {}
-      try {
-        await this.db.execute('ALTER TABLE module_http_rules ADD COLUMN script_name TEXT;');
-      } catch {}
-      try {
-        await this.db.execute('ALTER TABLE diversion_rules ADD COLUMN source_url TEXT;');
-      } catch {}
-      try {
-        await this.db.execute('ALTER TABLE app_modules ADD COLUMN arguments_schema TEXT;');
-      } catch {}
-      try {
-        await this.db.execute('ALTER TABLE app_modules ADD COLUMN arguments_desc TEXT;');
-      } catch {}
-      try {
-        await this.db.execute('ALTER TABLE app_modules ADD COLUMN custom_arguments TEXT;');
-      } catch {}
-      try {
-        await this.db.execute('ALTER TABLE remote_rule_sets ADD COLUMN name TEXT;');
-      } catch {}
-      try {
-        await this.db.execute('ALTER TABLE remote_rule_sets ADD COLUMN unique_count INTEGER DEFAULT 0;');
-      } catch {}
-      try {
-        await this.db.execute('ALTER TABLE remote_rule_sets ADD COLUMN enabled INTEGER DEFAULT 1;');
-      } catch {}
-      try {
-        await this.db.execute('UPDATE remote_rule_sets SET enabled = 1 WHERE enabled IS NULL;');
-      } catch {}
-      await this.seedDefaults();
-      this.initialized = true;
+        await this.createTables();
+        try {
+          await this.db.execute('ALTER TABLE module_http_rules ADD COLUMN binary_body INTEGER DEFAULT 0;');
+        } catch {}
+        try {
+          await this.db.execute('ALTER TABLE module_http_rules ADD COLUMN engine TEXT;');
+        } catch {}
+        try {
+          await this.db.execute('ALTER TABLE module_http_rules ADD COLUMN argument TEXT;');
+        } catch {}
+        try {
+          await this.db.execute('ALTER TABLE module_http_rules ADD COLUMN timeout INTEGER;');
+        } catch {}
+        try {
+          await this.db.execute('ALTER TABLE module_http_rules ADD COLUMN script_name TEXT;');
+        } catch {}
+        try {
+          await this.db.execute('ALTER TABLE diversion_rules ADD COLUMN source_url TEXT;');
+        } catch {}
+        try {
+          await this.db.execute('ALTER TABLE app_modules ADD COLUMN arguments_schema TEXT;');
+        } catch {}
+        try {
+          await this.db.execute('ALTER TABLE app_modules ADD COLUMN arguments_desc TEXT;');
+        } catch {}
+        try {
+          await this.db.execute('ALTER TABLE app_modules ADD COLUMN custom_arguments TEXT;');
+        } catch {}
+        try {
+          await this.db.execute('ALTER TABLE remote_rule_sets ADD COLUMN name TEXT;');
+        } catch {}
+        try {
+          await this.db.execute('ALTER TABLE remote_rule_sets ADD COLUMN unique_count INTEGER DEFAULT 0;');
+        } catch {}
+        try {
+          await this.db.execute('ALTER TABLE remote_rule_sets ADD COLUMN enabled INTEGER DEFAULT 1;');
+        } catch {}
+        try {
+          await this.db.execute('UPDATE remote_rule_sets SET enabled = 1 WHERE enabled IS NULL;');
+        } catch {}
+        await this.seedDefaults();
+        this.initialized = true;
+      } catch (err) {
+        this.initPromise = null;
+        this.initialized = false;
+        console.error('SurgeDatabase init failed:', err);
+        throw err;
+      }
     })();
 
     return this.initPromise;
@@ -572,6 +583,39 @@ export class SurgeDatabase {
     }
   }
 
+  public async addAdHunterRules(urlRegexList: string[]): Promise<number> {
+    await this.init();
+    const moduleId = 'mod_adhunter';
+    const now = Date.now();
+    await this.saveModule({
+      id: moduleId,
+      name: 'AdHunter 智能特征去广告',
+      category: 'privacy',
+      source_url: 'http://127.0.0.1:9099/ad-hunter.html',
+      enabled: true,
+      raw_content: '#!name=AdHunter 智能特征去广告\n#!desc=AdHunter 自动分析合成的零域名 URL-REGEX 规则\n',
+      created_at: now,
+      updated_at: now,
+    });
+
+    let count = 0;
+    for (const ruleStr of urlRegexList) {
+      const existing = await this.getDb().fetchOne<{ id: number }>(
+        'SELECT id FROM module_http_rules WHERE module_id = ? AND pattern = ?',
+        [moduleId, ruleStr]
+      );
+      if (!existing) {
+        await this.getDb().execute(
+          `INSERT INTO module_http_rules (module_id, rule_type, sub_type, pattern, target, requires_body, max_size, binary_body, enabled)
+           VALUES (?, 'rule', '', ?, '', 0, 0, 0, 1)`,
+          [moduleId, ruleStr]
+        );
+        count++;
+      }
+    }
+    return count;
+  }
+
   public async getActiveMitmHosts(): Promise<string[]> {
     await this.init();
     const rows = await this.getDb().fetchAll<{ hostname: string }>(`
@@ -653,6 +697,26 @@ export class SurgeDatabase {
       action: r.action,
       enabled: Boolean(r.enabled),
     }));
+  }
+
+  /**
+   * 轻量获取活跃 DNS 拦截规则条数（仅执行 SQL COUNT，毫秒级响应，避免拉取数万条对象）
+   */
+  public async getActiveDnsBlockRulesCount(): Promise<number> {
+    await this.init();
+    const modRow = await this.getDb().fetchOne<any>(`
+      SELECT COUNT(*) as c
+      FROM module_dns_rules d
+      JOIN app_modules a ON d.module_id = a.id
+      WHERE a.enabled = 1 AND d.enabled = 1 AND d.action LIKE 'REJECT%'
+    `);
+    const divRow = await this.getDb().fetchOne<any>(`
+      SELECT COUNT(*) as c
+      FROM diversion_rules r
+      JOIN diversion_groups g ON r.group_id = g.id
+      WHERE (g.id = 'block' OR g.surge_policy LIKE 'REJECT%') AND g.enabled = 1 AND r.enabled = 1
+    `);
+    return Number(modRow?.c || 0) + Number(divRow?.c || 0);
   }
 
   // ==================== Diversion Groups & Rules ====================
@@ -944,7 +1008,8 @@ export class SurgeDatabase {
   public async appendGroupRules(
     groupId: string,
     rules: Array<{ match_type: DiversionRule['match_type']; pattern: string; comment?: string }>,
-    sourceUrl?: string
+    sourceUrl?: string,
+    skipRecalculate = false
   ): Promise<number> {
     await this.init();
     if (!rules || rules.length === 0) return 0;
@@ -1014,7 +1079,7 @@ export class SurgeDatabase {
       }
     }
 
-    if (sourceUrl) {
+    if (sourceUrl && !skipRecalculate) {
       await this.recalculateRuleSetCounts(sourceUrl);
     }
     return toInsertRules.length + bindingSteps.length;
@@ -1042,12 +1107,8 @@ export class SurgeDatabase {
 
   public async recalculateRuleSetCounts(targetUrl?: string): Promise<void> {
     await this.init();
-    const sets = targetUrl
-      ? [{ url: targetUrl }]
-      : await this.getDb().fetchAll<any>('SELECT url FROM remote_rule_sets');
-
-    for (const s of sets) {
-      const u = s.url;
+    if (targetUrl) {
+      const u = targetUrl;
       const totalRow = await this.getDb().fetchOne<any>(
         'SELECT count(*) as c FROM rule_source_bindings WHERE source_url = ?',
         [u]
@@ -1070,6 +1131,39 @@ export class SurgeDatabase {
         'UPDATE remote_rule_sets SET rule_count = ?, unique_count = ? WHERE url = ?',
         [totalCount, uniqueCount, u]
       );
+      return;
+    }
+
+    // 全量聚合计算（统一计算全部规则集，无需多次循环）
+    const totalRows = await this.getDb().fetchAll<any>(`
+      SELECT source_url, count(*) as c
+      FROM rule_source_bindings
+      GROUP BY source_url
+    `);
+    const totalMap = new Map<string, number>();
+    for (const r of totalRows) totalMap.set(r.source_url, Number(r.c || 0));
+
+    const uniqueRows = await this.getDb().fetchAll<any>(`
+      SELECT b.source_url, count(*) as c
+      FROM rule_source_bindings b
+      JOIN (
+        SELECT rule_id
+        FROM rule_source_bindings
+        GROUP BY rule_id
+        HAVING count(*) = 1
+      ) u ON b.rule_id = u.rule_id
+      GROUP BY b.source_url
+    `);
+    const uniqueMap = new Map<string, number>();
+    for (const r of uniqueRows) uniqueMap.set(r.source_url, Number(r.c || 0));
+
+    const sets = await this.getDb().fetchAll<any>('SELECT url FROM remote_rule_sets');
+    const updateSteps: SQLite.TransactionStep[] = sets.map((s) => ({
+      sql: 'UPDATE remote_rule_sets SET rule_count = ?, unique_count = ? WHERE url = ?',
+      args: [totalMap.get(s.url) || 0, uniqueMap.get(s.url) || 0, s.url],
+    }));
+    if (updateSteps.length > 0) {
+      await this.getDb().transaction(updateSteps);
     }
   }
 

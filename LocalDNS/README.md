@@ -1,10 +1,27 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.14.1 (Build 20261102)`  
+> **当前版本**：`v1.14.2 (Build 20261103)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.11.01.1` / 内核 `FJHAI`）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.11.03.2` / 内核 `FJMOS`）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地高性能 DNS 服务与安全管理系统。
+
+### v1.14.2 对齐上游 FJMOS / UI 2026.11.03.2 与直连 DNS 极速优化
+- **精确同步上游 SPA**：全量跟随上游打包产物 `app-C9ij6y6z.js` 与 `index-qdjMEPt4.css`。
+- **顶栏精简分组与流光毛玻璃可读性**：
+  * 顶栏按「搜索 · 徽标 │ 代理▾ │ 概览 外观 流光 │ 刷新 主题」统一分组，手机端收紧为 5 键并将「流光 / 概览卡片 / 版本」收纳至外观面板快捷入口；
+  * 版本按钮改为单行等宽紧凑徽标 `v11.03.2`；
+  * 流光毛玻璃遮盖度下限提升至 62%，背景暗化下限提升至 20%，极端纯白/纯黑壁纸下次级文字对比度大幅改善；
+  * 补齐无障碍实底降级兜底。
+- **去广告清洗算法重构（提速 4000+ 倍）**：
+  * `AdGuardEngine`（18.5万条）与 `SurgeService`（3.2万条）将线性数组与 `endsWith` 扫描彻底重构为 **$O(k)$ 逐级父域名哈希探测**；
+  * 正常域名在线清洗耗时从 **33.00 ms 暴降至 0.008 ms**，1000 次请求仅需 8.00 ms。
+- **全量直连 DNS 极速上游**：
+  * DNS 查询全部强制走国内高速直连上游（`domestic`：223.5.5.5、alidns、dnspod），杜绝经过代理节点带来的 500~2000ms 高延迟；
+  * 默认禁用 `proxy` 组上游节点，Surge 配置文件中显式配置 53/853 端口与 DoH IP 直连。
+- **多线程并发抓取与批量统一入库（Map-Reduce）**：
+  * 远程规则集批量刷新（12 个规则集）采用 6 并发 Worker 线程池并发抓取与解析，最后统一原子写库、统一孤儿清理与缓存重载，耗时从 35 秒骤降至 2~3 秒。
+- **本地自研能力 100% 保留**：`livepulse.js` 实时流光拓扑看板、`surge-workbench.js` Surge 治理工作台、`ad-hunter.html` 智能去广告实验室、同源 `proxyConfigBase` 配置均完整保留。
 
 ### v1.14.1 Hub 生效性自检 + 版本号单一真源
 - **`GET /api/v1/surge/hub-health`**：把「模块看起来启用了、实际 MITM 没生效」这类隐性故障变成可查询的硬指标——期望值取自 `compileUnifiedHubModule()` 编译产物，实际值取自 Surge `/v1/profiles/current`，逐项比对 MITM 域名与 Script 条目，输出 `healthy` / `surge_api_offline` / `hub_module_disabled` / `mitm_not_applied` / `scripts_not_applied` 五类判定与处置建议。

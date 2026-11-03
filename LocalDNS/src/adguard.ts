@@ -30,13 +30,14 @@ async function fetchRuleWithFallback(url: string): Promise<string> {
 const BUILTIN_AD_RULES = `
 ! Builtin High-frequency Mobile Ads & Tracking Filters
 ! YouTube & Google Ads / Tracking
-||s.youtube.com^
-||s2.youtube.com^
+! 保留 s.youtube.com 与 video-stats 放行（直接走放行或代理），避免切片时报“有中断问题”及无限转圈卡死
+! ||s.youtube.com^
+! ||s2.youtube.com^
 ||ads.youtube.com^
 ||ytads.google.com^
-||video-stats.l.google.com^
-||video-stats.youtube.com^
-||stats_check.youtube.com^
+! ||video-stats.l.google.com^
+! ||video-stats.youtube.com^
+! ||stats_check.youtube.com^
 ||adservice.google.com^
 ||pagead2.googlesyndication.com^
 ||pagead.l.doubleclick.net^
@@ -124,12 +125,21 @@ export class AdGuardEngine {
 
     // 2. Load stored subscription rules from Store
     const sources = Store.get().getAdguardSources();
+    let sourcesChanged = false;
     for (const source of sources) {
       if (!source.enabled) continue;
       const rawText = Store.get().getRule(`adguard_source_${source.id}`);
       if (rawText) {
-        total += this.parseRules(rawText);
+        const c = this.parseRules(rawText);
+        if (source.rule_count !== c) {
+          source.rule_count = c;
+          sourcesChanged = true;
+        }
+        total += c;
       }
+    }
+    if (sourcesChanged) {
+      Store.get().setAdguardSources(sources);
     }
     this.ruleCount = total;
   }
@@ -189,18 +199,22 @@ export class AdGuardEngine {
   isBlocked(domain: string): boolean {
     const d = domain.toLowerCase().replace(/\.$/, '');
 
-    // Check whitelist first
-    if (this.whitelistDomains.has(d)) return false;
-    for (const suffix of this.whitelistSuffixes) {
-      if (d === suffix || d.endsWith('.' + suffix)) return false;
+    // 1. Check whitelist exact & suffix (O(k) 常数级哈希查找)
+    if (this.whitelistDomains.has(d) || this.whitelistSuffixes.has(d)) return false;
+    let idx = d.indexOf('.');
+    while (idx !== -1) {
+      const parent = d.slice(idx + 1);
+      if (this.whitelistSuffixes.has(parent)) return false;
+      idx = d.indexOf('.', idx + 1);
     }
 
-    // Check exact domain
-    if (this.blockedDomains.has(d)) return true;
-
-    // Check suffix
-    for (const suffix of this.blockedSuffixes) {
-      if (d === suffix || d.endsWith('.' + suffix)) return true;
+    // 2. Check blocked exact & suffix (O(k) 常数级哈希查找)
+    if (this.blockedDomains.has(d) || this.blockedSuffixes.has(d)) return true;
+    idx = d.indexOf('.');
+    while (idx !== -1) {
+      const parent = d.slice(idx + 1);
+      if (this.blockedSuffixes.has(parent)) return true;
+      idx = d.indexOf('.', idx + 1);
     }
 
     return false;
@@ -215,13 +229,13 @@ export class AdGuardEngine {
       const text = await fetchRuleWithFallback(source.url);
       Store.get().setRule(`adguard_source_${source.id}`, text);
 
-      const parsedCount = this.parseRules(text);
-      source.rule_count = parsedCount;
       source.last_updated = new Date().toISOString();
       source.last_error = null;
       Store.get().setAdguardSources(sources);
+
       this.rebuildFromStore();
-      return { success: true, ruleCount: parsedCount };
+      const updatedSource = Store.get().getAdguardSources().find(s => s.id === id);
+      return { success: true, ruleCount: updatedSource?.rule_count || 0 };
     } catch (err: any) {
       source.last_error = err.message || String(err);
       Store.get().setAdguardSources(sources);
@@ -234,17 +248,36 @@ export class AdGuardEngine {
     this.isUpdating = true;
     try {
       const sources = Store.get().getAdguardSources();
+      const activeSources = sources.filter(s => s.enabled);
       let updated = 0;
       const errors: Array<{ name: string; error: string }> = [];
-      for (const s of sources) {
-        if (!s.enabled) continue;
-        const res = await this.updateSource(s.id);
-        if (res.success) {
+
+      // 阶段 1：多线程并发抓取全部订阅源（同时进行）
+      const results = await Promise.allSettled(
+        activeSources.map(async (s) => {
+          const text = await fetchRuleWithFallback(s.url);
+          Store.get().setRule(`adguard_source_${s.id}`, text);
+          s.last_updated = new Date().toISOString();
+          s.last_error = null;
+          return s;
+        })
+      );
+
+      for (let i = 0; i < activeSources.length; i++) {
+        const s = activeSources[i];
+        const res = results[i];
+        if (res.status === 'fulfilled') {
           updated++;
         } else {
-          errors.push({ name: s.name, error: res.error || '下载或解析失败' });
+          const err = res.reason?.message || String(res.reason);
+          s.last_error = err;
+          errors.push({ name: s.name, error: err });
         }
       }
+
+      Store.get().setAdguardSources(sources);
+      // 阶段 2：统一全量构建一次内存缓存（最后统一）
+      this.rebuildFromStore();
       return { updated_sources: updated, errors };
     } finally {
       this.isUpdating = false;

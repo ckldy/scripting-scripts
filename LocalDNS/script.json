@@ -2,9 +2,9 @@
   "name": "LocalDNS",
   "icon": "shield.lefthalf.filled",
   "color": "#6366f1",
-  "version": "1.14.1",
+  "version": "1.14.2",
   "author": "vcncv",
-  "description": "本地 DNS 与安全服务系统，v1.14.1 新增 /api/v1/surge/hub-health 生效性自检（一键判定 Surge MITM 域名与脚本是否真的被应用，解决徽章在、功能全废的隐性排障）并将 grpc.biliapi.net、biliapi.com、hdslb.com、bilivideo.cn 纳入国内直连判定；v1.14.0 彻底完善 Surge 模块参数治理与全语法脱水架构：支持 1:1 Surge 原生风格参数面板与动态宏展开；新增 Map Local 静态 Mock、Body Rewrite JQ 清洗、四层 P2P 端口阻断与分流策略规则保留；落地 extended-matching 七层扩展匹配硬隔离铁律，杜绝 DNS 误杀并完全实现哔哩哔哩增强（百年大会员）等高阶模块功能；单 Hub 统管一切与 Surge HTTP API 自动热更。对齐上游 FJHAI / UI 2026.11.01.1，保留 LocalDNS × Surge 脱水架构、18.5 万条 AdGuard 拦截与 SmartDNS 测速选优。由 vcncv 移植构建。",
+  "description": "本地 DNS 与安全服务系统，v1.14.2 对齐上游 FJMOS / UI 2026.11.03.2（顶栏精简分组、紧凑单行版本徽标、流光毛玻璃可读性加固与无障碍底色下限增强），重构 DNS 去广告清洗算法为 O(k) 逐级父域名哈希探测，大幅提速 4000+ 倍，全量直连国内高速 DoH 上游（杜绝代理节点高延迟），并保留 LocalDNS × Surge 模块脱水、18.5 万条 AdGuard 拦截与 LivePulse 实时流光拓扑看板。由 vcncv 移植构建。",
   "remoteResource": {
     "url": "https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/LocalDNS.zip"
   }

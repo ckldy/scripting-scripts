@@ -302,7 +302,8 @@ export class DnsResolver {
     }
 
     // 6. Determine target group (with per-client override)
-    let targetGroup: UpstreamGroup = (diversion.group as UpstreamGroup) || 'domestic';
+    // 强制直连原则：DNS 查询全部走国内高速直连上游 (domestic)，绝不走代理节点，消除代理网络往返及握手延迟
+    let targetGroup: UpstreamGroup = 'domestic';
     if (clientMatch?.group) targetGroup = clientMatch.group;
 
     const cacheManager = CacheManager.get();
@@ -377,7 +378,7 @@ export class DnsResolver {
     }
 
     // 9.3 Fastest-IP selection
-    respPacket = await this.selectFastest(respPacket, qtype, speedCfg);
+    respPacket = await this.selectFastest(respPacket, qtype, speedCfg, actualQueryGroup);
 
     // 9.4 Dualstack selection (prefer IPv4 when clearly faster)
     if (qtype === 28 && speedCfg.enabled && speedCfg.dualstackSelection && respPacket.answers.some(a => a.type === 28)) {
@@ -446,8 +447,15 @@ export class DnsResolver {
       .finally(() => { this.prefetching.delete(key); });
   }
 
-  private async selectFastest(respPacket: DnsPacket, qtype: number, speedCfg: SpeedConfig): Promise<DnsPacket> {
+  private async selectFastest(respPacket: DnsPacket, qtype: number, speedCfg: SpeedConfig, actualGroup?: string): Promise<DnsPacket> {
     if (!speedCfg.enabled || speedCfg.responseMode === 'fastest-response') return respPacket;
+    
+    // 国外代理分组（如 foreign/proxy/media）严禁在本地发起 TCP 测速探测！
+    // 手机直连国外 IP 必然因 GFW 阻断导致全部超时 (800ms*N)，从而导致 YouTube / Netflix 等国外视频切片严重变慢！
+    if (actualGroup && (actualGroup === 'foreign' || actualGroup === 'proxy' || actualGroup === 'media' || actualGroup === 'foreign_ecs')) {
+      return respPacket;
+    }
+
     const addrRecs = respPacket.answers.filter(a => a.type === 1 || a.type === 28);
     if (addrRecs.length <= 1) return respPacket;
 
@@ -480,17 +488,12 @@ export class DnsResolver {
       candidatePromises.push(this.querySingleNode(node, group, queryBytes, node.timeout || 2500));
     });
 
-    // Happy Eyeballs: for non-domestic groups, launch domestic fallback after 350ms
+    // 直连保障竞速：若因客户端规则指定了非 domestic 分组，立即并行启动国内直连节点竞速（0ms 零延迟，杜绝 350ms 盲等）
     if (group !== 'domestic') {
       const domesticNodes = (Store.get().getUpstreamConfig().domestic || []).filter(n => n.enabled !== false);
       if (domesticNodes.length > 0) {
-        const domesticRace = new Promise<{ node: UpstreamNode; rawBytes: Uint8Array; actualGroup: string }>((resolve, reject) => {
-          setTimeout(() => {
-            const domPromises = domesticNodes.map(n => this.querySingleNode(n, 'domestic', queryBytes, 2000));
-            Promise.any(domPromises).then(resolve).catch(reject);
-          }, 350);
-        });
-        candidatePromises.push(domesticRace);
+        const domPromises = domesticNodes.map(n => this.querySingleNode(n, 'domestic', queryBytes, 2000));
+        candidatePromises.push(Promise.any(domPromises));
       }
     }
 

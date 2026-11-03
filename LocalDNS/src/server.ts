@@ -13,6 +13,7 @@ import { SurgeService } from './surge-service';
 import { handleSurgeApiRequest } from './surge-api';
 import { ProcessGuardian } from './guardian';
 import { TrafficManager } from './traffic';
+import { AdHunterService } from './ad-hunter';
 
 function parseJsonBody(req: HttpRequest): any {
   try {
@@ -1238,6 +1239,89 @@ $httpClient.get({
     if (cleanPath === '/api/v1/rule-engines/reload' && method === 'POST') {
       this.reloadRuleEngines();
       return jsonResponse({ success: true });
+    }
+
+    // 35. /api/v1/ad-hunter/* (AdHunter 智能去广告实验室)
+    if (cleanPath.startsWith('/api/v1/ad-hunter')) {
+      const adHunter = AdHunterService.get();
+
+      // 35.1 快速预设列表
+      if (cleanPath === '/api/v1/ad-hunter/presets' && method === 'GET') {
+        return jsonResponse({
+          success: true,
+          presets: [
+            {
+              name: '黑料网 (吃瓜类首页)',
+              url: 'https://i4p76.sancpkvy.cc/',
+              type: 'heiliao',
+              desc: '自研 PGX-Slot 广告引擎、15+ 混排伪装卡片、18禁年龄弹窗、虚假底部导航',
+            },
+            {
+              name: '黑料网 (爆料详情页)',
+              url: 'https://i4p76.sancpkvy.cc/archives/123759/',
+              type: 'heiliao',
+              desc: '正文密集 40+ 条博彩色情文字矩阵、底部组合大横幅、虚假社交引流图标',
+            },
+            {
+              name: 'Javtiful (成人视频点播)',
+              url: 'https://javtiful.com/zh/video/115315/ipzz-995-reducing-mosaic',
+              type: 'javtiful',
+              desc: '播放器正上方悬浮遮罩广告、顶部文字横幅、假直播引流轮播区',
+            },
+          ],
+        });
+      }
+
+      // 35.2 深度分析 URL 页面特征
+      if (cleanPath === '/api/v1/ad-hunter/analyze' && method === 'POST') {
+        const body = parseJsonBody(req);
+        const targetUrl = String(body.url || '').trim();
+        if (!targetUrl) return jsonResponse({ error: '请输入有效的目标网址' }, 400);
+        try {
+          const report = await adHunter.analyzeUrl(targetUrl);
+          return jsonResponse({ success: true, report });
+        } catch (e: any) {
+          return jsonResponse({ error: e?.message || '分析网页广告失败' }, 502);
+        }
+      }
+
+      // 35.3 一键下发至 Surge / LocalDNS
+      if (cleanPath === '/api/v1/ad-hunter/deploy-surge' && method === 'POST') {
+        const body = parseJsonBody(req);
+        if (!body.report) return jsonResponse({ error: 'Missing report data' }, 400);
+        try {
+          const res = await adHunter.deployToSurge(body.report);
+          return jsonResponse(res);
+        } catch (e: any) {
+          return jsonResponse({ error: e?.message || '部署至 Surge 失败' }, 500);
+        }
+      }
+
+      // 35.4 一键安装至 Safari 扩展 Userscript 目录
+      if (cleanPath === '/api/v1/ad-hunter/deploy-userscript' && method === 'POST') {
+        const body = parseJsonBody(req);
+        const fileName = String(body.fileName || 'adhunter-custom').trim();
+        const content = String(body.content || '').trim();
+        if (!content) return jsonResponse({ error: '脚本内容不能为空' }, 400);
+        try {
+          const res = await adHunter.deployToUserscript(fileName, content);
+          return jsonResponse(res);
+        } catch (e: any) {
+          return jsonResponse({ error: e?.message || '保存脚本失败' }, 500);
+        }
+      }
+
+      // 35.5 全端自动化合流：网络层注入 Surge + DOM特征直接合并入 AdBlockHub 全局母核
+      if (cleanPath === '/api/v1/ad-hunter/auto-sync' && method === 'POST') {
+        const body = parseJsonBody(req);
+        if (!body.report) return jsonResponse({ error: 'Missing report data' }, 400);
+        try {
+          const res = await adHunter.autoSyncToHub(body.report);
+          return jsonResponse(res);
+        } catch (e: any) {
+          return jsonResponse({ error: e?.message || '全端自动合流失败' }, 500);
+        }
+      }
     }
 
     return jsonResponse({ error: 'Unknown API endpoint' }, 404);

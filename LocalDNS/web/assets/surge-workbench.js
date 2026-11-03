@@ -1925,7 +1925,8 @@
     if (!board) return;
     try {
       var res = await fetch('/api/v1/surge/runtime');
-      var data = await res.json();
+      var data = {};
+      try { data = await res.json(); } catch (_) { data = { online: false, error: '接口异常 HTTP ' + res.status }; }
       cachedRuntime = data;
 
       if (!data.online) {
@@ -1985,7 +1986,12 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_url: customUrl, api_key: customKey }),
       });
-      var data = await res.json();
+      var data = {};
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        data = { success: false, error: '接口返回非 JSON 响应 (HTTP ' + res.status + ')', hint: '服务端可能正在重载或数据库正在同步' };
+      }
       if (resultCard) {
         if (data.success) {
           resultCard.style.borderLeftColor = '#10B981';
@@ -2694,22 +2700,39 @@
 
     container.innerHTML = html;
     setupEvents();
+    syncSurgeHeaderInfo();
 
     if (activeTab === 'modules') loadModules();
     if (activeTab === 'diversion') loadDiversion();
     if (activeTab === 'surge-settings') loadSurgeSettingsAndRuntime();
   }
 
+  function syncSurgeHeaderInfo() {
+    var subEl = q('.pp-heading p');
+    if (subEl) {
+      subEl.textContent = '查看 Surge 代理用量，管理核心联动配置。';
+    }
+    var statEl = q('#proxy-stat-status');
+    if (statEl) {
+      if (cachedRuntime && cachedRuntime.online) {
+        statEl.textContent = 'Surge · 采集中';
+      } else if (cachedRuntime && !cachedRuntime.online) {
+        statEl.textContent = 'Surge · 未连接';
+      }
+    }
+  }
+
   function checkRoute() {
     if (location.hash.includes('proxy-config')) {
+      syncSurgeHeaderInfo();
       var pcRoot = q('.pc-root');
       if (pcRoot && (!q('#sw-container') || !workbenchInjected)) {
         workbenchInjected = true;
         // 初始静默探测一次 Surge 状态用于展示顶部徽标
         fetch('/api/v1/surge/runtime')
           .then(function (r) { return r.json(); })
-          .then(function (d) { cachedRuntime = d; updateView(); })
-          .catch(function () { updateView(); });
+          .then(function (d) { cachedRuntime = d; updateView(); syncSurgeHeaderInfo(); })
+          .catch(function () { updateView(); syncSurgeHeaderInfo(); });
       }
     } else {
       workbenchInjected = false;

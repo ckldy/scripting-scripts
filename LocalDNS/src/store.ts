@@ -51,7 +51,7 @@ export class Store {
         { tag: 'quad9_doh', protocol: 'https', addr: 'https://dns.quad9.net/dns-query', enabled: true },
       ],
       proxy: [
-        { tag: 'google_proxy', protocol: 'https', addr: 'https://dns.google/dns-query', enabled: true },
+        { tag: 'google_proxy', protocol: 'https', addr: 'https://dns.google/dns-query', enabled: false },
       ],
     });
 
@@ -199,6 +199,15 @@ export class Store {
         enabled: true,
       });
       upstreamsChanged = true;
+    }
+    // 确保 proxy 上游节点默认处于禁用状态，避免被动走代理产生高延迟
+    if (this.upstreamConfig.proxy) {
+      for (const n of this.upstreamConfig.proxy) {
+        if (n.enabled) {
+          n.enabled = false;
+          upstreamsChanged = true;
+        }
+      }
     }
     if (upstreamsChanged) {
       this.persist('localdns_upstreams', this.upstreamConfig);

@@ -1062,10 +1062,10 @@ function initialize$o() {
     function place() {
       if (panel.hidden) return;
       const rect = launcher.getBoundingClientRect();
-      const viewport = window.visualViewport;
-      const left = (viewport == null ? void 0 : viewport.offsetLeft) || 0, top = (viewport == null ? void 0 : viewport.offsetTop) || 0;
-      const width = (viewport == null ? void 0 : viewport.width) || document.documentElement.clientWidth;
-      const height = (viewport == null ? void 0 : viewport.height) || innerHeight;
+      const viewport2 = window.visualViewport;
+      const left = (viewport2 == null ? void 0 : viewport2.offsetLeft) || 0, top = (viewport2 == null ? void 0 : viewport2.offsetTop) || 0;
+      const width = (viewport2 == null ? void 0 : viewport2.width) || document.documentElement.clientWidth;
+      const height = (viewport2 == null ? void 0 : viewport2.height) || innerHeight;
       panel.style.maxHeight = Math.max(120, height - 24) + "px";
       panel.style.left = Math.max(left + 12, Math.min(left + width - panel.offsetWidth - 12, rect.right - panel.offsetWidth)) + "px";
       panel.style.top = Math.max(top + 12, Math.min(rect.bottom + 12, top + height - panel.offsetHeight - 12)) + "px";
@@ -2403,7 +2403,7 @@ function createDOMPurify() {
   const originalDocument = document2;
   const currentScript = originalDocument.currentScript;
   window2.DocumentFragment;
-  const HTMLTemplateElement = window2.HTMLTemplateElement, Node = window2.Node, Element = window2.Element, NodeFilter = window2.NodeFilter;
+  const HTMLTemplateElement = window2.HTMLTemplateElement, Node2 = window2.Node, Element = window2.Element, NodeFilter = window2.NodeFilter;
   window2.NamedNodeMap === void 0 && (window2.NamedNodeMap || window2.MozNamedAttrMap);
   window2.HTMLFormElement;
   const DOMParser = window2.DOMParser, trustedTypes = window2.trustedTypes;
@@ -2416,9 +2416,9 @@ function createDOMPurify() {
   const getParentNode = lookupGetter(ElementPrototype, "parentNode");
   const getShadowRoot = lookupGetter(ElementPrototype, "shadowRoot");
   const getAttributes = lookupGetter(ElementPrototype, "attributes");
-  const getNodeType = Node && Node.prototype ? lookupGetter(Node.prototype, "nodeType") : null;
-  const getNodeName = Node && Node.prototype ? lookupGetter(Node.prototype, "nodeName") : null;
-  const getOwnerDocument = Node && Node.prototype ? lookupGetter(Node.prototype, "ownerDocument") : null;
+  const getNodeType = Node2 && Node2.prototype ? lookupGetter(Node2.prototype, "nodeType") : null;
+  const getNodeName = Node2 && Node2.prototype ? lookupGetter(Node2.prototype, "nodeName") : null;
+  const getOwnerDocument = Node2 && Node2.prototype ? lookupGetter(Node2.prototype, "ownerDocument") : null;
   const _readNodeType = function _readNodeType2(node) {
     return getNodeType ? getNodeType(node) : node.nodeType;
   };
@@ -4759,10 +4759,10 @@ function initialize$j() {
 function initialize$i() {
   "use strict";
   const root = document.documentElement;
-  const storageKey = "localdns-navigation-v1";
+  const storageKey2 = "localdns-navigation-v1";
   let prefs = { mode: "left", collapsed: false };
   try {
-    const saved = JSON.parse(preferences.getItem(storageKey) || "null");
+    const saved = JSON.parse(preferences.getItem(storageKey2) || "null");
     if (saved && typeof saved === "object") {
       prefs.mode = saved.mode === "top" ? "top" : "left";
       prefs.collapsed = saved.collapsed === true;
@@ -4818,7 +4818,7 @@ function initialize$i() {
       prefs = { mode, collapsed };
       applyPreference();
       try {
-        preferences.setItem(storageKey, JSON.stringify(prefs));
+        preferences.setItem(storageKey2, JSON.stringify(prefs));
       } catch {
       }
       syncLayout();
@@ -6686,6 +6686,13 @@ const icons$1 = {
   more: '<path d="M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm7 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm7 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/>'
 };
 const icon$1 = (name, cls = "") => `<svg class="${cls}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${icons$1[name] || icons$1.info}</svg>`;
+const strokeIcons = {
+  overview: '<rect x="4" y="4" width="6.5" height="9" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="5" rx="1.6"/><rect x="4" y="16" width="6.5" height="4" rx="1.6"/><rect x="13.5" y="12" width="6.5" height="8" rx="1.6"/>',
+  refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
+  theme: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/>',
+  power: '<path d="M12 3v8"/><path d="M6.8 5.8a8 8 0 1 0 10.4 0"/>'
+};
+const strokeIcon = (name, cls = "") => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${strokeIcons[name] || strokeIcons.overview}</svg>`;
 const esc$1 = (v = "") => String(v).replace(/[&<>'"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[c]);
 const num = (v) => Number.isFinite(+v) ? (+v).toLocaleString("zh-CN") : "—";
 const pct = (v) => Number.isFinite(+v) ? `${(+v).toFixed(2)}%` : "—";
@@ -7739,6 +7746,20 @@ const versionService = (() => {
       baseline
     };
   }
+  function shortVersion(value) {
+    const text2 = versionText(String(value || "").replace(/-local.*$/i, ""));
+    return text2 ? text2.replace(/^\d{4}\./, "") : "";
+  }
+  function badgeParts(installedVersion, latestVersion, available) {
+    const current = shortVersion(installedVersion);
+    if (!current) return { current: "版本", next: "" };
+    const next = available ? shortVersion(latestVersion) : "";
+    return { current: "v" + current, next: next && next !== current ? next : "" };
+  }
+  function badgeLabel(installedVersion, latestVersion, available) {
+    const parts2 = badgeParts(installedVersion, latestVersion, available);
+    return parts2.next ? `${parts2.current} → ${parts2.next}` : parts2.current;
+  }
   function setup() {
     const start = async () => {
       var _a2;
@@ -7783,11 +7804,21 @@ const versionService = (() => {
         const status = installed && latest ? assess({ ...installed, backendVersion: runningBackend || installed.backendVersion }, latest) : null;
         const text2 = checking ? "检查中" : limited ? "请求受限" : error ? "检查失败" : !installed ? "版本未读取" : !latest ? "尚未检查" : status.available ? "有新版本" : status.comparison === null ? "版本待核对" : status.local ? "本地测试版" : status.comparison < 0 ? "当前版本较新" : "已是最新";
         button.dataset.status = error || limited ? "error" : (status == null ? void 0 : status.available) ? "update" : "normal";
-        const displayVersion = String((installed == null ? void 0 : installed.uiVersion) || "").replace(/-local.*$/, "");
-        button.querySelector("[data-version-number]").textContent = displayVersion ? "UI " + displayVersion : "版本";
-        button.querySelector("[data-version-status]").textContent = text2;
-        button.title = `版本与更新：${(installed == null ? void 0 : installed.uiVersion) || "未读取"}，${text2}`;
+        const parts2 = badgeParts(installed == null ? void 0 : installed.uiVersion, latest == null ? void 0 : latest.version, Boolean(status == null ? void 0 : status.available));
+        const label = badgeLabel(installed == null ? void 0 : installed.uiVersion, latest == null ? void 0 : latest.version, Boolean(status == null ? void 0 : status.available));
+        const labelNode = button.querySelector("[data-version-label]"), nextNode = button.querySelector("[data-version-next]");
+        if (labelNode) labelNode.textContent = parts2.current;
+        if (nextNode) {
+          nextNode.textContent = parts2.next ? " → " + parts2.next : "";
+          nextNode.hidden = !parts2.next;
+        }
+        const latestNote = (status == null ? void 0 : status.available) && latest ? `，可更新到 ${latest.version}` : "";
+        button.title = `版本与更新：UI ${(installed == null ? void 0 : installed.uiVersion) || "未读取"}，${text2}${latestNote}`;
         button.setAttribute("aria-label", button.title);
+        document.documentElement.dataset.uiUpdate = (status == null ? void 0 : status.available) ? "available" : "none";
+        document.querySelectorAll("[data-version-mirror]").forEach((node) => {
+          node.textContent = (status == null ? void 0 : status.available) ? label : text2;
+        });
         manual.disabled = checking || limited;
         manual.textContent = checking ? "正在检查…" : limited ? "等待 GitHub 限流恢复" : "检查更新";
         const fact = (name, value) => `<div><dt>${name}</dt><dd>${escape(value)}</dd></div>`;
@@ -7912,7 +7943,7 @@ const versionService = (() => {
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, { once: true });
     else start();
   }
-  return { versionParts, compareVersions, releaseInfo, assess, setup };
+  return { versionParts, compareVersions, releaseInfo, assess, shortVersion, badgeParts, badgeLabel, setup };
 })();
 function initialize$a() {
   versionService.setup();
@@ -7930,7 +7961,7 @@ function initialize$9() {
   ];
   const paths = { cards: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>', list: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14h18M9 4v16"/>' };
   const mobile = window.matchMedia("(max-width:600px)");
-  let preferences$1 = {}, storageKey, toast2, observer, scheduled = false;
+  let preferences$1 = {}, storageKey2, toast2, observer, scheduled = false;
   function apply3(root, definition, controls) {
     const layout = preferences$1[definition.key] || (mobile.matches ? "cards" : definition.fallback);
     root.dataset.collectionLayout = layout;
@@ -7986,7 +8017,7 @@ function initialize$9() {
         preferences$1[definition.key] = button.dataset.layout;
         apply3(root, definition, controls);
         try {
-          preferences.setItem(storageKey, JSON.stringify(preferences$1));
+          preferences.setItem(storageKey2, JSON.stringify(preferences$1));
         } catch {
           toast2 == null ? void 0 : toast2("排列已切换，浏览器无法保存偏好", "error");
         }
@@ -7996,10 +8027,10 @@ function initialize$9() {
     });
   }
   function setup(options) {
-    storageKey = "localdns-collection-layouts-v1:" + (options.apiBase || location.host);
+    storageKey2 = "localdns-collection-layouts-v1:" + (options.apiBase || location.host);
     toast2 = options.toast;
     try {
-      const saved = JSON.parse(preferences.getItem(storageKey) || "{}");
+      const saved = JSON.parse(preferences.getItem(storageKey2) || "{}");
       definitions.forEach(({ key }) => {
         if (saved && ["cards", "list"].includes(saved[key])) preferences$1[key] = saved[key];
       });
@@ -8814,7 +8845,7 @@ const routeDefs = [
     label: "代理",
     icon: "system",
     navSvg: '<rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="17" r="1"/>',
-    subtitle: "查看代理用量与排行，管理 Mihomo / sing-box 配置",
+    subtitle: "查看 Surge 代理流量与排行，管理核心脱水联动配置",
     keywords: ["代理", "代理配置", "代理流量", "流量统计", "proxy", "proxy-config"]
   },
   {
@@ -9709,7 +9740,7 @@ function parseSummary(raw) {
     updated: String(raw.updated),
     date: validDate(raw.date) ? raw.date : String(raw.updated).slice(0, 10),
     since: validDate(raw.since) ? raw.since : "",
-    source: raw.source === "sing-box" ? "sing-box" : "Mihomo",
+    source: raw.source === "Surge" ? "Surge" : (raw.source === "sing-box" ? "sing-box" : "Mihomo"),
     offset: Number.isFinite(offset) && Math.abs(offset) <= 840 ? offset : inferred,
     publishInterval: Math.max(5, Math.min(300, Number(raw.publish_interval_seconds) || 30)),
     yesterday: bytesPair(raw.yesterday),
@@ -9895,6 +9926,385 @@ function hydrateProxyCard(root, data) {
     }
   }
   if (note) note.textContent = view2.note;
+}
+const OVERVIEW_BLOCKS = [
+  ["service", "服务运行状态", "服务状态、运行时长、CPU、内存与健康提示"],
+  ["kpi", "指标卡", "累计请求、缓存命中率、客户端数等数据卡"],
+  ["shortcuts", "快捷控制条", "客户端分流、缓存与过期、功能开关"],
+  ["trend", "响应趋势图", "服务运行体征与查询吞吐监控"],
+  ["outcomes", "查询结果占比", "分流结果环形图与分类列表"],
+  ["topology", "解析链路拓扑", "五阶段 DNS 解析路径示意"],
+  ["rankings", "访问排行", "域名、客户端与名单排行"],
+  ["caches", "缓存池状态", "多级缓存池命中率与管理入口"],
+  ["slow", "慢查询排行", "耗时最高的查询样本列表"]
+];
+const BLOCK_SELECTORS = {
+  shortcuts: [".console-shortcuts", ".control-bar-card"],
+  service: [".console-service-row", ".console-health-strip", ".console-service-summary"],
+  kpi: [".console-kpi-row", ".spark-kpi-card"],
+  topology: [".console-topology", ".topology-glass-card"],
+  trend: [".console-trend", ".traffic-chart-body"],
+  outcomes: [".console-donut", ".outbound-donut-body"],
+  rankings: [".workspace-rankings"],
+  caches: [".overview-cache-panel"],
+  slow: [".overview-slow-panel"]
+};
+const BLOCK_KEYS = new Set(OVERVIEW_BLOCKS.map(([key]) => key));
+const BLOCK_GROUPS = [["service", "kpi"]];
+const groupOf = (key) => BLOCK_GROUPS.find((group) => group.includes(key)) || null;
+function normalizeOrder(order) {
+  const out = [];
+  const placed = /* @__PURE__ */ new Set();
+  order.forEach((key) => {
+    if (placed.has(key)) return;
+    const members = groupOf(key) || [key];
+    members.forEach((member) => {
+      if (!placed.has(member)) {
+        placed.add(member);
+        out.push(member);
+      }
+    });
+  });
+  return out;
+}
+function orderUnits(order = getBlockOrder()) {
+  const units = [];
+  order.forEach((key) => {
+    const group = groupOf(key);
+    if (group && group[0] !== key) return;
+    units.push(group ? [...group] : [key]);
+  });
+  return units;
+}
+const BLOCK_PROBE = Object.values(BLOCK_SELECTORS).flat().join(",");
+const storageKey = () => "localdns-overview-hidden-blocks:" + (API_BASE || location.host);
+const orderKey = () => "localdns-overview-block-order:" + (API_BASE || location.host);
+function getHiddenBlocks() {
+  try {
+    const raw = JSON.parse(storage.get(storageKey()) || "[]");
+    if (!Array.isArray(raw)) return [];
+    return OVERVIEW_BLOCKS.map(([key]) => key).filter((key) => raw.includes(key));
+  } catch {
+    return [];
+  }
+}
+function setHiddenBlocks(keys) {
+  const unique = new Set(keys.filter((key) => BLOCK_KEYS.has(key)));
+  storage.set(storageKey(), JSON.stringify(OVERVIEW_BLOCKS.map(([key]) => key).filter((key) => unique.has(key))));
+}
+function getBlockOrder() {
+  const defaults = OVERVIEW_BLOCKS.map(([key]) => key);
+  try {
+    const raw = JSON.parse(storage.get(orderKey()) || "[]");
+    if (!Array.isArray(raw)) return defaults;
+    const seen2 = /* @__PURE__ */ new Set();
+    const ordered = raw.filter((key) => BLOCK_KEYS.has(key) && !seen2.has(key) && (seen2.add(key), true));
+    defaults.forEach((key) => {
+      if (!seen2.has(key)) ordered.push(key);
+    });
+    return normalizeOrder(ordered);
+  } catch {
+    return defaults;
+  }
+}
+function setBlockOrder(keys) {
+  const seen2 = /* @__PURE__ */ new Set();
+  const ordered = keys.filter((key) => BLOCK_KEYS.has(key) && !seen2.has(key) && (seen2.add(key), true));
+  OVERVIEW_BLOCKS.forEach(([key]) => {
+    if (!seen2.has(key)) ordered.push(key);
+  });
+  storage.set(orderKey(), JSON.stringify(normalizeOrder(ordered)));
+}
+function moveBlock(key, dir) {
+  const units = orderUnits();
+  const idx = units.findIndex((unit) => unit.includes(key));
+  const next = idx + dir;
+  if (idx < 0 || next < 0 || next >= units.length) return false;
+  [units[idx], units[next]] = [units[next], units[idx]];
+  setBlockOrder(units.flat());
+  return true;
+}
+function applyBlockOrder(page2) {
+  const rank = new Map(getBlockOrder().map((key, idx) => [key, idx]));
+  [...page2.children].forEach((child) => {
+    let best = null;
+    for (const [key, selectors2] of Object.entries(BLOCK_SELECTORS)) {
+      if (selectors2.some((sel) => child.matches(sel) || child.querySelector(sel))) {
+        const r = rank.get(key) ?? 0;
+        best = best === null ? r : Math.min(best, r);
+      }
+    }
+    child.style.order = best === null ? "" : String(best + 1);
+  });
+}
+function applyBlockVisibility() {
+  const page2 = $("#page-content");
+  if (!page2) return;
+  const hidden = getHiddenBlocks();
+  const next = hidden.join(" ");
+  const prev = page2.dataset.ovHide || "";
+  if (prev !== next) {
+    if (next) page2.dataset.ovHide = next;
+    else delete page2.dataset.ovHide;
+  }
+  applyBlockOrder(page2);
+  window.dispatchEvent(new CustomEvent("localdns:layoutchange"));
+}
+let popover = null;
+let viewport = { width: 0, height: 0 };
+const readViewport = () => ({ width: window.innerWidth, height: window.innerHeight });
+const MIN_POPOVER_SPACE = 200;
+const VIEWPORT_GAP = 12;
+function ensurePopover() {
+  if (popover == null ? void 0 : popover.isConnected) return popover;
+  popover = document.createElement("div");
+  popover.id = "overview-blocks-popover";
+  popover.className = "overview-blocks-popover";
+  popover.setAttribute("role", "dialog");
+  popover.setAttribute("aria-label", "自定义概览显示内容");
+  popover.hidden = true;
+  document.body.append(popover);
+  bindGlobalListeners();
+  return popover;
+}
+function closePopover(returnFocus = false) {
+  if (!popover || popover.hidden) return;
+  const hadFocus = popover.contains(document.activeElement);
+  popover.hidden = true;
+  const trigger = (
+    /** @type {HTMLElement|null} */
+    document.querySelector("[data-ovb-trigger]")
+  );
+  trigger == null ? void 0 : trigger.setAttribute("aria-expanded", "false");
+  if (returnFocus && hadFocus) trigger == null ? void 0 : trigger.focus({ preventScroll: true });
+}
+function focusFirstControl(pop) {
+  var _a2;
+  (_a2 = $("[data-ovb-key]", pop)) == null ? void 0 : _a2.focus({ preventScroll: true });
+}
+function positionPopover(trigger) {
+  const rect = trigger.getBoundingClientRect();
+  const vh = window.innerHeight;
+  const right = Math.min(Math.max(VIEWPORT_GAP, window.innerWidth - rect.right), Math.max(VIEWPORT_GAP, window.innerWidth - 324));
+  popover.style.right = `${right}px`;
+  const top = Math.max(VIEWPORT_GAP, rect.bottom + 8);
+  const below = vh - top - VIEWPORT_GAP;
+  const above = rect.top - 8 - VIEWPORT_GAP;
+  if (below >= MIN_POPOVER_SPACE || below >= above && below > 0) {
+    popover.style.top = `${top}px`;
+    popover.style.bottom = "";
+    popover.style.maxHeight = `${below}px`;
+  } else if (above >= MIN_POPOVER_SPACE) {
+    popover.style.top = "";
+    popover.style.bottom = `${vh - rect.top + 8}px`;
+    popover.style.maxHeight = `${above}px`;
+  } else {
+    popover.style.top = `${VIEWPORT_GAP}px`;
+    popover.style.bottom = "";
+    popover.style.maxHeight = `${Math.max(0, vh - VIEWPORT_GAP * 2)}px`;
+  }
+}
+function placePopover(trigger) {
+  if (matchMedia("(max-width:600px)").matches) {
+    popover.classList.add("is-docked");
+    popover.style.top = "";
+    popover.style.right = "";
+    popover.style.bottom = "";
+    popover.style.maxHeight = "";
+  } else {
+    popover.classList.remove("is-docked");
+    positionPopover(trigger);
+  }
+}
+function isDefaultOrder(order) {
+  return order.every((key, idx) => key === OVERVIEW_BLOCKS[idx][0]);
+}
+function popoverHtml() {
+  const hidden = new Set(getHiddenBlocks());
+  const order = getBlockOrder();
+  const units = orderUnits(order);
+  const byKey = new Map(OVERVIEW_BLOCKS.map((b) => [b[0], b]));
+  const label = (key) => (byKey.get(key) || [key, key, ""])[1];
+  return `
+    <div class="ovb-head">
+      <strong>自定义概览显示内容</strong>
+      <button type="button" class="ovb-close" data-ovb-close aria-label="关闭">${icon$1("close")}</button>
+    </div>
+    <div class="ovb-list">
+      ${units.map((unit, idx) => {
+    const lead = unit[0];
+    const name = unit.map(label).join("与");
+    const boxes = unit.map((key) => {
+      const [k, l, d] = byKey.get(key) || [key, key, ""];
+      return `
+          <label class="ovb-item-main" title="${esc$1(d)}">
+            <input type="checkbox" data-ovb-key="${esc$1(k)}" aria-label="显示${esc$1(l)}" ${hidden.has(k) ? "" : "checked"}>
+            <span class="ovb-item-text"><span>${esc$1(l)}</span><small>${esc$1(d)}</small></span>
+          </label>`;
+    }).join("");
+    const grouped = unit.length > 1;
+    return `
+        <div class="ovb-item${grouped ? " ovb-group" : ""}"${grouped ? ` role="group" aria-label="${esc$1(name)}（作为整体排序）"` : ""}>
+          ${grouped ? `<div class="ovb-group-main">${boxes}</div>` : boxes}
+          <span class="ovb-move">
+            <button type="button" data-ovb-up="${esc$1(lead)}" ${idx === 0 ? "disabled" : ""} aria-label="上移${esc$1(name)}">▲</button>
+            <button type="button" data-ovb-down="${esc$1(lead)}" ${idx === units.length - 1 ? "disabled" : ""} aria-label="下移${esc$1(name)}">▼</button>
+          </span>
+        </div>`;
+  }).join("")}
+    </div>
+    <div class="ovb-foot">
+      <button type="button" class="glass-btn ovb-reset" data-ovb-reset ${hidden.size || !isDefaultOrder(order) ? "" : "disabled"}>恢复默认</button>
+      <span class="ovb-note">按浏览器保存 · 仅影响概览页</span>
+    </div>`;
+}
+function openPopover(trigger) {
+  const pop = ensurePopover();
+  setHTML(pop, popoverHtml());
+  bindPopoverControls(pop);
+  viewport = readViewport();
+  placePopover(trigger);
+  pop.hidden = false;
+  trigger.setAttribute("aria-expanded", "true");
+  focusFirstControl(pop);
+}
+function bindPopoverControls(pop) {
+  $$("[data-ovb-key]", pop).forEach((box) => {
+    box.onchange = () => {
+      const hidden = new Set(getHiddenBlocks());
+      const key = box.dataset.ovbKey;
+      if (box.checked) hidden.delete(key);
+      else hidden.add(key);
+      setHiddenBlocks([...hidden]);
+      applyBlockVisibility();
+      const reset = $("[data-ovb-reset]", pop);
+      if (reset) reset.disabled = hidden.size === 0 && isDefaultOrder(getBlockOrder());
+    };
+  });
+  const rebindMove = (attr, dir) => {
+    $$(`[${attr}]`, pop).forEach((btn) => {
+      btn.onclick = (event) => {
+        var _a2;
+        event.stopPropagation();
+        const key = btn.getAttribute(attr);
+        if (!moveBlock(key, dir)) return;
+        applyBlockVisibility();
+        setHTML(pop, popoverHtml());
+        bindPopoverControls(pop);
+        const other = attr === "data-ovb-up" ? "data-ovb-down" : "data-ovb-up";
+        const same = (
+          /** @type {HTMLButtonElement|null} */
+          $(`[${attr}="${key}"]`, pop)
+        );
+        const fallback = (
+          /** @type {HTMLButtonElement|null} */
+          $(`[${other}="${key}"]`, pop)
+        );
+        (_a2 = same && !same.disabled ? same : fallback) == null ? void 0 : _a2.focus({ preventScroll: true });
+      };
+    });
+  };
+  rebindMove("data-ovb-up", -1);
+  rebindMove("data-ovb-down", 1);
+  $("[data-ovb-close]", pop).onclick = () => closePopover(true);
+  $("[data-ovb-reset]", pop).onclick = () => {
+    setHiddenBlocks([]);
+    setBlockOrder(OVERVIEW_BLOCKS.map(([key]) => key));
+    applyBlockVisibility();
+    setHTML(pop, popoverHtml());
+    bindPopoverControls(pop);
+    focusFirstControl(pop);
+  };
+}
+let globalListenersBound = false;
+function bindGlobalListeners() {
+  if (globalListenersBound) return;
+  globalListenersBound = true;
+  document.addEventListener("click", (event) => {
+    if (!popover || popover.hidden) return;
+    if (popover.contains(event.target) || event.target.closest("[data-ovb-trigger]")) return;
+    closePopover();
+  }, true);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && popover && !popover.hidden) {
+      event.stopPropagation();
+      closePopover(true);
+    }
+  });
+  window.addEventListener("scroll", (event) => {
+    if (!popover || popover.hidden) return;
+    if (event.target instanceof Node && popover.contains(event.target)) return;
+    followTrigger();
+  }, true);
+  window.addEventListener("resize", () => {
+    if (!popover || popover.hidden) return;
+    const next = readViewport();
+    if (next.width === viewport.width && next.height === viewport.height) return;
+    viewport = next;
+    followTrigger();
+  });
+}
+function followTrigger() {
+  const trigger = (
+    /** @type {HTMLElement|null} */
+    document.querySelector("[data-ovb-trigger]")
+  );
+  if (!(trigger == null ? void 0 : trigger.isConnected)) {
+    closePopover();
+    return;
+  }
+  const rect = trigger.getBoundingClientRect();
+  if (rect.bottom < 0 || rect.top > window.innerHeight) {
+    closePopover();
+    return;
+  }
+  placePopover(trigger);
+}
+let orderObserver = null;
+function watchBlockOrder(page2) {
+  orderObserver == null ? void 0 : orderObserver.disconnect();
+  orderObserver = new MutationObserver(() => {
+    if (!page2.isConnected || !page2.querySelector(BLOCK_PROBE)) {
+      orderObserver == null ? void 0 : orderObserver.disconnect();
+      return;
+    }
+    applyBlockOrder(page2);
+  });
+  orderObserver.observe(page2, { childList: true, subtree: true });
+}
+function ensureTrigger() {
+  const existing = (
+    /** @type {HTMLElement|null} */
+    document.querySelector("[data-ovb-trigger]")
+  );
+  if (existing) return existing;
+  const dock = document.querySelector(".glass-action-capsule");
+  if (!dock) return null;
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "icon-action-btn";
+  trigger.dataset.ovbTrigger = "";
+  trigger.setAttribute("aria-haspopup", "dialog");
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.setAttribute("aria-controls", "overview-blocks-popover");
+  trigger.setAttribute("aria-label", "自定义概览显示内容");
+  trigger.title = "自定义概览显示内容";
+  setHTML(trigger, strokeIcon("overview"));
+  dock.prepend(trigger);
+  return trigger;
+}
+function bindOverviewBlocks(page2) {
+  ensurePopover();
+  applyBlockVisibility();
+  watchBlockOrder(page2);
+  const trigger = ensureTrigger();
+  if (!trigger) return;
+  trigger.onclick = (event) => {
+    event.stopPropagation();
+    if (popover && !popover.hidden) closePopover();
+    else openPopover(trigger);
+  };
+  if (popover && !popover.hidden) trigger.setAttribute("aria-expanded", "true");
 }
 const cpuSample = { total: null, at: null };
 async function renderOverview(container, context) {
@@ -10548,6 +10958,7 @@ async function renderOverview(container, context) {
         </div>
       </div>
     `);
+  bindOverviewBlocks(page2);
   const topologyWrap = $("#topo-stage-wrap");
   if (degradedParts.length) toast("部分数据暂不可用", "info", `${degradedParts.join("、")}读取失败，相关区域已按空数据展示。`);
   const redraw = () => {
@@ -11638,7 +12049,7 @@ function initialize$5() {
     rows.forEach(function(r) {
       if (r.kind === "blank" || r.kind === "sep" || !hits(r)) return;
       show[r.id] = true;
-      var g = groupOf(r.id) || groupById(lineGroup[r.id]);
+      var g = groupOf2(r.id) || groupById(lineGroup[r.id]);
       if (g) {
         show[g.id] = true;
         g.notes.forEach(function(n) {
@@ -11751,7 +12162,7 @@ function initialize$5() {
     for (var i = 0; i < groups2.length; i++) if (groups2[i].id === id) return groups2[i];
     return null;
   }
-  function groupOf(id) {
+  function groupOf2(id) {
     return groupById(childGroup[id]);
   }
   function groupTitle(g) {
@@ -12086,7 +12497,7 @@ function initialize$5() {
     if (!target || rows.indexOf(target) < 0) return false;
     var pn = prevNote(target), moving = [target];
     if (pn.idx >= 0) moving = [rows[pn.idx], target];
-    var cur = groupOf(target.id), want = gid ? groupById(gid) : null;
+    var cur = groupOf2(target.id), want = gid ? groupById(gid) : null;
     if (gid && !want) return false;
     if (cur && want && cur.id === want.id || !cur && !want) return false;
     var rest = rows.filter(function(r) {
@@ -12118,7 +12529,7 @@ function initialize$5() {
   function fillGroupSelect(row, fresh) {
     var box = sheet().querySelector("#rv-group"), hint2 = sheet().querySelector("#rv-group-hint");
     if (!box) return;
-    var curG = !fresh && row ? groupOf(row.id) : null;
+    var curG = !fresh && row ? groupOf2(row.id) : null;
     var html2 = '<option value="">（不分组）</option>';
     groups2.forEach(function(g) {
       var t = stripTitlePrefix(groupTitle(g)) || "（空标题）";
@@ -12162,7 +12573,7 @@ function initialize$5() {
     if (first) first.focus();
   }
   function openGroupPicker(anchor, row) {
-    var cur = groupOf(row.id);
+    var cur = groupOf2(row.id);
     var items = [{
       label: "（不分组）",
       hint: groups2.length ? "单着的一条规则" : "名单里还没有标题",
@@ -13303,9 +13714,9 @@ function initShell() {
   document.title = CONFIG.title;
   setHTML($("#side-nav"), navHtml());
   setHTML($("#mobile-nav"), routeDefs.map((r) => `<button data-route="${r.id}">${icon$1(r.icon)}<span>${r.label}</span></button>`).join(""));
-  setHTML($("#theme-toggle"), icon$1("theme"));
-  setHTML($("#refresh-button"), icon$1("refresh"));
-  setHTML($("#restart-button"), icon$1("power"));
+  setHTML($("#theme-toggle"), strokeIcon("theme"));
+  setHTML($("#refresh-button"), strokeIcon("refresh"));
+  setHTML($("#restart-button"), strokeIcon("power"));
   setHTML($("#drawer-close"), icon$1("close"));
   $$("#modal .icon-button").forEach((x) => setHTML(x, icon$1("close")));
   shellInterfaceService == null ? void 0 : shellInterfaceService.updateBrand();
@@ -13326,7 +13737,26 @@ function initShell() {
         openBtn.setAttribute("aria-expanded", "false");
       };
     }
+    let forwarding = false;
+    pop.addEventListener("click", (e) => {
+      const shortcut = e.target.closest("[data-toolbar-proxy]");
+      if (!shortcut) return;
+      const target = document.querySelector(shortcut.dataset.toolbarProxy);
+      if (!target) return;
+      e.stopPropagation();
+      if (!shortcut.hasAttribute("data-keep-open")) {
+        pop.classList.remove("open");
+        openBtn.setAttribute("aria-expanded", "false");
+      }
+      forwarding = true;
+      try {
+        target.click();
+      } finally {
+        forwarding = false;
+      }
+    });
     document.addEventListener("click", (e) => {
+      if (forwarding) return;
       if (!pop.contains(e.target) && !e.target.closest("#btn-open-bg-customizer")) {
         pop.classList.remove("open");
         openBtn.setAttribute("aria-expanded", "false");
@@ -13363,6 +13793,7 @@ function initShell() {
     const syncParticles = () => {
       partBtn.classList.toggle("active", enabled());
       partBtn.setAttribute("aria-pressed", String(enabled()));
+      $$('[data-toolbar-proxy="#btn-toggle-particles"]').forEach((mirror) => mirror.setAttribute("aria-pressed", String(enabled())));
       const label = reduceMotion.matches && !state.particleMotionOverride ? "拓扑动画已跟随系统减少动态暂停，点击可单独启用" : enabled() ? "关闭拓扑动画" : "开启拓扑动画";
       partBtn.title = label;
       partBtn.setAttribute("aria-label", label);
@@ -13501,6 +13932,7 @@ function initShell() {
   });
   syncAllSegThumbs();
   window.addEventListener("resize", () => requestAnimationFrame(syncAllSegThumbs));
+  window.addEventListener("localdns:layoutchange", () => requestAnimationFrame(syncAllSegThumbs));
   window.addEventListener("hashchange", () => navigate(location.hash.replace(/^#\/?/, "") || "overview", false));
   window.addEventListener("resize", () => {
     if (state.route === "rules") requestAnimationFrame(fitRuleLayoutHeight);
@@ -15596,7 +16028,7 @@ async function mountTraffic(parent, context, onStatus = () => {
 let activePane = null;
 const requestLeave = () => activePane === "config" ? requestLeave$1() : true;
 async function mount(parent, context) {
-  setHTML(parent, `<section class="pp-root" aria-labelledby="proxy-title"><header class="pp-heading"><div><h1 id="proxy-title">代理</h1><p>查看代理用量，管理核心配置。</p></div><span class="pp-core-status" id="proxy-stat-status" role="status">正在读取统计…</span></header><div class="pp-navigation" role="tablist" aria-label="代理工作区"><button type="button" class="pp-tab" id="proxy-pane-traffic" role="tab" aria-selected="true" aria-controls="proxy-pane-content" data-proxy-pane="traffic">流量统计</button><button type="button" class="pp-tab" id="proxy-pane-config" role="tab" aria-selected="false" aria-controls="proxy-pane-content" tabindex="-1" data-proxy-pane="config">配置管理</button><span class="pp-navigation-note" id="proxy-pane-note">仅统计走代理的上传与下载</span></div><section id="proxy-pane-content" role="tabpanel" aria-labelledby="proxy-pane-traffic"></section></section>`);
+  setHTML(parent, `<section class="pp-root" aria-labelledby="proxy-title"><header class="pp-heading"><div><h1 id="proxy-title">代理</h1><p>查看 Surge 代理用量，管理核心联动配置。</p></div><span class="pp-core-status" id="proxy-stat-status" role="status">正在读取统计…</span></header><div class="pp-navigation" role="tablist" aria-label="代理工作区"><button type="button" class="pp-tab" id="proxy-pane-traffic" role="tab" aria-selected="true" aria-controls="proxy-pane-content" data-proxy-pane="traffic">流量统计</button><button type="button" class="pp-tab" id="proxy-pane-config" role="tab" aria-selected="false" aria-controls="proxy-pane-content" tabindex="-1" data-proxy-pane="config">配置管理</button><span class="pp-navigation-note" id="proxy-pane-note">仅统计走代理的上传与下载</span></div><section id="proxy-pane-content" role="tabpanel" aria-labelledby="proxy-pane-traffic"></section></section>`);
   const root = parent.querySelector(".pp-root"), content = root.querySelector("#proxy-pane-content");
   let pane = null, child = null, sequence = 0;
   context.scope.add(() => {
@@ -15945,7 +16377,7 @@ function busyViewing() {
   if (a && main && ["INPUT", "TEXTAREA", "SELECT"].includes(a.tagName)) return true;
   if (a && main && a !== document.body && a !== main && !(a.tagName === "H1" && a.tabIndex === -1) && keyboardFocus(a)) return true;
   if (document.querySelector("#topo-stage-wrap:hover")) return true;
-  return !!document.querySelector("dialog[open], .drawer.open");
+  return !!document.querySelector("dialog[open], .drawer.open, #overview-blocks-popover:not([hidden])");
 }
 function keyboardFocus(el) {
   try {
@@ -16018,6 +16450,8 @@ function initialize$2() {
       content.append(pane);
     }
     title.after(tabs, content);
+    const shortcuts = panel.querySelector("#bcp-group-toolbar");
+    if (shortcuts) tabs.before(shortcuts);
     const move = (selector, key) => {
       const element = panel.querySelector(selector);
       if (element) panes.get(key).append(element);
@@ -16142,10 +16576,55 @@ function initialize$2() {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", setup, { once: true });
   else setup();
 }
-const MATERIAL_FLOORS = Object.freeze({ alpha: 55, dimmer: 15 });
-const MATERIAL_DEFAULTS = Object.freeze({ blur: 14, alpha: 55, dimmer: 22, radius: 100 });
-function clampMaterial(name, raw, min, max) {
-  const floor = Math.max(min, MATERIAL_FLOORS[name] ?? min);
+const ALPHA_FLOOR = 62;
+const DIMMER_FLOOR = 20;
+const alphaFloor = (blur) => blur < 6 ? 80 : blur < 10 ? 70 : ALPHA_FLOOR;
+const TEXT = Object.freeze({
+  cosmos: Object.freeze({ text1: "#F4F6FB", text2: "#DCE2EC", text3: "#C3CCDA", primaryLight: "#BCD6FE" }),
+  light: Object.freeze({ text1: "#0F172A", text2: "#334155", text3: "#3E4A5C", primaryLight: "#1D40AA" })
+});
+const STATUS = Object.freeze({
+  cosmos: Object.freeze({ success: "#8DE8C4", danger: "#FDC9C9", info: "#BCD6FE" }),
+  light: Object.freeze({ success: "#05503B", danger: "#921B1B", info: "#1D40AA" })
+});
+const LAYERS = Object.freeze({
+  cosmos: Object.freeze({ dimmer: [6, 7, 9], dimmerScale: 1, fill: [21, 22, 26], fillScale: 1, fillOffset: 0, pill: [54, 57, 64, 0.28], strong: [18, 20, 24, 0.84] }),
+  light: Object.freeze({ dimmer: [240, 244, 250], dimmerScale: 0.55, fill: [255, 255, 255], fillScale: 0.68, fillOffset: 0.28, pill: [224, 231, 241, 0.34], strong: [250, 252, 255, 0.88] })
+});
+const WALLPAPERS = Object.freeze({ white: [255, 255, 255], black: [0, 0, 0], grey: [128, 128, 128] });
+const channel = (v) => {
+  v /= 255;
+  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+};
+const hexRgb = (hex) => {
+  const h = String(hex).replace("#", "");
+  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+};
+const luminance = (c) => 0.2126 * channel(c[0]) + 0.7152 * channel(c[1]) + 0.0722 * channel(c[2]);
+const contrast = (a, b) => {
+  const x = luminance(a), y = luminance(b);
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+};
+const over = (top, alpha, bottom) => top.map((v, i) => v * alpha + bottom[i] * (1 - alpha));
+function glassSurfaces(mode, wallpaper, alpha, dimmer) {
+  const layer = LAYERS[mode];
+  const masked = over(layer.dimmer, dimmer / 100 * layer.dimmerScale, wallpaper);
+  const fill = over(layer.fill, Math.min(1, alpha / 100 * layer.fillScale + layer.fillOffset), masked);
+  return {
+    fill,
+    pill: over(layer.pill.slice(0, 3), layer.pill[3], fill),
+    strong: over(layer.strong.slice(0, 3), layer.strong[3], wallpaper)
+  };
+}
+function worstContrast(mode, color, wallpaper, alpha, dimmer) {
+  const rgb = typeof color === "string" ? hexRgb(color) : color;
+  return Math.min(...Object.values(glassSurfaces(mode, wallpaper, alpha, dimmer)).map((bg) => contrast(rgb, bg)));
+}
+const MATERIAL_FLOORS = Object.freeze({ alpha: ALPHA_FLOOR, dimmer: DIMMER_FLOOR });
+const MATERIAL_DEFAULTS = Object.freeze({ blur: 14, alpha: ALPHA_FLOOR, dimmer: 22, radius: 100 });
+function clampMaterial(name, raw, min, max, blur) {
+  const dynamic = name === "alpha" && Number.isFinite(blur) ? alphaFloor(Number(blur)) : MATERIAL_FLOORS[name];
+  const floor = Math.max(min, dynamic ?? min);
   const value = Number.isFinite(Number(raw)) && raw !== null && raw !== "" ? Number(raw) : MATERIAL_DEFAULTS[name];
   return Math.min(max, Math.max(floor, value));
 }
@@ -16293,21 +16772,45 @@ function initialize$1() {
       else root.setProperty("--glass-" + name, name === "blur" ? value + "px" : (value / 100).toFixed(2));
     }
     const units = { blur: "px", alpha: "%", dimmer: "%", radius: "%" };
+    let blur = MATERIAL_DEFAULTS.blur;
+    function syncAlphaFloor() {
+      const input = document.querySelector("#slider-alpha");
+      if (!input) return;
+      const current = Number(saved.alpha ?? input.value);
+      const floor = alphaFloor(blur);
+      input.min = String(floor);
+      const note = document.querySelector("#alpha-floor-note");
+      if (note) note.hidden = floor === ALPHA_FLOOR;
+      if (current < floor) {
+        input.value = String(floor);
+        applyMaterial("alpha", floor);
+        store({ alpha: floor });
+        const label = document.querySelector("#val-alpha");
+        if (label) label.textContent = floor + units.alpha;
+      }
+    }
     for (const name of ["blur", "alpha", "dimmer", "radius"]) {
       const input = document.querySelector("#slider-" + name), label = document.querySelector("#val-" + name);
       if (!input) continue;
-      const value = clampMaterial(name, saved[name], +input.min, +input.max);
+      if (name === "alpha") input.min = String(alphaFloor(blur));
+      const value = clampMaterial(name, saved[name], +input.min, +input.max, name === "alpha" ? blur : void 0);
       input.value = value;
       if (name in saved && +saved[name] !== value) store({ [name]: value });
       applyMaterial(name, value);
       if (label) label.textContent = value + units[name];
+      if (name === "blur") blur = value;
       input.addEventListener("input", () => {
         const v = +input.value;
         applyMaterial(name, v);
         if (label) label.textContent = v + units[name];
         store({ [name]: v });
+        if (name === "blur") {
+          blur = v;
+          syncAlphaFloor();
+        }
       });
     }
+    syncAlphaFloor();
   };
   const initAll = () => {
     initBrand();
@@ -16376,8 +16879,8 @@ function initialize() {
   document.addEventListener("keydown", (event) => {
     var _a2;
     if (event.key !== "Escape") return;
-    const popover = document.querySelector("#bg-customizer-popover");
-    if (popover == null ? void 0 : popover.classList.contains("open")) {
+    const popover2 = document.querySelector("#bg-customizer-popover");
+    if (popover2 == null ? void 0 : popover2.classList.contains("open")) {
       document.querySelector("#btn-close-bg-popover").click();
       document.querySelector("#btn-open-bg-customizer").focus();
     } else {

@@ -632,8 +632,18 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
   // 5.1 连通性主动测试: /api/v1/surge/test-connection
   if (path === '/api/v1/surge/test-connection' && method === 'POST') {
     const body = parseJsonBody(req);
-    const result = await service.testSurgeConnectivity(body.api_url, body.api_key);
-    return jsonResponse(result);
+    try {
+      const result = await service.testSurgeConnectivity(body.api_url, body.api_key);
+      return jsonResponse(result);
+    } catch (e: any) {
+      return jsonResponse({
+        success: false,
+        rttMs: 0,
+        url: body.api_url || 'http://127.0.0.1:6171',
+        error: e?.message || '探测执行异常',
+        hint: 'LocalDNS 执行测试时抛出异常: ' + (e?.message || '未知错误'),
+      });
+    }
   }
 
   // 5.2 详细运行状态仪表盘: /api/v1/surge/runtime
@@ -701,9 +711,8 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
       const proxyPct = totalOutbound > 0 ? ((proxyQueries / totalOutbound) * 100).toFixed(1) + '%' : '0.0%';
       const blockPct = totalOutbound > 0 ? ((blockedQueries / totalOutbound) * 100).toFixed(1) + '%' : '0.0%';
 
-      // 从本地数据库读取脱水规则统计（脱水回环清洗条数）
-      const activeBlockRules = await db.getActiveDnsBlockRules();
-      const cleanedRulesCount = activeBlockRules.length;
+      // 从本地数据库读取脱水规则统计（轻量聚合计数，秒级响应，避免全表实例化）
+      const cleanedRulesCount = await db.getActiveDnsBlockRulesCount();
 
       // 拓扑数据
       return jsonResponse({
