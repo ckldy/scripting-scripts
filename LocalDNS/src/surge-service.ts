@@ -995,7 +995,7 @@ export class SurgeService {
 
   // ==================== Surge HTTP API Client ====================
 
-  private async callSurgeApi(path: string, method = 'GET', body?: any): Promise<{ ok: boolean; status: number; data: any; error?: string }> {
+  public async callSurgeApi(path: string, method = 'GET', body?: any): Promise<{ ok: boolean; status: number; data: any; error?: string }> {
     const config = await this.db.getSurgeConfig();
     if (!config.enabled && !path.startsWith('/v1/events')) {
       return { ok: false, status: 0, data: null, error: 'Surge 联动已在 LocalDNS 中关闭' };
