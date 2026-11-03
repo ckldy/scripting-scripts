@@ -211,16 +211,32 @@ export class AdHunterService {
 
   /**
    * 基于 Surge TF436 落盘抓包会话 (Saved Capture Sessions) 深度提取广告接口特征并自动合成规则
+   * 1. 自动循环分页拉取全量会话请求（上限 800 条，绝不截断）
+   * 2. 第一顺位：从会话中的网页主文档 (HTML 响应) 深度提取 DOM 广告插槽、广告容器 Class 与 ID 锚点
+   * 3. 第二顺位：匹配已知广告联盟 (KNOWN_AD_DOMAINS) 与第三方广告域名
+   * 4. 第三顺位：匹配接口路径与 JSON 广告载荷 (URL-REGEX)
    */
-  public async analyzeCaptureSession(sessionName: string, maxRequests = 120): Promise<AdFeatureReport> {
+  public async analyzeCaptureSession(sessionName: string, maxRequests = 600): Promise<AdFeatureReport> {
     const surgeService = SurgeService.get();
-    const reqRes = await surgeService.listCaptureSessionRequests(sessionName, 0, maxRequests);
-    if (reqRes.error) {
-      throw new Error(`读取 Surge 抓包会话失败: ${reqRes.error}`);
+
+    // 1. 循环分页拉取完整会话请求列表，彻底解决只读前 120 条导致严重漏抓问题
+    const allRequests: any[] = [];
+    let currentOffset = 0;
+    const pageSize = 100;
+    while (currentOffset < maxRequests) {
+      const reqRes = await surgeService.listCaptureSessionRequests(sessionName, currentOffset, pageSize);
+      if (reqRes.error) {
+        if (allRequests.length === 0) throw new Error(`读取 Surge 抓包会话失败: ${reqRes.error}`);
+        break;
+      }
+      const list = reqRes.requests || [];
+      if (list.length === 0) break;
+      allRequests.push(...list);
+      currentOffset += list.length;
+      if (list.length < pageSize) break;
     }
 
-    const requests = reqRes.requests || [];
-    if (requests.length === 0) {
+    if (allRequests.length === 0) {
       throw new Error(`抓包会话 [${sessionName}] 为空或无请求记录`);
     }
 
@@ -231,7 +247,7 @@ export class AdHunterService {
       cmsFamily: {
         id: 'capture_session',
         name: `Surge 抓包会话 [${sessionName}]`,
-        confidence: 0.9,
+        confidence: 0.95,
         signaturesFound: [],
       },
       stats: {
@@ -262,91 +278,137 @@ export class AdHunterService {
       },
     };
 
-    // 广告与追踪特征识别模式（覆盖下划线、斜杠及各分隔符）
-    const AD_URL_PATTERN = /(?:^|[^a-zA-Z0-9])(ad|ads|advert|banner|splash|popunder|tracker|telemetry|analytics|notice|promo|marketing|delivery|pgx|open_screen|boot_ad)(?:[^a-zA-Z0-9]|$)/i;
-    const AD_PAYLOAD_KEYS = ['ad_list', 'ad_slots', 'adplacement', 'splash', 'creatives', 'materials', 'feed_ads', 'infeed', 'popup', 'interstitial', 'ads', 'advertisement'];
-
-    // 筛选出疑似广告请求
-    const candidateReqs = requests.filter((r) => {
-      const url = r.URL || r.url || '';
-      const notes = Array.isArray(r.notes) ? r.notes.join(' ') : '';
-      return AD_URL_PATTERN.test(url) || AD_URL_PATTERN.test(notes);
-    });
-
-    // 并发提取候选请求的响应 Body 进行特征识别
-    const toInspect = candidateReqs.slice(0, 30);
-    const bodyPromises = toInspect.map(async (req) => {
-      const key = req.key || String(req.id);
-      try {
-        const bodyRes = await surgeService.getCaptureSessionData(sessionName, key, 'response');
-        return { req, bodyText: bodyRes.text || '' };
-      } catch {
-        return { req, bodyText: '' };
-      }
-    });
-
-    const inspectedItems = await Promise.all(bodyPromises);
-    const detectedRegexSet = new Set<string>();
-
-    for (const item of inspectedItems) {
-      const req = item.req;
-      const urlStr = req.URL || req.url || '';
-      const body = item.bodyText;
-
-      let isAdHit = false;
-      let adDesc = '抓包特征命中广告接口';
-
-      // 1. JSON 键名扫描
-      if (body.startsWith('{') || body.startsWith('[')) {
-        for (const k of AD_PAYLOAD_KEYS) {
-          if (body.toLowerCase().includes(`"${k}"`)) {
-            isAdHit = true;
-            adDesc = `响应 JSON 包含广告载荷字段 [${k}]`;
-            report.cmsFamily.signaturesFound.push(`JSON_KEY:${k}`);
+    // 2. 第一阶段：扫描会话中所有的网页主文档 (HTML 响应)，直接从实际渲染的网页中提纯 DOM 广告选择器
+    for (const req of allRequests) {
+      const url = req.URL || req.url || '';
+      // 寻找疑似主页面请求（状态码正常，且非静态音视频/图片/字体）
+      if (
+        !url.includes('.png') && !url.includes('.jpg') && !url.includes('.jpeg') &&
+        !url.includes('.mp4') && !url.includes('.m3u8') && !url.includes('.ts') &&
+        !url.includes('.woff') && !url.includes('.css') && !url.includes('.svg')
+      ) {
+        const key = req.key || String(req.id);
+        try {
+          const bodyRes = await surgeService.getCaptureSessionData(sessionName, key, 'response');
+          const bodyText = bodyRes.text || '';
+          if (bodyText.includes('<html') || bodyText.includes('<!DOCTYPE') || bodyText.includes('class=')) {
+            let host = '';
+            try { host = new URL(url.startsWith('http') ? url : `http://${url}`).hostname; } catch {}
+            // 调用 inspectHtml 从抓包的真实网页提取 DOM 选择器、插槽、卡片与悬浮层
+            const pageReport = this.inspectHtml(url, host || sessionName, bodyText);
+            if (pageReport.detectedSlots.length > 0) {
+              report.detectedSlots.push(...pageReport.detectedSlots);
+            }
+            if (pageReport.inFeedCards.detected) {
+              report.inFeedCards = pageReport.inFeedCards;
+            }
+            if (pageReport.popupsAndOverlays.length > 0) {
+              report.popupsAndOverlays.push(...pageReport.popupsAndOverlays);
+            }
+            if (pageReport.textLinkMatrices.length > 0) {
+              report.textLinkMatrices.push(...pageReport.textLinkMatrices);
+            }
+            if (pageReport.fakeNavigationPromos.length > 0) {
+              report.fakeNavigationPromos.push(...pageReport.fakeNavigationPromos);
+            }
+            if (pageReport.cmsFamily.id !== 'universal') {
+              report.cmsFamily = pageReport.cmsFamily;
+            }
+            // 只要成功分析出一个主文档 HTML 即完成 DOM 提取
             break;
           }
+        } catch (_) {}
+      }
+    }
+
+    // 3. 第二阶段：全量扫描会话中全部请求，匹配第三方广告网络域名 (高优先级)
+    const AD_URL_PATTERN = /(?:^|[^a-zA-Z0-9])(ad|ads|advert|banner|splash|popunder|tracker|telemetry|analytics|notice|promo|marketing|delivery|pgx|open_screen|boot_ad)(?:[^a-zA-Z0-9]|$)/i;
+
+    const detectedEnginesMap = new Map<string, { type: 'slot_engine' | 'popunder' | 'tracker' | 'ad_network'; zeroDomainRegex: string; desc: string }>();
+
+    for (const req of allRequests) {
+      const urlStr = req.URL || req.url || '';
+      if (!urlStr) continue;
+
+      let uHost = '';
+      let uPath = '';
+      try {
+        const u = new URL(urlStr.startsWith('http') ? urlStr : `http://${urlStr}`);
+        uHost = u.hostname.toLowerCase();
+        uPath = u.pathname;
+      } catch {
+        uHost = urlStr.split('/')[0].split(':')[0].toLowerCase();
+        uPath = urlStr.replace(/^[^/]+/, '').split('?')[0];
+      }
+
+      // 3.1 域名匹配已知第三方广告联盟
+      for (const known of KNOWN_AD_DOMAINS) {
+        if (uHost === known.suffix || uHost.endsWith('.' + known.suffix)) {
+          const rule = `DOMAIN-SUFFIX,${known.suffix},REJECT`;
+          if (!detectedEnginesMap.has(rule)) {
+            detectedEnginesMap.set(rule, {
+              type: 'ad_network',
+              zeroDomainRegex: rule,
+              desc: `${known.name} (${uHost})`,
+            });
+            // 自动为广告域名补充 DOM iframe 隐藏选择器
+            report.detectedSlots.push({
+              selector: `iframe[src*="${known.suffix}"], script[src*="${known.suffix}"]`,
+              description: `拦截 ${known.name} 动态嵌入框架`,
+            });
+          }
+          break;
         }
       }
 
-      // 2. URL 强模式扫描
-      if (!isAdHit && AD_URL_PATTERN.test(urlStr)) {
-        isAdHit = true;
-        adDesc = 'URL 路径命中广告拦截指纹';
-      }
-
-      if (isAdHit) {
-        report.stats.totalAdsDetected++;
-        report.stats.scriptEnginesCount++;
-
-        // 提取零域名 URL-REGEX 规则
-        try {
-          const u = new URL(urlStr.startsWith('http') ? urlStr : `http://${urlStr}`);
-          const pathRegex = u.pathname.replace(/\/[0-9a-f]{8,}/gi, '/[a-f0-9]+').replace(/\/(\d+)(\/|$)/g, '/\\d+$2');
-          const zeroRegex = `^https?://[^/]+${pathRegex}(?:[?#]|$)`;
-          if (!detectedRegexSet.has(zeroRegex)) {
-            detectedRegexSet.add(zeroRegex);
-            report.scriptEngines.push({
-              path: u.pathname,
-              zeroDomainRegex: zeroRegex,
-              type: 'ad_network',
-              description: `${adDesc} (${u.hostname}${u.pathname})`,
-            });
-          }
-        } catch {
-          const cleanPath = urlStr.split('?')[0].split('#')[0];
-          const zeroRegex = `^https?://[^/]+/${cleanPath.replace(/^\/+/, '')}`;
-          if (!detectedRegexSet.has(zeroRegex)) {
-            detectedRegexSet.add(zeroRegex);
-            report.scriptEngines.push({
-              path: cleanPath,
-              zeroDomainRegex: zeroRegex,
-              type: 'ad_network',
-              description: adDesc,
-            });
-          }
+      // 3.2 路径匹配广告 API 接口
+      if (AD_URL_PATTERN.test(uPath)) {
+        const cleanPath = uPath.replace(/\/[0-9a-f]{8,}/gi, '/[a-f0-9]+').replace(/\/(\d+)(\/|$)/g, '/\\d+$2');
+        const zeroRegex = `^https?://[^/]+${cleanPath}(?:[?#]|$)`;
+        if (!detectedEnginesMap.has(zeroRegex)) {
+          detectedEnginesMap.set(zeroRegex, {
+            type: uPath.includes('pop') ? 'popunder' : (uPath.includes('slot') ? 'slot_engine' : 'ad_network'),
+            zeroDomainRegex: zeroRegex,
+            desc: `广告接口路径 (${uHost}${uPath})`,
+          });
         }
       }
     }
+
+    for (const [key, item] of detectedEnginesMap.entries()) {
+      report.scriptEngines.push({
+        path: key,
+        zeroDomainRegex: item.zeroDomainRegex,
+        type: item.type,
+        description: item.desc,
+      });
+    }
+
+    // 4. 去重 DOM 选择器
+    const cleanSlots: typeof report.detectedSlots = [];
+    const seenSels = new Set<string>();
+    for (const s of report.detectedSlots) {
+      if (!seenSels.has(s.selector)) {
+        seenSels.add(s.selector);
+        cleanSlots.push(s);
+      }
+    }
+    report.detectedSlots = cleanSlots;
+
+    // 5. 统计汇总结算
+    report.stats.slotsCount = report.detectedSlots.length;
+    report.stats.inFeedCardsCount = report.inFeedCards.detected ? 1 : 0;
+    report.stats.popupsCount = report.popupsAndOverlays.length;
+    report.stats.textMatricesCount = report.textLinkMatrices.length;
+    report.stats.navPromosCount = report.fakeNavigationPromos.length;
+    report.stats.scriptEnginesCount = report.scriptEngines.length;
+    report.stats.totalAdsDetected =
+      report.stats.slotsCount +
+      report.stats.inFeedCardsCount +
+      report.stats.popupsCount +
+      report.stats.textMatricesCount +
+      report.stats.navPromosCount +
+      report.stats.scriptEnginesCount;
 
     report.synthesizedRules = this.synthesizeRules(report);
     return report;
@@ -984,7 +1046,7 @@ export class AdHunterService {
       )
     );
 
-    // 3. 读取全局母核 AdBlockHub.user.js
+    // 3. 读取全局母核 AdBlockHub.user.js 并原子合流
     const hubPath = '/var/mobile/Library/Mobile Documents/iCloud~com~thomfang~Scripting/Documents/scripting-safari-extension/userscripts/AdBlockHub.user.js';
     let hubCode = '';
     try {
@@ -994,13 +1056,15 @@ export class AdHunterService {
     }
 
     let selectorsMerged = 0;
-    if (hubCode && cleanCandidates.length > 0) {
-      // 找出当前母核中尚未包含的选择器
+    let defusersMerged = 0;
+
+    if (hubCode) {
+      // 3.1 找出当前母核中尚未包含的选择器并注入
       const newSelectors = cleanCandidates.filter((sel) => !hubCode.includes(sel));
+      const dateTag = new Date().toISOString().slice(0, 10);
+      const sourceTag = report.cmsFamily?.name || report.domain || 'AdHunter';
 
       if (newSelectors.length > 0) {
-        const dateTag = new Date().toISOString().slice(0, 10);
-        const sourceTag = report.cmsFamily?.name || report.domain || 'AdHunter';
         const injectionBlock = `\n    /* [AdHunter 自动合流: ${sourceTag} (${dateTag})] */\n    ${newSelectors.join(',\n    ')},`;
 
         // 插入在 #limbo-ad-notice { 之前，保证语法完全合法
@@ -1009,11 +1073,33 @@ export class AdHunterService {
         } else if (hubCode.includes('display: none !important;')) {
           hubCode = hubCode.replace('display: none !important;', `${injectionBlock}\n      display: none !important;`);
         }
-
-        // 保存更新后的母核脚本
-        await FileManager.writeAsString(hubPath, hubCode);
         selectorsMerged = newSelectors.length;
       }
+
+      // 3.2 提取广告域名并注入母核防弹窗拦截白名单 (Popunder Defuser)
+      const adDomainsToDefuse: string[] = [];
+      for (const r of (report.synthesizedRules.surgeUrlRegex || [])) {
+        if (r.startsWith('DOMAIN-SUFFIX,') || r.startsWith('DOMAIN,')) {
+          const dom = r.split(',')[1]?.trim();
+          if (dom && !hubCode.includes(dom)) {
+            adDomainsToDefuse.push(dom.replace(/\./g, '\\.'));
+          }
+        }
+      }
+
+      if (adDomainsToDefuse.length > 0 && hubCode.includes('/sponsored|aff|chat|game')) {
+        const patternInsert = `|${adDomainsToDefuse.join('|')}`;
+        hubCode = hubCode.replace('/sponsored|aff|chat|game', `/sponsored|aff|chat|game${patternInsert}`);
+        defusersMerged = adDomainsToDefuse.length;
+      }
+
+      // 3.3 注入合流标记并落盘保存
+      const mergeHeader = `// [AdHunter 活跃合流生效: ${sourceTag} · ${dateTag}]\n`;
+      if (!hubCode.includes(`[AdHunter 活跃合流生效: ${sourceTag}`)) {
+        hubCode = hubCode.replace('// ==/UserScript==', `// ==/UserScript==\n${mergeHeader}`);
+      }
+
+      await FileManager.writeAsString(hubPath, hubCode);
     }
 
     return {
@@ -1021,7 +1107,7 @@ export class AdHunterService {
       surgeRulesAdded,
       selectorsMerged,
       filePath: hubPath,
-      message: `已全端自动化合流生效：Surge 注入 ${surgeRulesAdded} 条网络规则，Safari 母核合并 ${selectorsMerged} 个特征选择器！`,
+      message: `已全端自动化合流生效：Surge 下沉 ${surgeRulesAdded} 条网络拦截规则；Safari 母核合并 ${selectorsMerged} 个特征选择器、${defusersMerged} 个弹窗拦截！`,
     };
   }
 }
