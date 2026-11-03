@@ -378,14 +378,29 @@
 
     <!-- Input Card -->
     <div class="card">
-      <div class="search-wrap">
+      <div style="display:flex;gap:8px;margin-bottom:12px;border-bottom:1px solid var(--border-color);padding-bottom:10px;">
+        <button type="button" id="tab-mode-url" class="tab-btn active" onclick="switchInputMode('url')" style="border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">🌐 目标网址分析</button>
+        <button type="button" id="tab-mode-session" class="tab-btn" onclick="switchInputMode('session')" style="border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">📂 Surge 抓包会话深度扫描 (TF436+)</button>
+      </div>
+
+      <div id="input-mode-url" class="search-wrap">
         <input type="text" id="target-url" class="url-input" placeholder="输入任意目标网址，如 https://i4p76.sancpkvy.cc/ 或详情页…" />
         <button id="btn-run" class="btn-analyze btn-autosync" onclick="startAnalysis(true)">
           <span>⚡ 深度分析并全端生效</span>
         </button>
       </div>
 
-      <div class="presets-wrap">
+      <div id="input-mode-session" class="search-wrap" style="display:none;align-items:center;gap:10px;">
+        <select id="surge-session-select" class="url-input" style="flex:1;cursor:pointer;">
+          <option value="">正在检测 Surge 抓包会话…</option>
+        </select>
+        <button type="button" class="tab-btn" onclick="loadSurgeSessions()" style="padding:10px 14px;border-radius:8px;font-size:13px;">🔄 刷新会话</button>
+        <button id="btn-run-session" class="btn-analyze btn-autosync" onclick="startSessionAnalysis(true)">
+          <span>⚡ 扫描抓包并全端生效</span>
+        </button>
+      </div>
+
+      <div class="presets-wrap" id="presets-container">
         <span class="preset-label">快速预设:</span>
         <span class="preset-chip" onclick="applyPreset('https://i4p76.sancpkvy.cc/')">🍉 黑料网首页</span>
         <span class="preset-chip" onclick="applyPreset('https://i4p76.sancpkvy.cc/archives/123759/')">📝 黑料网详情页</span>
@@ -479,6 +494,80 @@
   <script>
     let currentReport = null;
     let activeTab = 'css';
+
+    function switchInputMode(mode) {
+      const isSession = mode === 'session';
+      document.getElementById('input-mode-url').style.display = isSession ? 'none' : 'flex';
+      document.getElementById('input-mode-session').style.display = isSession ? 'flex' : 'none';
+      document.getElementById('presets-container').style.display = isSession ? 'none' : 'flex';
+      document.getElementById('tab-mode-url').className = isSession ? 'tab-btn' : 'tab-btn active';
+      document.getElementById('tab-mode-session').className = isSession ? 'tab-btn active' : 'tab-btn';
+      if (isSession) {
+        loadSurgeSessions();
+      }
+    }
+
+    async function loadSurgeSessions() {
+      const sel = document.getElementById('surge-session-select');
+      sel.innerHTML = '<option value="">正在拉取 Surge 抓包会话列表…</option>';
+      try {
+        const res = await fetch('/api/v1/ad-hunter/surge-sessions');
+        const data = await res.json();
+        const sessions = data.sessions || [];
+        if (sessions.length === 0) {
+          sel.innerHTML = '<option value="">⚠️ 暂无保存的会话（请在手机 Surge 中打开抓包并保存落盘）</option>';
+          return;
+        }
+        sel.innerHTML = sessions.map(s => {
+          const reqCount = s.requestCount ? `${s.requestCount} 条请求` : '';
+          const reason = s.stopReason ? `· ${s.stopReason}` : '';
+          return `<option value="${s.name}">${s.name} (${reqCount} ${reason})</option>`;
+        }).join('');
+      } catch (e) {
+        sel.innerHTML = '<option value="">❌ 拉取会话失败，请确认 Surge HTTP API 已联通</option>';
+      }
+    }
+
+    async function startSessionAnalysis(autoSync = false) {
+      const sel = document.getElementById('surge-session-select');
+      const sessionName = sel.value;
+      if (!sessionName) {
+        showToast('请选择有效的抓包会话', true);
+        return;
+      }
+
+      const btn = document.getElementById('btn-run-session');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> <span>扫描会话中...</span>';
+
+      try {
+        const res = await fetch('/api/v1/ad-hunter/analyze-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session: sessionName, maxRequests: 150 })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || '分析会话失败');
+        }
+
+        currentReport = data.report;
+        renderReport(currentReport);
+        document.getElementById('result-wrap').style.display = 'block';
+
+        if (autoSync) {
+          showToast('抓包会话特征提取成功！正在自动全端合流部署...');
+          await autoSyncAll();
+        } else {
+          showToast(`已成功从会话 [${sessionName}] 提取 ${currentReport.stats.totalAdsDetected} 处广告特征！`);
+        }
+      } catch (e) {
+        showToast(e.message || '分析抓包会话异常', true);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span>⚡ 扫描抓包并全端生效</span>';
+      }
+    }
 
     function applyPreset(url) {
       document.getElementById('target-url').value = url;

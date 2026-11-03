@@ -46,7 +46,10 @@ async function run() {
     if (!confText.includes('FINAL,PROXY,dns-failed')) {
       throw new Error('缺少 FINAL 兜底规则');
     }
-    console.log('  ✅ PASS: 核心段落配置项（LocalDNS 本地 DNS、http-api 密钥、RULE-SET 订阅挂载、FINAL 兜底）校验完全符合规范');
+    if (!confText.includes('100.64.0.0/10') || !confText.includes('ts.net')) {
+      throw new Error('缺少 Tailscale / WireGuard 回环穿透直连保护规则');
+    }
+    console.log('  ✅ PASS: 核心段落配置项（LocalDNS 本地 DNS、Tailscale 回环直连、http-api 密钥、RULE-SET 订阅挂载）校验完全符合规范');
 
     // 2. 验证下载模式带有 Content-Disposition 附件头
     const dlRes = await fetch(`${origin}/surge/localdns.conf?download=1`);

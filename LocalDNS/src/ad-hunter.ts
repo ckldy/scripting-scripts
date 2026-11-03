@@ -117,6 +117,149 @@ export class AdHunterService {
   }
 
   /**
+   * 基于 Surge TF436 落盘抓包会话 (Saved Capture Sessions) 深度提取广告接口特征并自动合成规则
+   */
+  public async analyzeCaptureSession(sessionName: string, maxRequests = 120): Promise<AdFeatureReport> {
+    const surgeService = SurgeService.get();
+    const reqRes = await surgeService.listCaptureSessionRequests(sessionName, 0, maxRequests);
+    if (reqRes.error) {
+      throw new Error(`读取 Surge 抓包会话失败: ${reqRes.error}`);
+    }
+
+    const requests = reqRes.requests || [];
+    if (requests.length === 0) {
+      throw new Error(`抓包会话 [${sessionName}] 为空或无请求记录`);
+    }
+
+    const report: AdFeatureReport = {
+      targetUrl: `surge-session://${sessionName}`,
+      domain: `capture-session:${sessionName}`,
+      analyzedAt: new Date().toISOString(),
+      cmsFamily: {
+        id: 'capture_session',
+        name: `Surge 抓包会话 [${sessionName}]`,
+        confidence: 0.9,
+        signaturesFound: [],
+      },
+      stats: {
+        totalAdsDetected: 0,
+        slotsCount: 0,
+        inFeedCardsCount: 0,
+        popupsCount: 0,
+        textMatricesCount: 0,
+        navPromosCount: 0,
+        scriptEnginesCount: 0,
+      },
+      detectedSlots: [],
+      inFeedCards: {
+        detected: false,
+        containerSelector: '',
+        cardSelector: '',
+        features: [],
+      },
+      popupsAndOverlays: [],
+      textLinkMatrices: [],
+      fakeNavigationPromos: [],
+      scriptEngines: [],
+      synthesizedRules: {
+        cssCosmetic: '',
+        defuserScriptlet: '',
+        surgeUrlRegex: [],
+        userscriptCode: '',
+      },
+    };
+
+    // 广告与追踪特征识别模式（覆盖下划线、斜杠及各分隔符）
+    const AD_URL_PATTERN = /(?:^|[^a-zA-Z0-9])(ad|ads|advert|banner|splash|popunder|tracker|telemetry|analytics|notice|promo|marketing|delivery|pgx|open_screen|boot_ad)(?:[^a-zA-Z0-9]|$)/i;
+    const AD_PAYLOAD_KEYS = ['ad_list', 'ad_slots', 'adplacement', 'splash', 'creatives', 'materials', 'feed_ads', 'infeed', 'popup', 'interstitial', 'ads', 'advertisement'];
+
+    // 筛选出疑似广告请求
+    const candidateReqs = requests.filter((r) => {
+      const url = r.URL || r.url || '';
+      const notes = Array.isArray(r.notes) ? r.notes.join(' ') : '';
+      return AD_URL_PATTERN.test(url) || AD_URL_PATTERN.test(notes);
+    });
+
+    // 并发提取候选请求的响应 Body 进行特征识别
+    const toInspect = candidateReqs.slice(0, 30);
+    const bodyPromises = toInspect.map(async (req) => {
+      const key = req.key || String(req.id);
+      try {
+        const bodyRes = await surgeService.getCaptureSessionData(sessionName, key, 'response');
+        return { req, bodyText: bodyRes.text || '' };
+      } catch {
+        return { req, bodyText: '' };
+      }
+    });
+
+    const inspectedItems = await Promise.all(bodyPromises);
+    const detectedRegexSet = new Set<string>();
+
+    for (const item of inspectedItems) {
+      const req = item.req;
+      const urlStr = req.URL || req.url || '';
+      const body = item.bodyText;
+
+      let isAdHit = false;
+      let adDesc = '抓包特征命中广告接口';
+
+      // 1. JSON 键名扫描
+      if (body.startsWith('{') || body.startsWith('[')) {
+        for (const k of AD_PAYLOAD_KEYS) {
+          if (body.toLowerCase().includes(`"${k}"`)) {
+            isAdHit = true;
+            adDesc = `响应 JSON 包含广告载荷字段 [${k}]`;
+            report.cmsFamily.signaturesFound.push(`JSON_KEY:${k}`);
+            break;
+          }
+        }
+      }
+
+      // 2. URL 强模式扫描
+      if (!isAdHit && AD_URL_PATTERN.test(urlStr)) {
+        isAdHit = true;
+        adDesc = 'URL 路径命中广告拦截指纹';
+      }
+
+      if (isAdHit) {
+        report.stats.totalAdsDetected++;
+        report.stats.scriptEnginesCount++;
+
+        // 提取零域名 URL-REGEX 规则
+        try {
+          const u = new URL(urlStr.startsWith('http') ? urlStr : `http://${urlStr}`);
+          const pathRegex = u.pathname.replace(/\/[0-9a-f]{8,}/gi, '/[a-f0-9]+').replace(/\/(\d+)(\/|$)/g, '/\\d+$2');
+          const zeroRegex = `^https?://[^/]+${pathRegex}(?:[?#]|$)`;
+          if (!detectedRegexSet.has(zeroRegex)) {
+            detectedRegexSet.add(zeroRegex);
+            report.scriptEngines.push({
+              path: u.pathname,
+              zeroDomainRegex: zeroRegex,
+              type: 'ad_network',
+              description: `${adDesc} (${u.hostname}${u.pathname})`,
+            });
+          }
+        } catch {
+          const cleanPath = urlStr.split('?')[0].split('#')[0];
+          const zeroRegex = `^https?://[^/]+/${cleanPath.replace(/^\/+/, '')}`;
+          if (!detectedRegexSet.has(zeroRegex)) {
+            detectedRegexSet.add(zeroRegex);
+            report.scriptEngines.push({
+              path: cleanPath,
+              zeroDomainRegex: zeroRegex,
+              type: 'ad_network',
+              description: adDesc,
+            });
+          }
+        }
+      }
+    }
+
+    report.synthesizedRules = this.synthesizeRules(report);
+    return report;
+  }
+
+  /**
    * 纯 HTML 内容特征解析（支持从 HTML 字符串或已抓取内容检测）
    */
   public inspectHtml(targetUrl: string, domain: string, html: string): AdFeatureReport {

@@ -353,6 +353,7 @@
       '<div class="sw-tab-bar" style="display:flex;gap:6px;margin:12px 0 16px;padding:4px;background:rgba(148,163,184,0.12);border-radius:12px;overflow-x:auto;-webkit-overflow-scrolling:touch">',
       '  <button type="button" class="sw-tab-btn ' + (activeTab === 'modules' ? 'active' : '') + '" data-sw-tab="modules">📦 模块工作台</button>',
       '  <button type="button" class="sw-tab-btn ' + (activeTab === 'diversion' ? 'active' : '') + '" data-sw-tab="diversion">🔀 动态分流治理</button>',
+      '  <button type="button" class="sw-tab-btn ' + (activeTab === 'capture-sessions' ? 'active' : '') + '" data-sw-tab="capture-sessions">🔍 抓包会话 (TF436)</button>',
       '  <button type="button" class="sw-tab-btn ' + (activeTab === 'surge-settings' ? 'active' : '') + '" data-sw-tab="surge-settings">⚙️ 联动与运行状态</button>',
       '  <button type="button" class="sw-tab-btn ' + (activeTab === 'guide' ? 'active' : '') + '" data-sw-tab="guide">📖 Surge 配置向导</button>',
       '  <button type="button" class="sw-tab-btn ' + (activeTab === 'raw-editor' ? 'active' : '') + '" data-sw-tab="raw-editor">📝 原生配置编辑</button>',
@@ -503,6 +504,267 @@
       '  </div>',
       '</div>'
     ].join('');
+  }
+
+  // ==================== 3.5 Surge TF436 落盘抓包会话审查 ====================
+
+  var currentCaptureSession = '';
+  var currentSessionOffset = 0;
+  var currentSessionLimit = 50;
+  var currentSessionRequests = [];
+  var cachedSessionsList = [];
+
+  function renderCaptureSessionsView() {
+    return [
+      '<div class="sw-panel" id="sw-panel-capture">',
+      '  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">',
+      '    <div>',
+      '      <h2 style="font-size:16px;margin:0 0 4px">Surge 历史抓包会话审查 (TF436+)</h2>',
+      '      <p style="font-size:12px;opacity:0.75;margin:0">直接读取 Surge 归档到磁盘的 Saved Capture Sessions，支持全量请求检索与 Raw Request/Response 报文下钻。</p>',
+      '    </div>',
+      '    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">',
+      '      <select id="sw-cs-select" class="sw-select" style="min-width:240px;margin-top:0"><option value="">加载中…</option></select>',
+      '      <button type="button" class="button small" id="sw-cs-refresh-btn">🔄 刷新会话</button>',
+      '      <a href="/ui/ad-hunter.html" target="_blank" class="button small primary" style="background:#8B5CF6;color:#fff;border-color:transparent;text-decoration:none;display:inline-flex;align-items:center;gap:4px">🛡️ 去广告提纯</a>',
+      '    </div>',
+      '  </div>',
+      '  <div id="sw-cs-meta-bar" style="display:flex;gap:16px;padding:10px 14px;background:rgba(148,163,184,0.08);border-radius:10px;margin-bottom:12px;font-size:12px;flex-wrap:wrap;align-items:center">',
+      '    <span>正在读取会话…</span>',
+      '  </div>',
+      '  <div style="margin-bottom:12px;display:flex;gap:10px;align-items:center">',
+      '    <input type="text" id="sw-cs-search-input" class="sw-input" style="flex:1;margin-top:0" placeholder="🔍 筛选 URL 关键词、域名、状态码 (如 200) 或进程名..." />',
+      '    <span id="sw-cs-filtered-count" style="font-size:12px;opacity:0.75;white-space:nowrap"></span>',
+      '  </div>',
+      '  <div id="sw-cs-table-wrap" class="table-wrap" style="background:rgba(255,255,255,0.02);border:1px solid rgba(148,163,184,0.15);border-radius:10px;max-height:600px;overflow-y:auto">',
+      '    <div style="padding:40px;text-align:center;opacity:0.6">加载中…</div>',
+      '  </div>',
+      '  <div id="sw-cs-pagination" style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px"></div>',
+      '</div>'
+    ].join('');
+  }
+
+  async function loadCaptureSessions() {
+    var metaBar = q('#sw-cs-meta-bar');
+    var selectEl = q('#sw-cs-select');
+    var tableWrap = q('#sw-cs-table-wrap');
+
+    try {
+      var res = await fetch('/api/v1/surge/capture/sessions');
+      var data = await res.json();
+      cachedSessionsList = data.sessions || [];
+
+      if (cachedSessionsList.length === 0) {
+        if (selectEl) selectEl.innerHTML = '<option value="">⚠️ 暂无保存的会话</option>';
+        if (metaBar) metaBar.innerHTML = '<span>⚠️ Surge 尚未保存落盘抓包会话。请在 iPhone/Mac Surge 中开启「抓包」录制并保存会话后刷新。</span>';
+        if (tableWrap) tableWrap.innerHTML = '<div style="padding:40px;text-align:center;opacity:0.6">暂无抓包请求数据</div>';
+        return;
+      }
+
+      if (selectEl) {
+        selectEl.innerHTML = cachedSessionsList.map(function (s) {
+          return '<option value="' + s.name + '" ' + (s.name === currentCaptureSession ? 'selected' : '') + '>' + s.name + (s.requestCount ? ' (' + s.requestCount + ' 条请求)' : '') + '</option>';
+        }).join('');
+      }
+
+      if (!currentCaptureSession || !cachedSessionsList.some(function (s) { return s.name === currentCaptureSession; })) {
+        currentCaptureSession = cachedSessionsList[0].name;
+      }
+
+      renderSessionMeta();
+      await loadSessionRequests(currentCaptureSession, 0);
+    } catch (e) {
+      if (metaBar) metaBar.innerHTML = '<span style="color:#EF4444">❌ 读取 Surge 抓包会话失败: ' + (e.message || e) + '</span>';
+    }
+  }
+
+  function renderSessionMeta() {
+    var metaBar = q('#sw-cs-meta-bar');
+    if (!metaBar) return;
+    var current = cachedSessionsList.find(function (s) { return s.name === currentCaptureSession; });
+    if (!current) {
+      metaBar.innerHTML = '<span>未选中有效会话</span>';
+      return;
+    }
+
+    var startStr = current.startTime ? new Date(current.startTime * 1000).toLocaleString('zh-CN') : '--';
+    var endStr = current.endTime ? new Date(current.endTime * 1000).toLocaleString('zh-CN') : '--';
+    var countStr = current.requestCount ? current.requestCount + ' 条' : '--';
+    var reason = current.stopReason || '正常结束';
+
+    metaBar.innerHTML = [
+      '<div><strong>会话名称:</strong> <code style="color:#60A5FA">' + current.name + '</code></div>',
+      '<div><strong>记录条数:</strong> ' + countStr + '</div>',
+      '<div><strong>开始:</strong> ' + startStr + '</div>',
+      '<div><strong>结束:</strong> ' + endStr + '</div>',
+      '<div><strong>终止原因:</strong> <span class="badge" style="background:rgba(16,185,129,0.15);color:#34D399">' + reason + '</span></div>'
+    ].join('');
+  }
+
+  async function loadSessionRequests(sessionName, offset) {
+    var tableWrap = q('#sw-cs-table-wrap');
+    if (!tableWrap) return;
+    tableWrap.innerHTML = '<div style="padding:40px;text-align:center;opacity:0.6">正在拉取请求列表…</div>';
+    currentSessionOffset = offset || 0;
+
+    try {
+      var res = await fetch('/api/v1/surge/capture/requests?name=' + encodeURIComponent(sessionName) + '&offset=' + currentSessionOffset + '&limit=' + currentSessionLimit);
+      var data = await res.json();
+      currentSessionRequests = data.requests || [];
+      renderSessionRequestsTable();
+    } catch (e) {
+      tableWrap.innerHTML = '<div style="padding:40px;text-align:center;color:#EF4444">加载请求失败: ' + e.message + '</div>';
+    }
+  }
+
+  function renderSessionRequestsTable() {
+    var tableWrap = q('#sw-cs-table-wrap');
+    var countLabel = q('#sw-cs-filtered-count');
+    var pagination = q('#sw-cs-pagination');
+    var searchInput = q('#sw-cs-search-input');
+    var searchVal = (searchInput ? searchInput.value : '').toLowerCase().trim();
+
+    if (!tableWrap) return;
+
+    var filtered = currentSessionRequests.filter(function (r) {
+      if (!searchVal) return true;
+      var url = (r.URL || r.url || '').toLowerCase();
+      var method = (r.method || '').toLowerCase();
+      var host = (r.notes && r.notes.host ? r.notes.host : (r.host || '')).toLowerCase();
+      var status = String(r.statusCode || r.status || '');
+      return url.includes(searchVal) || method.includes(searchVal) || host.includes(searchVal) || status.includes(searchVal);
+    });
+
+    if (countLabel) {
+      countLabel.textContent = '当前显示 ' + filtered.length + ' / ' + currentSessionRequests.length + ' 条请求';
+    }
+
+    if (filtered.length === 0) {
+      tableWrap.innerHTML = '<div style="padding:40px;text-align:center;opacity:0.6">无符合条件的请求记录</div>';
+      return;
+    }
+
+    var rows = filtered.map(function (r, idx) {
+      var id = r.key || r.id || idx;
+      var method = r.method || 'GET';
+      var url = r.URL || r.url || '--';
+      var status = r.statusCode || (r.failed ? 'Failed' : (r.completed ? '200' : 'Active'));
+      var isSuccess = String(status).startsWith('2') || status === 'Active';
+      var statusColor = isSuccess ? '#10B981' : (String(status).startsWith('3') ? '#3B82F6' : '#EF4444');
+      var inB = r.inBytes || 0;
+      var inSizeStr = inB > 1024 ? (inB / 1024).toFixed(1) + ' KB' : inB + ' B';
+      var devName = r.deviceName || r.localAddress || '--';
+
+      return [
+        '<tr>',
+        '  <td style="font-family:monospace;font-size:11px;opacity:0.6">' + id + '</td>',
+        '  <td><span style="font-weight:700;font-size:11px;padding:2px 6px;border-radius:4px;background:rgba(148,163,184,0.15)">' + method + '</span></td>',
+        '  <td><span style="color:' + statusColor + ';font-weight:600;font-size:12px">' + status + '</span></td>',
+        '  <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + url + '">',
+        '    <span style="font-size:12px;font-family:monospace">' + url + '</span>',
+        '  </td>',
+        '  <td style="font-size:12px;opacity:0.8">' + devName + '</td>',
+        '  <td style="font-size:11px;opacity:0.75;font-family:monospace">↓' + inSizeStr + '</td>',
+        '  <td>',
+        '    <button type="button" class="button small sw-cs-detail-btn" data-cs-key="' + id + '" style="padding:2px 8px;font-size:11px">🔍 报文</button>',
+        '  </td>',
+        '</tr>'
+      ].join('');
+    });
+
+    tableWrap.innerHTML = [
+      '<table class="sw-table" style="width:100%;font-size:12px">',
+      '  <thead><tr><th>ID</th><th>方法</th><th>状态</th><th>URL / 路径</th><th>设备/来源</th><th>大小</th><th>操作</th></tr></thead>',
+      '  <tbody>' + rows.join('') + '</tbody>',
+      '</table>'
+    ].join('');
+
+    // 绑定报文点击事件
+    qq('.sw-cs-detail-btn', tableWrap).forEach(function (btn) {
+      btn.onclick = function () {
+        var key = btn.dataset.csKey;
+        var targetReq = currentSessionRequests.find(function (x) { return (x.key || String(x.id)) === key; });
+        if (targetReq) showCaptureRequestModal(currentCaptureSession, targetReq);
+      };
+    });
+
+    if (pagination) {
+      var prevDisabled = currentSessionOffset === 0 ? 'disabled' : '';
+      var nextDisabled = currentSessionRequests.length < currentSessionLimit ? 'disabled' : '';
+      pagination.innerHTML = [
+        '<button type="button" class="button small" id="sw-cs-prev-btn" ' + prevDisabled + '>‹ 上一页</button>',
+        '<span>偏移: ' + currentSessionOffset + ' (每页 ' + currentSessionLimit + ' 条)</span>',
+        '<button type="button" class="button small" id="sw-cs-next-btn" ' + nextDisabled + '>下一页 ›</button>'
+      ].join('');
+
+      var prevBtn = q('#sw-cs-prev-btn');
+      var nextBtn = q('#sw-cs-next-btn');
+      if (prevBtn) prevBtn.onclick = function () {
+        loadSessionRequests(currentCaptureSession, Math.max(0, currentSessionOffset - currentSessionLimit));
+      };
+      if (nextBtn) nextBtn.onclick = function () {
+        loadSessionRequests(currentCaptureSession, currentSessionOffset + currentSessionLimit);
+      };
+    }
+  }
+
+  async function showCaptureRequestModal(sessionName, req) {
+    var key = req.key || String(req.id);
+    var url = req.URL || req.url || '';
+    var method = req.method || 'GET';
+
+    var html = [
+      '<div style="font-size:12px;line-height:1.6">',
+      '  <div style="padding:10px;background:rgba(148,163,184,0.08);border-radius:8px;margin-bottom:12px">',
+      '    <div><strong>URL:</strong> <code style="word-break:break-all;color:#60A5FA">' + url + '</code></div>',
+      '    <div style="display:flex;gap:12px;margin-top:4px">',
+      '      <span><strong>方法:</strong> ' + method + '</span>',
+      '      <span><strong>策略:</strong> ' + (req.policyName || 'DIRECT') + '</span>',
+      '      <span><strong>客户端:</strong> ' + (req.localAddress || req.sourceAddress || '--') + '</span>',
+      '    </div>',
+      '  </div>',
+      '  <div style="display:flex;gap:8px;margin-bottom:10px">',
+      '    <button type="button" class="tab-btn active" id="sw-crm-tab-res" style="border-radius:6px;padding:4px 12px">📥 响应体 (Response)</button>',
+      '    <button type="button" class="tab-btn" id="sw-crm-tab-req" style="border-radius:6px;padding:4px 12px">📤 请求体 (Request)</button>',
+      '  </div>',
+      '  <pre id="sw-crm-body" style="background:#0b0f19;color:#e2e8f0;padding:12px;border-radius:8px;max-height:380px;overflow:auto;font-family:monospace;font-size:11px;white-space:pre-wrap;word-break:break-all">正在拉取响应报文数据…</pre>',
+      '</div>'
+    ].join('');
+
+    openModal('🔍 抓包报文审查 [' + key + ']', html, null, null);
+
+    async function loadBody(type) {
+      var pre = q('#sw-crm-body');
+      if (!pre) return;
+      pre.textContent = '正在从 Surge 提取原始 ' + type + ' 报文…';
+      try {
+        var res = await fetch('/api/v1/surge/capture/data?name=' + encodeURIComponent(sessionName) + '&key=' + encodeURIComponent(key) + '&type=' + type);
+        var d = await res.json();
+        var txt = d.text || '';
+        try {
+          txt = JSON.stringify(JSON.parse(txt), null, 2);
+        } catch (_) {}
+        pre.textContent = txt || '（空报文内容）';
+      } catch (e) {
+        pre.textContent = '提取报文异常: ' + e.message;
+      }
+    }
+
+    loadBody('response');
+
+    var tabRes = q('#sw-crm-tab-res');
+    var tabReq = q('#sw-crm-tab-req');
+    if (tabRes && tabReq) {
+      tabRes.onclick = function () {
+        tabRes.classList.add('active');
+        tabReq.classList.remove('active');
+        loadBody('response');
+      };
+      tabReq.onclick = function () {
+        tabReq.classList.add('active');
+        tabRes.classList.remove('active');
+        loadBody('request');
+      };
+    }
   }
 
   // ==================== 4. Surge 配置向导 ====================
@@ -2654,6 +2916,28 @@
         if (uInput) copyText(uInput.value);
       };
     }
+
+    // 抓包会话刷新与搜索事件
+    var btnCsRefresh = q('#sw-cs-refresh-btn');
+    if (btnCsRefresh) {
+      btnCsRefresh.onclick = function () {
+        loadCaptureSessions();
+      };
+    }
+    var selCs = q('#sw-cs-select');
+    if (selCs) {
+      selCs.onchange = function () {
+        currentCaptureSession = selCs.value;
+        renderSessionMeta();
+        loadSessionRequests(currentCaptureSession, 0);
+      };
+    }
+    var inputCsSearch = q('#sw-cs-search-input');
+    if (inputCsSearch) {
+      inputCsSearch.oninput = function () {
+        renderSessionRequestsTable();
+      };
+    }
   }
 
   // ==================== 视图装配与生命周期 ====================
@@ -2711,6 +2995,7 @@
     var html = renderHeaderStatus() + renderTabs();
     if (activeTab === 'modules') html += renderModulesView();
     if (activeTab === 'diversion') html += renderDiversionView();
+    if (activeTab === 'capture-sessions') html += renderCaptureSessionsView();
     if (activeTab === 'surge-settings') html += renderSurgeSettingsView();
     if (activeTab === 'guide') html += renderGuideView();
 
@@ -2720,6 +3005,7 @@
 
     if (activeTab === 'modules') loadModules();
     if (activeTab === 'diversion') loadDiversion();
+    if (activeTab === 'capture-sessions') loadCaptureSessions();
     if (activeTab === 'surge-settings') loadSurgeSettingsAndRuntime();
   }
 

@@ -132,17 +132,11 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
       const apiKey = getParam('api_key') || getParam('key');
       const isDownload = getParam('download') === '1' || getParam('download') === 'true';
 
-      const customConf = Storage.get<string>('localdns_custom_conf');
-      let conf = '';
-      if (customConf && customConf.trim()) {
-        conf = customConf;
-      } else {
-        conf = await service.generateSurgeConfig({
-          host,
-          mode,
-          apiKey,
-        });
-      }
+      const conf = await service.generateSurgeConfig({
+        host,
+        mode,
+        apiKey,
+      });
 
       const extraHeaders: Record<string, string> = {};
       if (isDownload) {
@@ -633,6 +627,43 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
   if (path === '/api/v1/surge/hub-health' && method === 'GET') {
     const health = await service.checkHubHealth();
     return jsonResponse(health);
+  }
+
+  // 5.0.2 Surge TF436 落盘抓包会话列表: /api/v1/surge/capture/sessions
+  if (path === '/api/v1/surge/capture/sessions' && method === 'GET') {
+    const res = await service.listCaptureSessions();
+    return jsonResponse({ success: !res.error, ...res });
+  }
+
+  // 5.0.3 Surge TF436 抓包会话请求明细: /api/v1/surge/capture/requests?name=xxx&offset=0&limit=50
+  if (path === '/api/v1/surge/capture/requests' && method === 'GET') {
+    const getParam = (k: string) => req.queryParams?.find((p) => p.key === k)?.value;
+    const name = getParam('name');
+    if (!name) return jsonResponse({ error: 'Missing session name parameter' }, 400);
+    const offset = Number(getParam('offset')) || 0;
+    const limit = Number(getParam('limit')) || 50;
+    const res = await service.listCaptureSessionRequests(name, offset, limit);
+    return jsonResponse({ success: !res.error, session: name, ...res });
+  }
+
+  // 5.0.4 Surge TF436 抓包会话原始报文: /api/v1/surge/capture/data?name=xxx&key=yyy&type=request|response
+  if (path === '/api/v1/surge/capture/data' && method === 'GET') {
+    const getParam = (k: string) => req.queryParams?.find((p) => p.key === k)?.value;
+    const name = getParam('name');
+    const key = getParam('key');
+    const type = (getParam('type') === 'request' ? 'request' : 'response') as 'request' | 'response';
+    if (!name || !key) return jsonResponse({ error: 'Missing name or key parameter' }, 400);
+    const res = await service.getCaptureSessionData(name, key, type);
+    return jsonResponse({ success: !res.error, session: name, key, type, ...res });
+  }
+
+  // 5.0.5 Surge TF436 多维流量下钻拆解: /api/v1/surge/traffic/breakdown?primary=policy|device&key=xxx
+  if (path === '/api/v1/surge/traffic/breakdown' && method === 'GET') {
+    const getParam = (k: string) => req.queryParams?.find((p) => p.key === k)?.value;
+    const primary = (getParam('primary') === 'device' ? 'device' : 'policy') as 'policy' | 'device';
+    const key = getParam('key') || undefined;
+    const breakdown = await service.getTrafficBreakdown(primary, key);
+    return jsonResponse({ success: true, ...breakdown });
   }
 
   // 5.1 连通性主动测试: /api/v1/surge/test-connection

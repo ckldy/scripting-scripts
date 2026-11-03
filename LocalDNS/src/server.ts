@@ -1337,6 +1337,30 @@ $httpClient.get({
         }
       }
 
+      // 35.2.1 Surge TF436: 获取落盘抓包会话列表供 AdHunter 选取
+      if (cleanPath === '/api/v1/ad-hunter/surge-sessions' && method === 'GET') {
+        try {
+          const res = await SurgeService.get().listCaptureSessions();
+          return jsonResponse({ success: !res.error, ...res });
+        } catch (e: any) {
+          return jsonResponse({ error: e?.message || '获取 Surge 会话失败' }, 500);
+        }
+      }
+
+      // 35.2.2 Surge TF436: 深度分析 Surge 离线抓包会话中的广告接口
+      if (cleanPath === '/api/v1/ad-hunter/analyze-session' && method === 'POST') {
+        const body = parseJsonBody(req);
+        const sessionName = String(body.session || '').trim();
+        if (!sessionName) return jsonResponse({ error: '请指定 Surge 抓包会话名称' }, 400);
+        const maxRequests = Number(body.maxRequests) || 120;
+        try {
+          const report = await adHunter.analyzeCaptureSession(sessionName, maxRequests);
+          return jsonResponse({ success: true, report });
+        } catch (e: any) {
+          return jsonResponse({ error: e?.message || '分析抓包会话失败' }, 500);
+        }
+      }
+
       // 35.3 一键下发至 Surge / LocalDNS
       if (cleanPath === '/api/v1/ad-hunter/deploy-surge' && method === 'POST') {
         const body = parseJsonBody(req);

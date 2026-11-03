@@ -1264,6 +1264,144 @@ export class SurgeService {
     return killed;
   }
 
+  // ==================== Surge TF436 Saved Capture Sessions ====================
+
+  /**
+   * 获取落盘保存的 HTTP 抓包会话列表
+   */
+  public async listCaptureSessions(): Promise<{
+    sessions: Array<{
+      name: string;
+      startTime?: number;
+      endTime?: number;
+      requestCount?: number;
+      stopReason?: string;
+      limits?: any;
+      filter?: any;
+    }>;
+    error?: string;
+  }> {
+    const res = await this.callSurgeApi('/v1/capture/sessions');
+    if (!res.ok) {
+      return { sessions: [], error: res.error || `HTTP ${res.status}` };
+    }
+    return {
+      sessions: Array.isArray(res.data?.sessions) ? res.data.sessions : [],
+    };
+  }
+
+  /**
+   * 分页获取指定抓包会话内的请求记录
+   */
+  public async listCaptureSessionRequests(
+    sessionName: string,
+    offset = 0,
+    limit = 50
+  ): Promise<{
+    requests: any[];
+    total?: number;
+    error?: string;
+  }> {
+    const encName = encodeURIComponent(sessionName);
+    const path = `/v1/capture/sessions/requests?name=${encName}&offset=${Math.max(0, offset)}&limit=${Math.min(500, Math.max(1, limit))}`;
+    const res = await this.callSurgeApi(path);
+    if (!res.ok) {
+      return { requests: [], error: res.error || `HTTP ${res.status}` };
+    }
+    return {
+      requests: Array.isArray(res.data?.requests) ? res.data.requests : [],
+      total: res.data?.total,
+    };
+  }
+
+  /**
+   * 提取指定抓包会话指定请求的原始报文（请求体/响应体）
+   */
+  public async getCaptureSessionData(
+    sessionName: string,
+    key: string,
+    type: 'request' | 'response' = 'response'
+  ): Promise<{
+    data?: any;
+    text?: string;
+    error?: string;
+  }> {
+    const encName = encodeURIComponent(sessionName);
+    const encKey = encodeURIComponent(key);
+    const path = `/v1/capture/sessions/data?name=${encName}&key=${encKey}&type=${type}`;
+    const res = await this.callSurgeApi(path);
+    if (!res.ok) {
+      return { error: res.error || `HTTP ${res.status}` };
+    }
+    return {
+      data: res.data,
+      text: typeof res.data === 'string' ? res.data : (typeof res.data?.content === 'string' ? res.data.content : JSON.stringify(res.data)),
+    };
+  }
+
+  /**
+   * Surge TF436 多维流量下钻拆解 (Traffic Breakdown)
+   * 对应 surge-cli dump traffic-stat-breakdown <primary> <secondary>
+   * 支持 primary = 'policy' | 'device', secondary = 'host'
+   */
+  public async getTrafficBreakdown(primary: 'policy' | 'device' = 'policy', targetKey?: string): Promise<{
+    primary: string;
+    targetKey?: string;
+    items: Array<{ name: string; requestCount: number; inBytes: number; outBytes: number; percent: string }>;
+  }> {
+    const res = await this.callSurgeApi('/v1/requests/recent');
+    const requests = Array.isArray(res.data?.requests) ? res.data.requests : [];
+
+    const hostStats = new Map<string, { count: number; inBytes: number; outBytes: number }>();
+    let totalIn = 0;
+
+    for (const req of requests) {
+      const policy = req.policyName || req.originalPolicyName || 'DIRECT';
+      const device = req.deviceName || req.localAddress || req.sourceAddress || '本机';
+      const matchedKey = primary === 'policy' ? policy : device;
+
+      if (targetKey && matchedKey !== targetKey) continue;
+
+      let host = req.remoteHost || (req.notes && req.notes.host ? req.notes.host : '');
+      if (!host && req.URL) {
+        try {
+          host = new URL(req.URL.startsWith('http') ? req.URL : `http://${req.URL}`).hostname;
+        } catch {
+          host = req.URL.split('/')[0].split(':')[0];
+        }
+      }
+      if (!host) continue;
+
+      const inB = Number(req.inBytes) || 0;
+      const outB = Number(req.outBytes) || 0;
+      totalIn += inB;
+
+      if (!hostStats.has(host)) {
+        hostStats.set(host, { count: 0, inBytes: 0, outBytes: 0 });
+      }
+      const st = hostStats.get(host)!;
+      st.count++;
+      st.inBytes += inB;
+      st.outBytes += outB;
+    }
+
+    const items = Array.from(hostStats.entries())
+      .map(([name, s]) => ({
+        name,
+        requestCount: s.count,
+        inBytes: s.inBytes,
+        outBytes: s.outBytes,
+        percent: totalIn > 0 ? ((s.inBytes / totalIn) * 100).toFixed(1) + '%' : '0.0%',
+      }))
+      .sort((a, b) => b.inBytes - a.inBytes || b.requestCount - a.requestCount);
+
+    return {
+      primary,
+      targetKey,
+      items: items.slice(0, 50),
+    };
+  }
+
   /**
    * 防抖触发同步到 Surge
    */
@@ -2071,7 +2209,7 @@ export class SurgeService {
       'read-etc-hosts = true',
       'loglevel = notify',
       'bypass-tun = 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12',
-      'skip-proxy = 127.0.0.1, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, localhost, *.local, captive.apple.com, 223.5.5.5, 223.6.6.6, 119.29.29.29, 180.76.76.76, *.alidns.com, doh.pub',
+      'skip-proxy = 127.0.0.1, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10, localhost, *.local, *.ts.net, captive.apple.com, 223.5.5.5, 223.6.6.6, 119.29.29.29, 180.76.76.76, *.alidns.com, doh.pub',
       'always-real-ip = *.srv.nintendo.net, *.stun.playstation.net, xbox.*.microsoft.com, *.msftncsi.com',
       '',
       '# --- 连通性测速与容错 ---',
@@ -2125,6 +2263,10 @@ export class SurgeService {
     lines.push('IP-CIDR,192.168.0.0/16,DIRECT,no-resolve');
     lines.push('IP-CIDR,10.0.0.0/8,DIRECT,no-resolve');
     lines.push('IP-CIDR,172.16.0.0/12,DIRECT,no-resolve');
+    lines.push('');
+    lines.push('# Tailscale & WireGuard 虚拟子网直连保护 (Surge TF436+ 本机回环穿透)');
+    lines.push('IP-CIDR,100.64.0.0/10,DIRECT,no-resolve');
+    lines.push('DOMAIN-SUFFIX,ts.net,DIRECT');
     lines.push('');
     lines.push('# DNS 协议与公共上游服务器直连（严禁走代理，确保 100% 直连毫秒响应）');
     lines.push('DEST-PORT,53,DIRECT');

@@ -1,10 +1,28 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.14.2 (Build 20261103)`  
+> **当前版本**：`v1.15.0 (Build 20261104)`  
 > **移植作者**：`vcncv`  
 > **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.11.03.2` / 内核 `FJMOS`）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地高性能 DNS 服务与安全管理系统。
+
+### v1.15.0 落地 Surge TF436 特性全量支持与全链路增强
+- **Surge 原生配置实时编辑与一键热载**：
+  * 在原生配置编辑器的「配置核心」中将 `Surge · CONF` 置顶为首选；
+  * 通过 Surge HTTP API (`/v1/profiles/current`) 直读 Surge 正在生效的完整配置；
+  * 支持实时语法结构校验；点击「保存并应用」自动传回 Surge 执行热载 (`/v1/profiles/reload`) 与 DNS 缓存冲刷 (`/v1/dns/flush`)，无需重启即时生效。
+- **AdHunter 离线抓包深度分析与规则合成 (TF436+)**：
+  * 接入 Surge 磁盘归档的抓包会话 (`Saved Capture Sessions`)；
+  * 支持选择会话一键扫描 App 与页面广告接口（自动并发提取 JSON 响应体扫描广告载荷）；
+  * 自动合成零域名 `URL-REGEX` 与 Userscript，一键合流母核。
+- **Surge 工作台新增「抓包会话审查」面板**：
+  * 实时浏览历史抓包会话列表、请求记录总数、限制条件与终止原因；
+  * 支持请求实时过滤（关键词、域名、状态码、进程名）；
+  * 详情弹窗自带 JSON 格式化与高亮，支持一键切换查看 Raw Request/Response 原始报文。
+- **Tailscale & WireGuard 回环穿透直连保护**：
+  * 在自动生成的 Surge 配置文件中加入 `100.64.0.0/10` 与 `*.ts.net` 直连白名单规则，打通本机回环穿透与跨机隧道无死锁访问。
+- **多维流量拆解与节点下钻接口**：
+  * 落地 `/api/v1/surge/traffic/breakdown`，支持按节点与设备下钻拆解流经的具体域名与请求频次。
 
 ### v1.14.2 对齐上游 FJMOS / UI 2026.11.03.2 与直连 DNS 极速优化
 - **精确同步上游 SPA**：全量跟随上游打包产物 `app-C9ij6y6z.js` 与 `index-qdjMEPt4.css`。

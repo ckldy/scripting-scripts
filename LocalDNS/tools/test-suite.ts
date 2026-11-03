@@ -462,6 +462,20 @@ async function runTests() {
     // 验证 REJECT 规则实时在 DNS 拦截
     const adtrackAnswers = await resolveTestDomain('adtrack.example.com');
     assert(adtrackAnswers.includes('0.0.0.0'), 'adtrack.example.com 即刻被批量导入的 REJECT 规则拦截为 0.0.0.0');
+
+    // 2.15.12 Surge TF436 抓包会话与多维流量下钻拆解
+    const resSessions = await fetch(`${baseUrl}/api/v1/surge/capture/sessions`);
+    assert(resSessions.status === 200, 'GET /api/v1/surge/capture/sessions returns 200 OK');
+    const sessData = await resSessions.json();
+    assert(sessData.success === true && Array.isArray(sessData.sessions), 'Sessions returned valid list');
+
+    const resBreakdown = await fetch(`${baseUrl}/api/v1/surge/traffic/breakdown?primary=policy`);
+    assert(resBreakdown.status === 200, 'GET /api/v1/surge/traffic/breakdown returns 200 OK');
+    const breakdownData = await resBreakdown.json();
+    assert(breakdownData.success === true && Array.isArray(breakdownData.items), 'Traffic breakdown returned valid items');
+
+    const resAdHunterSess = await fetch(`${baseUrl}/api/v1/ad-hunter/surge-sessions`);
+    assert(resAdHunterSess.status === 200, 'GET /api/v1/ad-hunter/surge-sessions returns 200 OK');
   } catch (err: any) {
     console.error('API Test Error:', err);
     failed++;

@@ -2,9 +2,9 @@
   "name": "LocalDNS",
   "icon": "shield.lefthalf.filled",
   "color": "#6366f1",
-  "version": "1.14.2",
+  "version": "1.15.0",
   "author": "vcncv",
-  "description": "本地 DNS 与安全服务系统，v1.14.2 对齐上游 FJMOS / UI 2026.11.03.2（顶栏精简分组、紧凑单行版本徽标、流光毛玻璃可读性加固与无障碍底色下限增强），重构 DNS 去广告清洗算法为 O(k) 逐级父域名哈希探测，大幅提速 4000+ 倍，全量直连国内高速 DoH 上游（杜绝代理节点高延迟），并保留 LocalDNS × Surge 模块脱水、18.5 万条 AdGuard 拦截与 LivePulse 实时流光拓扑看板。由 vcncv 移植构建。",
+  "description": "本地 DNS 与安全服务系统，v1.15.0 全量落地 Surge TestFlight 436 核心新特性：原生配置编辑支持直读当前生效 Surge 完整配置与实时热载；AdHunter 接入落盘抓包会话 (Saved Capture Sessions) 深度提取 App 与接口广告指纹；工作台新增抓包会话审查面板与 Raw 报文查看器；新增 Tailscale & WireGuard 回环穿透直连保护规则与流量下钻拆解；去广告清洗 O(k) 父域哈希与全量直连 DoH 极速运行。对齐上游 FJMOS / UI 2026.11.03.2，由 vcncv 移植构建。",
   "remoteResource": {
     "url": "https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/LocalDNS.zip"
   }
