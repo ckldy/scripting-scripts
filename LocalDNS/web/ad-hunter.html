@@ -636,11 +636,14 @@
     }
 
     function clientSideAnalyze(url, domain, html) {
+      const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+      const siteTitle = titleMatch ? titleMatch[1].trim().slice(0, 40) : domain;
+
       const rep = {
         targetUrl: url,
         domain: domain,
         analyzedAt: new Date().toISOString(),
-        cmsFamily: { id: 'universal', name: '通用自适应 CMS', confidence: 0.5, signaturesFound: [] },
+        cmsFamily: { id: 'universal', name: siteTitle ? `${siteTitle} · 自适应网页` : '通用自适应 CMS', confidence: 0.8, signaturesFound: [] },
         stats: { totalAdsDetected: 0, slotsCount: 0, inFeedCardsCount: 0, popupsCount: 0, textMatricesCount: 0, navPromosCount: 0, scriptEnginesCount: 0 },
         detectedSlots: [],
         inFeedCards: { detected: false, containerSelector: '', cardSelector: '', features: [] },
@@ -651,70 +654,140 @@
         synthesizedRules: { cssCosmetic: '', defuserScriptlet: '', surgeUrlRegex: [], userscriptCode: '' }
       };
 
-      if (html.includes('xqbj-container') || html.includes('HlwPgxAds') || html.includes('__SSP_ENABLED__')) {
-        rep.cmsFamily = { id: 'heiliao', name: '黑料社区 / 吃瓜爆料网 (Heiliao v4 CMS)', confidence: 0.98, signaturesFound: ['#xqbj-container', 'window.HlwPgxAds', 'window.__SSP_ENABLED__'] };
-      } else if (html.includes('front-player') || html.includes('watch-config') || html.includes('data-front-feature-placement')) {
-        rep.cmsFamily = { id: 'javtiful', name: 'Javtiful / 成人视频 VOD 架构', confidence: 0.96, signaturesFound: ['#front-player', 'script#watch-config', 'data-front-feature-placement'] };
+      const FALSE_WORDS = new Set([
+        'download', 'downloads', 'thread', 'threads', 'header', 'headers', 'footer', 'footers',
+        'breadcrumb', 'breadcrumbs', 'broadcast', 'radio', 'gradient', 'shadow', 'radius',
+        'badge', 'badges', 'reload', 'head', 'lead', 'upload', 'uploads', 'spread', 'dead',
+        'reading', 'headline', 'pad', 'road', 'load', 'loading', 'container', 'wrapper', 'sidebar',
+        'content', 'main', 'card', 'box', 'item', 'page'
+      ]);
+
+      function isToken(raw) {
+        const s = raw.toLowerCase().trim();
+        if (s.length < 2 || s.length > 50 || FALSE_WORDS.has(s)) return false;
+        if (/^(ads?|banner|guanggao|gg|sponsor(ed)?|popunder|floating[-_]?ad|fixed[-_]?ad|couplet|adv)$/i.test(s)) return true;
+        if (/^(ad|banner|gg|adv|sponsor)[-_](box|slot|card|container|wrapper|placement|item|content|area|zone|frame|header|footer|sidebar|top|bottom|left|right|float|fixed|popup|overlay|layer|module|block|wrap|view|list|pic|img)$/i.test(s)) return true;
+        if (/^([a-z0-9]+)[-_](ad|ads|banner|gg|guanggao|sponsor|adv)$/i.test(s)) return true;
+        if (/^([a-z0-9]+)[-_](ad|ads|banner|gg|adv)[-_]([a-z0-9]+)$/i.test(s)) return true;
+        return false;
       }
 
-      if (html.includes('pgx-slot') || html.includes('data-slot') || html.includes('component-advertises')) {
-        rep.detectedSlots.push({ selector: '.pgx-slot, [data-slot]', description: 'PGX / SSP 动态插槽广告位' });
-        rep.detectedSlots.push({ selector: '.component-advertises, .component-advertises-0, .component-advertises-1', description: '广告容器包装组件' });
-        rep.detectedSlots.push({ selector: '.slider-banners, .swiper-banners-container, .ssp-placement, template[data-ssp-legacy]', description: '轮播横幅与遗留 SSP 占位模板' });
+      // 1. 扫描真实出现的广告 class 和 id
+      const foundClasses = new Set();
+      const foundIds = new Set();
+      const classMatches = html.match(/class=["']([^"']+)["']/gi) || [];
+      for (const cm of classMatches) {
+        const clean = cm.replace(/^class=["']/i, '').replace(/["']$/, '');
+        for (const tok of clean.split(/\s+/)) {
+          if (isToken(tok)) foundClasses.add(tok);
+        }
+      }
+      const idMatches = html.match(/id=["']([^"']+)["']/gi) || [];
+      for (const im of idMatches) {
+        const idVal = im.replace(/^id=["']/i, '').replace(/["']$/, '').trim();
+        if (isToken(idVal)) foundIds.add(idVal);
       }
 
-      if (html.includes('data-front-feature-placement') || html.includes('front-feature-placement')) {
-        rep.detectedSlots.push({ selector: '[data-front-feature-placement], .front-feature-placement', description: 'Javtiful 官方统一定义广告位' });
-        rep.detectedSlots.push({ selector: '.front-feature-placement-wide, .front-feature-placement-side, .announcement-bar, [data-text-ads]', description: '页面顶部/底部通栏及侧边栏横幅广告' });
+      if (foundClasses.size > 0) {
+        const selArray = Array.from(foundClasses).map(c => `.${c}`);
+        rep.detectedSlots.push({
+          selector: selArray.slice(0, 15).join(', '),
+          description: `提取到 ${foundClasses.size} 个具有广告词根特征的 DOM 容器 (${Array.from(foundClasses).slice(0, 6).join(', ')})`
+        });
+      }
+      if (foundIds.size > 0) {
+        const idArray = Array.from(foundIds).map(id => `#${id}`);
+        rep.detectedSlots.push({
+          selector: idArray.join(', '),
+          description: `提取到 ${foundIds.size} 个广告专属 ID 锚点 (${Array.from(foundIds).slice(0, 5).join(', ')})`
+        });
       }
 
-      if (html.includes('pgx-card') || html.includes('data-event="ad_click"') || html.includes('data-ad_slot_key')) {
-        rep.inFeedCards = {
-          detected: true,
-          containerSelector: '.video-item:has(a.pgx-card), .video-item:has(a[data-event="ad_click"])',
-          cardSelector: 'a.pgx-card, a[data-event="ad_click"][rel*="sponsored"]',
-          features: ['a.pgx-card', 'data-event="ad_click"', 'data-ad_slot_key', 'rel="sponsored"']
-        };
+      // 2. 主流联盟组件
+      if (html.includes('adsbygoogle') || html.includes('google-analytics') || html.includes('doubleclick')) {
+        rep.detectedSlots.push({ selector: 'ins.adsbygoogle, [data-ad-client], [data-ad-slot], [data-ad-format], [data-ad-unit]', description: 'Google AdSense 联盟广告组件与自定义插槽' });
+      }
+      if (html.includes('cpro') || html.includes('pos.baidu.com') || html.includes('BAIDU_SSP_') || html.includes('mobads')) {
+        rep.detectedSlots.push({ selector: '[id^="BAIDU_SSP_"], [id^="baidu_clb_slot_id"], div[id^="cproIframe"], [class*="cpro"]', description: '百度原生推广与网盟展示容器' });
+      }
+      if (html.includes('pangle') || html.includes('pangolin')) {
+        rep.detectedSlots.push({ selector: '[id^="pangle"], [class*="pangle"], [class*="pangolin"]', description: '字节跳动穿山甲广告原生容器' });
+      }
+      if (/<iframe[^>]+(ad|banner|google|baidu|cpro|doubleclick)[^>]*>/i.test(html)) {
+        rep.detectedSlots.push({ selector: 'iframe[src*="ad"], iframe[id*="ad"], iframe[src*="doubleclick"], iframe[src*="googleads"], iframe[src*="pos.baidu.com"]', description: '第三方广告展示 iframe 嵌套框架' });
       }
 
+      // 3. 悬浮贴片与弹窗
+      if (html.includes('bottom-floating-ad') || html.includes('fixed-banner') || /(?:class|id)=["'][^"']*(floating[-_]?ad|fixed[-_]?ad|couplet)[^"']*["']/i.test(html)) {
+        rep.popupsAndOverlays.push({ selector: '.bottom-floating-ad, .fixed-banner, [class*="floating-ad"], [class*="fixed-ad"], [class*="couplet"]', description: '悬浮广告横幅与对联挂件', type: 'modal' });
+      }
       if (html.includes('age-gate')) {
         rep.popupsAndOverlays.push({ selector: '#age-gate, .age-gate, .age-gate-box, .age-gate-overlay', description: '18禁年龄拦截确认遮罩（阻断访问并锁定滚动）', type: 'age_gate' });
       }
-      if (html.includes('front-feature-placement-player')) {
-        rep.popupsAndOverlays.push({ selector: '.front-feature-placement-player', description: '直接覆盖在视频播放器上的半透明/嵌入式悬浮广告框', type: 'player_overlay' });
-      }
-      if (html.includes('pop_notice') || html.includes('pop_grid')) {
-        rep.popupsAndOverlays.push({ selector: '.pgx-slot[data-variant="popup_image"], .pgx-slot[data-variant="grid"], .pgx-slot[data-variant="float"]', description: '进入页面后弹出的单图与网格弹窗', type: 'modal' });
+
+      // 4. 推广赞助外链
+      if (html.includes('rel="sponsored"') || html.includes("rel='sponsored'")) {
+        rep.textLinkMatrices.push({ selector: 'a[rel*="sponsored"], a[target="_blank"][href*="/ad/"], a[target="_blank"][href*="union"]', description: '第三方付费赞助与引流点击链接' });
       }
 
-      if (html.includes('detail-list-title') || html.includes('btnads_3') || html.includes('data-variant="text"')) {
-        rep.textLinkMatrices.push({ selector: '.detail-list-title:has(a[data-event="ad_click"]), .detail-list-title:has(a[rel*="sponsored"]), a.gotoclick[data-event="ad_click"]', description: '正文下方密集的 40+ 条色情/博彩外链文字推广网格' });
+      // 5. 脚本网络扫描
+      const AD_DOMAINS = [
+        'doubleclick.net', 'googlesyndication.com', 'google-analytics.com', 'googletagmanager.com',
+        'pos.baidu.com', 'cpro.baidu.com', 'mobads.baidu.com', 'hm.baidu.com', 'eclick.baidu.com',
+        'pgdt.gtimg.cn', 'e.qq.com', 'tmead.y.qq.com', 'adnet.qq.com',
+        'pangolin-sdk-toutiao.com', 'pangle.io', 'toblog.ctobsnssdk.com',
+        'alimama.com', 'tanx.com', 'adash.m.taobao.com',
+        'taboola.com', 'outbrain.com', 'criteo.com', 'popads.net', 'exoclick.com', 'juicyads.com', 'trafficjunky.com'
+      ];
+
+      const srcMatches = html.match(/(?:src|href)=["']([^"']+)["']/gi) || [];
+      const scannedUrls = new Set();
+      for (const m of srcMatches) {
+        const raw = m.replace(/^(?:src|href)=["']/i, '').replace(/["']$/, '').trim();
+        if (raw && !raw.startsWith('data:') && !raw.startsWith('javascript:')) scannedUrls.add(raw);
       }
 
-      if (html.includes('footer-menu') && html.includes('target="_blank"')) {
-        rep.fakeNavigationPromos.push({ selector: '.footer-menu a[target="_blank"], .footer-menu a[href^="http"]', description: '底部导航栏中伪装成原生功能的“官方APP”、“福利”等外链推广' });
-      }
-      if (html.includes('footer-list') && (html.includes('qq.png') || html.includes('peach-av'))) {
-        rep.fakeNavigationPromos.push({ selector: '.footer-list a:has(img.qq), .footer-list a[href*="peach-av"]', description: '页脚使用官方社交图标（QQ/微信）伪装的色情引流外链' });
-      }
+      const enginesMap = new Map();
+      for (const uStr of scannedUrls) {
+        let uHost = '';
+        let uPath = '';
+        try {
+          const u = new URL(uStr.startsWith('//') ? 'https:' + uStr : (uStr.startsWith('http') ? uStr : `http://${domain}/${uStr.replace(/^\/+/, '')}`));
+          uHost = u.hostname.toLowerCase();
+          uPath = u.pathname;
+        } catch {
+          uPath = uStr.split('?')[0].split('#')[0];
+        }
 
-      const scriptSrcMatches = html.match(/src=["\']([^"\']+\.js[^"\']*)["\']/gi) || [];
-      const scriptPaths = new Set();
-      for (const match of scriptSrcMatches) {
-        const src = match.replace(/^src=["\']/i, '').replace(/["\']$/, '').split('?')[0];
-        if (src.includes('slot-ads') || src.includes('bottom-popup') || src.includes('tjtag') || src.includes('cogninotow') || src.includes('fozekikikiminu')) {
-          scriptPaths.add(src);
+        for (const adDom of AD_DOMAINS) {
+          if (uHost === adDom || uHost.endsWith('.' + adDom)) {
+            const rule = `DOMAIN-SUFFIX,${adDom},REJECT`;
+            if (!enginesMap.has(rule)) {
+              enginesMap.set(rule, { type: 'ad_network', rule, desc: `已知广告网络 (${uHost})` });
+            }
+            break;
+          }
+        }
+
+        if (
+          uPath.includes('slot-ads') || uPath.includes('bottom-popup') || uPath.includes('tjtag') ||
+          uPath.includes('/api/ad') || uPath.includes('/get_ad') || uPath.includes('/splash_ad')
+        ) {
+          const cleanP = uPath.split('?')[0];
+          const zeroRegex = `^https?:\\/\\/[^\\/]+${cleanP.replace(/\./g, '\\.')}(?:[?#]|$)`;
+          if (!enginesMap.has(zeroRegex)) {
+            enginesMap.set(zeroRegex, { type: 'slot_engine', rule: `URL-REGEX,"${zeroRegex}",REJECT`, desc: '广告插槽与接口调度脚本' });
+          }
         }
       }
-      for (const p of scriptPaths) {
-        const isExt = p.startsWith('http://') || p.startsWith('https://') || p.startsWith('//');
-        const cleanPath = isExt ? new URL(p.startsWith('//') ? 'https:' + p : p).pathname : p;
-        rep.scriptEngines.push({
-          path: p,
-          zeroDomainRegex: `^https?:\\/\\/[^\\/]+${cleanPath.replace(/\\./g, '\\.')}`,
-          type: 'slot_engine',
-          description: cleanPath.includes('slot-ads') ? '自研 PGX 广告插槽调度引擎' : '广告与埋点核心脚本'
-        });
+
+      for (const [key, item] of enginesMap.entries()) {
+        rep.scriptEngines.push({ path: key, zeroDomainRegex: item.rule, type: item.type, description: item.desc });
+      }
+
+      // 保底插槽
+      if (rep.detectedSlots.length === 0 && rep.popupsAndOverlays.length === 0 && rep.scriptEngines.length === 0) {
+        rep.detectedSlots.push({ selector: 'ins.adsbygoogle, [data-ad-slot], [data-ad-client], iframe[src*="ad"], iframe[src*="googleads"], div[id^="cproIframe"], .banner-ad, .ad-box', description: '通用广告插槽与联盟组件基础过滤防线' });
       }
 
       rep.stats.slotsCount = rep.detectedSlots.length;
@@ -733,15 +806,18 @@
       rep.popupsAndOverlays.forEach(p => selList.push(p.selector));
       const uniqueSels = Array.from(new Set(selList.flatMap(s => s.split(',').map(x => x.trim())).filter(Boolean)));
 
-      rep.synthesizedRules.cssCosmetic = uniqueSels.join(',\n') + ' {\\n  display: none !important;\\n  visibility: hidden !important;\\n  height: 0 !important;\\n  pointer-events: none !important;\\n  z-index: -9999 !important;\\n}' +
-        '\\n\\n/* === 物理防锁死：彻底粉碎 fixbody 对页面滚动的劫持 === */\\nhtml,\\nbody,\\nhtml.fixbody,\\nbody.fixbody,\\nbody.navbar,\\n#xqbj-container {\\n  overflow: visible !important;\\n  overflow-y: auto !important;\\n  height: auto !important;\\n  min-height: 100% !important;\\n  max-height: none !important;\\n  position: static !important;\\n  touch-action: auto !important;\\n  -webkit-overflow-scrolling: touch !important;\\n}';
+      rep.synthesizedRules.cssCosmetic = (uniqueSels.length > 0 ? uniqueSels.join(',\n') : 'ins.adsbygoogle, [data-ad-slot], [data-ad-client], .banner-ad, .ad-box') + ' {\n  display: none !important;\n  visibility: hidden !important;\n  height: 0 !important;\n  pointer-events: none !important;\n  z-index: -9999 !important;\n}' +
+        '\n\n/* === 物理防锁死：彻底粉碎 fixbody 对页面滚动的劫持 === */\nhtml,\nbody,\nhtml.fixbody,\nbody.fixbody,\nbody.navbar,\n#xqbj-container {\n  overflow: visible !important;\n  overflow-y: auto !important;\n  height: auto !important;\n  min-height: 100% !important;\n  max-height: none !important;\n  position: static !important;\n  touch-action: auto !important;\n  -webkit-overflow-scrolling: touch !important;\n}';
       
       const adultPreempt = `try { const now = new Date(); const dk = \`\${now.getFullYear()}-\${String(now.getMonth()+1).padStart(2,'0')}-\${String(now.getDate()).padStart(2,'0')}\`; localStorage.setItem('hlw_age_verify_date', dk); } catch(_) {}`;
       rep.synthesizedRules.defuserScriptlet = rep.cmsFamily.id === 'heiliao'
-        ? `${adultPreempt}\\nObject.defineProperty(window, 'HlwPgxAds', { get: () => ({ boot: () => {} }), set: () => {}, configurable: false });\\nwindow.__SSP_ENABLED__ = false;\\nwindow.__SSP_SLOTS__ = [];`
-        : `const _rawOpen = window.open;\\nwindow.open = function(url, t, f) { if (!url || /sponsored|aff|chat|game|peach|trwl1|ohmycams/i.test(url)) return null; return _rawOpen.call(window, url, t, f); };`;
-      rep.synthesizedRules.surgeUrlRegex = rep.scriptEngines.map(s => `URL-REGEX,"${s.zeroDomainRegex}",REJECT`);
-      rep.synthesizedRules.userscriptCode = `// ==UserScript==\\n// @name AdHunter 智能特征去广告\\n// @match *://*/*\\n// @run-at document-start\\n// ==/UserScript==\\n\\n(function(){\\n  'use strict';\\n  ${rep.synthesizedRules.defuserScriptlet}\\n  const style = document.createElement('style');\\n  style.textContent = \`${rep.synthesizedRules.cssCosmetic}\`;\\n  (document.head || document.documentElement).appendChild(style);\\n  function unlock() {\\n    const g = document.getElementById('age-gate'); if (g) g.remove();\\n    if (document.body) { document.body.classList.remove('fixbody'); document.body.style.removeProperty('overflow'); document.body.style.removeProperty('height'); }\\n  }\\n  unlock();\\n  window.addEventListener('DOMContentLoaded', unlock);\\n})();`;
+        ? `${adultPreempt}\nObject.defineProperty(window, 'HlwPgxAds', { get: () => ({ boot: () => {} }), set: () => {}, configurable: false });\nwindow.__SSP_ENABLED__ = false;\nwindow.__SSP_SLOTS__ = [];`
+        : `try { window.adsbygoogle = { push: function(){} }; Object.freeze(window.adsbygoogle); } catch(_) {}\nconst _rawOpen = window.open;\nwindow.open = function(url, t, f) { if (!url || /sponsored|aff|chat|game|peach|trwl1|ohmycams/i.test(url)) return null; return _rawOpen.call(window, url, t, f); };`;
+      rep.synthesizedRules.surgeUrlRegex = rep.scriptEngines.map(s => s.zeroDomainRegex.startsWith('DOMAIN') || s.zeroDomainRegex.startsWith('URL-REGEX') ? s.zeroDomainRegex : `URL-REGEX,"${s.zeroDomainRegex}",REJECT`);
+      if (rep.synthesizedRules.surgeUrlRegex.length === 0) {
+        rep.synthesizedRules.surgeUrlRegex.push(`URL-REGEX,"^https?:\\/\\/[^\\/]+\\/.*(ad|banner|splash|popunder).*(?:[?#]|$)",REJECT`);
+      }
+      rep.synthesizedRules.userscriptCode = `// ==UserScript==\n// @name         AdHunter 智能特征去广告 [${rep.cmsFamily.name}]\n// @namespace    https://github.com/LocalDNS/AdHunter\n// @version      1.0.0\n// @description  基于 DOM 基因与行为特征的高精度纯净去广告，零域名依赖，无惧换皮与域名轮换\n// @match        *://*/*\n// @run-at       document-start\n// @grant        none\n// ==/UserScript==\n\n(function(){\n  'use strict';\n  ${rep.synthesizedRules.defuserScriptlet}\n  function applyStyles() {\n    if (document.getElementById('adhunter-feature-style')) return;\n    const style = document.createElement('style');\n    style.id = 'adhunter-feature-style';\n    style.textContent = \`${rep.synthesizedRules.cssCosmetic}\`;\n    (document.head || document.documentElement).appendChild(style);\n  }\n  function unlock() {\n    const g = document.getElementById('age-gate'); if (g) g.remove();\n    if (document.body) { document.body.classList.remove('fixbody'); document.body.style.removeProperty('overflow'); document.body.style.removeProperty('height'); }\n  }\n  unlock();\n  window.addEventListener('DOMContentLoaded', unlock);\n})();`;
 
       return rep;
     }

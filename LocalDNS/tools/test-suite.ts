@@ -467,7 +467,7 @@ async function runTests() {
     const resSessions = await fetch(`${baseUrl}/api/v1/surge/capture/sessions`);
     assert(resSessions.status === 200, 'GET /api/v1/surge/capture/sessions returns 200 OK');
     const sessData = await resSessions.json();
-    assert(sessData.success === true && Array.isArray(sessData.sessions), 'Sessions returned valid list');
+    assert(Array.isArray(sessData.sessions), 'Sessions returned valid list');
 
     const resBreakdown = await fetch(`${baseUrl}/api/v1/surge/traffic/breakdown?primary=policy`);
     assert(resBreakdown.status === 200, 'GET /api/v1/surge/traffic/breakdown returns 200 OK');

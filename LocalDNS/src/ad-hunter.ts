@@ -11,6 +11,65 @@
 import { SurgeDatabase } from './surge-db';
 import { SurgeService } from './surge-service';
 
+// 主流第三方广告、追踪、统计与联盟域名特征库
+const KNOWN_AD_DOMAINS: Array<{ suffix: string; name: string }> = [
+  { suffix: 'doubleclick.net', name: 'Google DoubleClick 广告网络' },
+  { suffix: 'googlesyndication.com', name: 'Google AdSense 联盟广告' },
+  { suffix: 'googleadservices.com', name: 'Google 广告转化跟踪' },
+  { suffix: 'google-analytics.com', name: 'Google Analytics 统计' },
+  { suffix: 'googletagmanager.com', name: 'Google 跟踪代码管理器' },
+  { suffix: 'pos.baidu.com', name: '百度原生网盟广告' },
+  { suffix: 'cpro.baidu.com', name: '百度推广与代码' },
+  { suffix: 'mobads.baidu.com', name: '百度移动广告 SDK' },
+  { suffix: 'hm.baidu.com', name: '百度统计跟踪脚本' },
+  { suffix: 'eclick.baidu.com', name: '百度点击跳转监控' },
+  { suffix: 'cbjs.baidu.com', name: '百度广告展示平台' },
+  { suffix: 'pgdt.gtimg.cn', name: '腾讯广点通广告静态库' },
+  { suffix: 'e.qq.com', name: '腾讯社交广告与投放' },
+  { suffix: 'tmead.y.qq.com', name: '腾讯优量汇广告 SDK' },
+  { suffix: 'adnet.qq.com', name: '腾讯广告网盟' },
+  { suffix: 'pangolin-sdk-toutiao.com', name: '字节跳动穿山甲广告 SDK' },
+  { suffix: 'pangle.io', name: '穿山甲国际版 Pangle 广告' },
+  { suffix: 'toblog.ctobsnssdk.com', name: '字节广告日志上报' },
+  { suffix: 'pglstatp-toutiao.com', name: '穿山甲静态资源服务' },
+  { suffix: 'alimama.com', name: '阿里妈妈商业广告' },
+  { suffix: 'tanx.com', name: '阿里 Tanx 广告交易平台' },
+  { suffix: 'adash.m.taobao.com', name: '淘宝移动埋点与投放' },
+  { suffix: 'adashx.m.taobao.com', name: '淘宝商业日志跟踪' },
+  { suffix: 'taboola.com', name: 'Taboola 信息流赞助推荐' },
+  { suffix: 'outbrain.com', name: 'Outbrain 赞助内容引擎' },
+  { suffix: 'criteo.com', name: 'Criteo 重定向营销广告' },
+  { suffix: 'popads.net', name: 'PopAds 弹窗广告引擎' },
+  { suffix: 'exoclick.com', name: 'ExoClick 综合广告网络' },
+  { suffix: 'juicyads.com', name: 'JuicyAds 广告与弹窗' },
+  { suffix: 'trafficjunky.com', name: 'TrafficJunky 视频广告联盟' },
+  { suffix: 'adcash.com', name: 'Adcash 全球广告投放平台' },
+  { suffix: 'clickadu.com', name: 'Clickadu 网页横幅与弹窗' },
+  { suffix: 'propellerads.com', name: 'PropellerAds 推送与插屏广告' },
+  { suffix: 'hilltopads.com', name: 'HilltopAds 弹窗与横幅广告' },
+];
+
+// 安全词白名单（防止误杀正常网页框架、内容与布局）
+const FALSE_POSITIVE_WORDS = new Set([
+  'download', 'downloads', 'thread', 'threads', 'header', 'headers', 'footer', 'footers',
+  'breadcrumb', 'breadcrumbs', 'broadcast', 'radio', 'gradient', 'shadow', 'radius',
+  'badge', 'badges', 'reload', 'head', 'lead', 'upload', 'uploads', 'spread', 'dead',
+  'reading', 'headline', 'pad', 'road', 'load', 'loading', 'modal-body', 'modal-header',
+  'container', 'wrapper', 'sidebar', 'content', 'main', 'card', 'box', 'item', 'page'
+]);
+
+function isAdToken(raw: string): boolean {
+  const s = raw.toLowerCase().trim();
+  if (s.length < 2 || s.length > 50 || FALSE_POSITIVE_WORDS.has(s)) return false;
+  // 1. 精确广告根词
+  if (/^(ads?|banner|guanggao|gg|sponsor(ed)?|popunder|floating[-_]?ad|fixed[-_]?ad|couplet|adv)$/i.test(s)) return true;
+  // 2. 广告复合词
+  if (/^(ad|banner|gg|adv|sponsor)[-_](box|slot|card|container|wrapper|placement|item|content|area|zone|frame|header|footer|sidebar|top|bottom|left|right|float|fixed|popup|overlay|layer|module|block|wrap|view|list|pic|img)$/i.test(s)) return true;
+  if (/^([a-z0-9]+)[-_](ad|ads|banner|gg|guanggao|sponsor|adv)$/i.test(s)) return true;
+  if (/^([a-z0-9]+)[-_](ad|ads|banner|gg|adv)[-_]([a-z0-9]+)$/i.test(s)) return true;
+  return false;
+}
+
 export interface AdFeatureReport {
   targetUrl: string;
   domain: string;
@@ -263,14 +322,18 @@ export class AdHunterService {
    * 纯 HTML 内容特征解析（支持从 HTML 字符串或已抓取内容检测）
    */
   public inspectHtml(targetUrl: string, domain: string, html: string): AdFeatureReport {
+    // 提取网页原生 Title 标签作为标头识别
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const siteTitle = titleMatch ? titleMatch[1].trim().slice(0, 40) : domain;
+
     const report: AdFeatureReport = {
       targetUrl,
       domain,
       analyzedAt: new Date().toISOString(),
       cmsFamily: {
         id: 'universal',
-        name: '通用自适应 CMS',
-        confidence: 0.5,
+        name: siteTitle ? `${siteTitle} · 自适应网页` : '通用自适应 CMS',
+        confidence: 0.8,
         signaturesFound: [],
       },
       stats: {
@@ -325,20 +388,102 @@ export class AdHunterService {
       };
     }
 
-    // ==================== 2. 插槽类广告 (Slots) 探测 ====================
-    const slotRegex = /class=["\'][^"\']*?(pgx-slot|front-feature-placement|ssp-placement|component-advertises)[^"\']*?["\']/gi;
-    const dataSlotRegex = /data-slot=["\']([^"\']+)["\']/gi;
-    const foundDataSlots = new Set<string>();
-    let m: RegExpExecArray | null;
+    // ==================== 2. 通用启发式广告 Class 与 ID 扫描 ====================
+    const foundAdClasses = new Set<string>();
+    const foundAdIds = new Set<string>();
 
-    while ((m = dataSlotRegex.exec(html)) !== null) {
-      foundDataSlots.add(m[1]);
+    // 匹配所有 class 属性
+    const classAttrRegex = /class=["']([^"']+)["']/gi;
+    let cm: RegExpExecArray | null;
+    while ((cm = classAttrRegex.exec(html)) !== null) {
+      const tokens = cm[1].split(/\s+/);
+      for (const tok of tokens) {
+        if (isAdToken(tok)) {
+          foundAdClasses.add(tok);
+        }
+      }
     }
 
+    // 匹配所有 id 属性
+    const idAttrRegex = /id=["']([^"']+)["']/gi;
+    let im: RegExpExecArray | null;
+    while ((im = idAttrRegex.exec(html)) !== null) {
+      const idVal = im[1].trim();
+      if (isAdToken(idVal)) {
+        foundAdIds.add(idVal);
+      }
+    }
+
+    // 将命中的真实 Class 转为高精度选择器
+    if (foundAdClasses.size > 0) {
+      const classSelectors = Array.from(foundAdClasses).map(c => `.${c}`);
+      report.detectedSlots.push({
+        selector: classSelectors.slice(0, 15).join(', '),
+        description: `扫描到 ${foundAdClasses.size} 个具有广告词根特征的 DOM 容器 (${Array.from(foundAdClasses).slice(0, 6).join(', ')})`,
+      });
+      if (classSelectors.length > 15) {
+        report.detectedSlots.push({
+          selector: classSelectors.slice(15).join(', '),
+          description: `额外 ${classSelectors.length - 15} 个页面内嵌广告容器选择器`,
+        });
+      }
+    }
+
+    // 将命中的真实 ID 转为高精度选择器
+    if (foundAdIds.size > 0) {
+      const idSelectors = Array.from(foundAdIds).map(id => `#${id}`);
+      report.detectedSlots.push({
+        selector: idSelectors.join(', '),
+        description: `扫描到 ${foundAdIds.size} 个广告专属 ID 锚点 (${Array.from(foundAdIds).slice(0, 5).join(', ')})`,
+      });
+    }
+
+    // ==================== 3. 主流广告联盟与插槽特征扫描 ====================
+    // 3.1 Google AdSense
+    if (html.includes('adsbygoogle') || html.includes('google-analytics') || html.includes('googlesyndication') || html.includes('doubleclick')) {
+      report.detectedSlots.push({
+        selector: 'ins.adsbygoogle, [data-ad-client], [data-ad-slot], [data-ad-format], [data-ad-unit]',
+        description: 'Google AdSense 联盟广告组件与自定义插槽',
+      });
+    }
+
+    // 3.2 百度网盟与移动推广
+    if (html.includes('cpro') || html.includes('pos.baidu.com') || html.includes('BAIDU_SSP_') || html.includes('mobads')) {
+      report.detectedSlots.push({
+        selector: '[id^="BAIDU_SSP_"], [id^="baidu_clb_slot_id"], div[id^="cproIframe"], [class*="cpro"]',
+        description: '百度原生推广与网盟展示容器',
+      });
+    }
+
+    // 3.3 字节跳动穿山甲 / Pangle
+    if (html.includes('pangle') || html.includes('pangolin')) {
+      report.detectedSlots.push({
+        selector: '[id^="pangle"], [class*="pangle"], [class*="pangolin"]',
+        description: '字节跳动穿山甲广告原生容器',
+      });
+    }
+
+    // 3.4 腾讯广点通 / 优量汇
+    if (html.includes('gdt') || html.includes('adnet.qq')) {
+      report.detectedSlots.push({
+        selector: '[id^="gdt"], [class*="gdt-"], [id*="adnet"]',
+        description: '腾讯优量汇广告容器',
+      });
+    }
+
+    // 3.5 通用广告 iframe
+    if (/<iframe[^>]+(ad|banner|google|baidu|cpro|doubleclick)[^>]*>/i.test(html)) {
+      report.detectedSlots.push({
+        selector: 'iframe[src*="ad"], iframe[id*="ad"], iframe[src*="doubleclick"], iframe[src*="googleads"], iframe[src*="pos.baidu.com"]',
+        description: '第三方广告展示 iframe 嵌套框架',
+      });
+    }
+
+    // 3.6 预设黑料与成人站专有插槽
     if (html.includes('pgx-slot') || html.includes('data-slot') || html.includes('component-advertises')) {
       report.detectedSlots.push({
         selector: '.pgx-slot, [data-slot]',
-        description: 'PGX / SSP 动态插槽广告位 (' + Array.from(foundDataSlots).join(', ') + ')',
+        description: 'PGX / SSP 动态插槽广告位',
       });
       report.detectedSlots.push({
         selector: '.component-advertises, .component-advertises-0, .component-advertises-1',
@@ -361,7 +506,7 @@ export class AdHunterService {
       });
     }
 
-    // ==================== 3. 信息流混排伪装卡片 (In-Feed Cards) 探测 ====================
+    // ==================== 4. 信息流混排伪装卡片 (In-Feed Cards) 探测 ====================
     if (html.includes('pgx-card') || html.includes('data-event="ad_click"') || html.includes('data-ad_slot_key')) {
       report.inFeedCards = {
         detected: true,
@@ -376,9 +521,16 @@ export class AdHunterService {
         cardSelector: 'a[href*="ohmycams.com"]',
         features: ['section[data-home-live]', 'data-endpoint="/zh/api/live/home-source"'],
       };
+    } else if (html.includes('rel="sponsored"') || html.includes("rel='sponsored'")) {
+      report.inFeedCards = {
+        detected: true,
+        containerSelector: ':has(> a[rel*="sponsored"])',
+        cardSelector: 'a[rel*="sponsored"]',
+        features: ['rel="sponsored"'],
+      };
     }
 
-    // ==================== 4. 遮罩、全屏弹窗与年龄拦截 探测 ====================
+    // ==================== 5. 遮罩、全屏弹窗与年龄拦截 探测 ====================
     if (html.includes('age-gate')) {
       report.popupsAndOverlays.push({
         selector: '#age-gate, .age-gate, .age-gate-box, .age-gate-overlay',
@@ -386,30 +538,36 @@ export class AdHunterService {
         type: 'age_gate',
       });
     }
-    if (html.includes('front-feature-placement-player')) {
+    if (html.includes('front-feature-placement-player') || html.includes('video-overlay-ad')) {
       report.popupsAndOverlays.push({
-        selector: '.front-feature-placement-player',
+        selector: '.front-feature-placement-player, .video-overlay-ad',
         description: '直接覆盖在视频播放器上的半透明/嵌入式悬浮广告框',
         type: 'player_overlay',
       });
     }
-    if (html.includes('pop_notice') || html.includes('pop_grid') || html.includes('popup_image')) {
+    if (html.includes('pop_notice') || html.includes('pop_grid') || html.includes('popup_image') || html.includes('bottom-floating-ad') || html.includes('fixed-banner')) {
       report.popupsAndOverlays.push({
-        selector: '.pgx-slot[data-variant="popup_image"], .pgx-slot[data-variant="grid"], .pgx-slot[data-variant="float"]',
-        description: '进入页面后弹出的单图与网格弹窗',
+        selector: '.pgx-slot[data-variant="popup_image"], .pgx-slot[data-variant="grid"], .bottom-floating-ad, .fixed-banner, [class*="floating-ad"]',
+        description: '进入页面后弹出的单图与网格弹窗/悬浮挂件',
         type: 'modal',
       });
     }
 
-    // ==================== 5. 密集文字推广矩阵 探测 ====================
+    // ==================== 6. 密集文字推广矩阵与赞助链接 探测 ====================
     if (html.includes('detail-list-title') || html.includes('btnads_3') || html.includes('data-variant="text"')) {
       report.textLinkMatrices.push({
         selector: '.detail-list-title:has(a[data-event="ad_click"]), .detail-list-title:has(a[rel*="sponsored"]), a.gotoclick[data-event="ad_click"]',
-        description: '正文下方密集的 40+ 条色情/博彩外链文字推广网格',
+        description: '正文下方密集的色情/博彩外链文字推广网格',
+      });
+    }
+    if (html.includes('rel="sponsored"') || html.includes("rel='sponsored'")) {
+      report.textLinkMatrices.push({
+        selector: 'a[rel*="sponsored"], a[target="_blank"][href*="/ad/"], a[target="_blank"][href*="union"]',
+        description: '第三方付费赞助与引流点击链接',
       });
     }
 
-    // ==================== 6. 伪装原生导航与虚假外链 探测 ====================
+    // ==================== 7. 伪装原生导航与虚假外链 探测 ====================
     if (html.includes('footer-menu') && html.includes('target="_blank"')) {
       report.fakeNavigationPromos.push({
         selector: '.footer-menu a[target="_blank"], .footer-menu a[href^="http"]',
@@ -423,34 +581,86 @@ export class AdHunterService {
       });
     }
 
-    // ==================== 7. 脚本路径与核心广告引擎 探测 ====================
-    const scriptSrcMatches = html.match(/src=["\']([^"\']+\.js[^"\']*)["\']/gi) || [];
-    const scriptPaths = new Set<string>();
-    for (const match of scriptSrcMatches) {
-      const src = match.replace(/^src=["\']/i, '').replace(/["\']$/, '').split('?')[0];
+    // ==================== 8. 脚本路径、联盟网络与广告接口 探测 ====================
+    const srcMatches = html.match(/(?:src|href)=["']([^"']+)["']/gi) || [];
+    const scannedUrls = new Set<string>();
+
+    for (const match of srcMatches) {
+      const rawVal = match.replace(/^(?:src|href)=["']/i, '').replace(/["']$/, '').trim();
+      if (!rawVal || rawVal.startsWith('data:') || rawVal.startsWith('javascript:')) continue;
+      scannedUrls.add(rawVal);
+    }
+
+    const detectedEnginesMap = new Map<string, { type: 'slot_engine' | 'popunder' | 'tracker' | 'ad_network'; zeroDomainRegex: string; desc: string }>();
+
+    for (const urlStr of scannedUrls) {
+      let uHost = '';
+      let uPath = '';
+      try {
+        const u = new URL(urlStr.startsWith('//') ? 'https:' + urlStr : (urlStr.startsWith('http') ? urlStr : `http://${domain}/${urlStr.replace(/^\/+/, '')}`));
+        uHost = u.hostname.toLowerCase();
+        uPath = u.pathname;
+      } catch {
+        uPath = urlStr.split('?')[0].split('#')[0];
+      }
+
+      // 8.1 匹配已知第三方广告、联盟与追踪网络
+      for (const known of KNOWN_AD_DOMAINS) {
+        if (uHost === known.suffix || uHost.endsWith('.' + known.suffix)) {
+          const rule = `DOMAIN-SUFFIX,${known.suffix},REJECT`;
+          if (!detectedEnginesMap.has(rule)) {
+            detectedEnginesMap.set(rule, {
+              type: 'ad_network',
+              zeroDomainRegex: rule,
+              desc: `${known.name} (${uHost})`,
+            });
+          }
+          break;
+        }
+      }
+
+      // 8.2 匹配常见广告与数据埋点路径特征
       if (
-        src.includes('slot-ads') ||
-        src.includes('bottom-popup') ||
-        src.includes('tjtag') ||
-        src.includes('cogninotow') ||
-        src.includes('fozekikikiminu') ||
-        src.includes('janitorprecision') ||
-        src.includes('loud-hall') ||
-        src.includes('tapioni')
+        uPath.includes('slot-ads') ||
+        uPath.includes('bottom-popup') ||
+        uPath.includes('tjtag') ||
+        uPath.includes('cogninotow') ||
+        uPath.includes('fozekikikiminu') ||
+        uPath.includes('janitorprecision') ||
+        uPath.includes('loud-hall') ||
+        uPath.includes('tapioni') ||
+        uPath.includes('/api/ad') ||
+        uPath.includes('/get_ad') ||
+        uPath.includes('/ad_show') ||
+        uPath.includes('/splash_ad') ||
+        uPath.includes('/open_screen')
       ) {
-        scriptPaths.add(src);
+        const cleanP = uPath.split('?')[0];
+        const zeroRegex = `^https?:\\/\\/[^\\/]+${cleanP.replace(/\./g, '\\.')}(?:[?#]|$)`;
+        if (!detectedEnginesMap.has(zeroRegex)) {
+          detectedEnginesMap.set(zeroRegex, {
+            type: uPath.includes('slot') || uPath.includes('popup') ? 'slot_engine' : 'tracker',
+            zeroDomainRegex: zeroRegex,
+            desc: uPath.includes('slot') ? '自研广告插槽调度引擎' : uPath.includes('tjtag') ? '点击埋点与数据上报脚本' : '动态广告投放接口',
+          });
+        }
       }
     }
 
-    for (const p of scriptPaths) {
-      const isExternal = p.startsWith('http://') || p.startsWith('https://') || p.startsWith('//');
-      const cleanPath = isExternal ? new URL(p.startsWith('//') ? 'https:' + p : p).pathname : p;
-      const zeroRegex = `^https?:\\/\\/[^\\/]+${cleanPath.replace(/\./g, '\\.')}`;
+    for (const [key, item] of detectedEnginesMap.entries()) {
       report.scriptEngines.push({
-        path: p,
-        zeroDomainRegex: zeroRegex,
-        type: cleanPath.includes('slot-ads') || cleanPath.includes('bottom-popup') ? 'slot_engine' : 'ad_network',
-        description: cleanPath.includes('slot-ads') ? '自研 PGX 广告插槽调度引擎' : cleanPath.includes('tjtag') ? '点击埋点与数据上报脚本' : '外部广告联盟与弹窗脚本',
+        path: key,
+        zeroDomainRegex: item.zeroDomainRegex,
+        type: item.type,
+        description: item.desc,
+      });
+    }
+
+    // ==================== 9. 保底防护（针对纯净页面提供通用插槽防护层） ====================
+    if (report.detectedSlots.length === 0 && report.popupsAndOverlays.length === 0 && report.scriptEngines.length === 0) {
+      report.detectedSlots.push({
+        selector: 'ins.adsbygoogle, [data-ad-slot], [data-ad-client], [data-ad-unit], iframe[src*="ad"], iframe[src*="googleads"], div[id^="cproIframe"], .banner-ad, .ad-box',
+        description: '通用广告插槽与联盟组件基础过滤防线 (Google AdSense / 百度网盟 / 穿山甲)',
       });
     }
 
@@ -469,7 +679,7 @@ export class AdHunterService {
       report.stats.navPromosCount +
       report.stats.scriptEnginesCount;
 
-    // ==================== 8. 自动化规则合成 (Rule Synthesis) ====================
+    // ==================== 10. 自动化规则合成 (Rule Synthesis) ====================
     report.synthesizedRules = this.synthesizeRules(report);
 
     return report;
@@ -510,7 +720,9 @@ export class AdHunterService {
 
     // 去重合并
     const uniqueCssSelectors = Array.from(new Set(cssSelectors.flatMap(s => s.split(',').map(x => x.trim())).filter(Boolean)));
-    let cssCosmetic = uniqueCssSelectors.join(',\n') + ` {\n  display: none !important;\n  visibility: hidden !important;\n  height: 0 !important;\n  pointer-events: none !important;\n  z-index: -9999 !important;\n}`;
+    let cssCosmetic = uniqueCssSelectors.length > 0
+      ? uniqueCssSelectors.join(',\n') + ` {\n  display: none !important;\n  visibility: hidden !important;\n  height: 0 !important;\n  pointer-events: none !important;\n  z-index: -9999 !important;\n}`
+      : `/* 通用基础去广告防线 */\nins.adsbygoogle, [data-ad-slot], [data-ad-client], .ad-slot, .banner-ad {\n  display: none !important;\n  height: 0 !important;\n}`;
 
     // 针对页面可能挂载的 fixbody 滚动锁定，强制物理覆盖解除
     cssCosmetic += `\n\n/* === 物理防锁死：彻底粉碎 fixbody 对页面滚动的劫持 === */\nhtml,\nbody,\nhtml.fixbody,\nbody.fixbody,\nbody.navbar,\n#xqbj-container {\n  overflow: visible !important;\n  overflow-y: auto !important;\n  height: auto !important;\n  min-height: 100% !important;\n  max-height: none !important;\n  position: static !important;\n  touch-action: auto !important;\n  -webkit-overflow-scrolling: touch !important;\n}`;
@@ -520,14 +732,24 @@ export class AdHunterService {
     if (report.cmsFamily.id === 'heiliao') {
       defuserScriptlet += `try {\n  const now = new Date();\n  const dateKey = \`\${now.getFullYear()}-\${String(now.getMonth() + 1).padStart(2, '0')}-\${String(now.getDate()).padStart(2, '0')}\`;\n  localStorage.setItem('hlw_age_verify_date', dateKey);\n} catch (_) {}\nObject.defineProperty(window, 'HlwPgxAds', {\n  get: () => ({ boot: () => {} }),\n  set: () => {},\n  configurable: false\n});\nwindow.__SSP_ENABLED__ = false;\nwindow.__SSP_SLOTS__ = [];\n`;
     }
-    defuserScriptlet += `// 弹窗与点击劫持防御 (Popunder Defuser)\nconst _rawOpen = window.open;\nwindow.open = function(url, target, features) {\n  if (!url || /sponsored|aff|chat|game|peach|trwl1|ohmycams/i.test(url)) {\n    console.log('[AdHunter] 阻断恶意弹窗:', url);\n    return null;\n  }\n  return _rawOpen.call(window, url, target, features);\n};\n`;
+    defuserScriptlet += `// Google AdSense 灭活\ntry { window.adsbygoogle = { push: function(){} }; Object.freeze(window.adsbygoogle); } catch(_) {}\n`;
+    defuserScriptlet += `// 弹窗与点击劫持防御 (Popunder Defuser)\nconst _rawOpen = window.open;\nwindow.open = function(url, target, features) {\n  if (!url || /sponsored|aff|chat|game|peach|trwl1|ohmycams|cpro/i.test(url)) {\n    console.log('[AdHunter] 阻断恶意弹窗:', url);\n    return null;\n  }\n  return _rawOpen.call(window, url, target, features);\n};\n`;
 
-    // Surge 规则（零域名 URL-REGEX）
+    // Surge 规则（零域名 URL-REGEX 或 DOMAIN-SUFFIX）
     const surgeUrlRegex: string[] = [];
     for (const engine of report.scriptEngines) {
       if (engine.zeroDomainRegex) {
-        surgeUrlRegex.push(`URL-REGEX,"${engine.zeroDomainRegex}",REJECT`);
+        if (engine.zeroDomainRegex.startsWith('DOMAIN-SUFFIX,') || engine.zeroDomainRegex.startsWith('DOMAIN,')) {
+          surgeUrlRegex.push(engine.zeroDomainRegex);
+        } else {
+          surgeUrlRegex.push(`URL-REGEX,"${engine.zeroDomainRegex}",REJECT`);
+        }
       }
+    }
+
+    // 若无匹配规则，保底提供通用过滤参考
+    if (surgeUrlRegex.length === 0) {
+      surgeUrlRegex.push(`URL-REGEX,"^https?:\\/\\/[^\\/]+\\/.*(ad|banner|splash|popunder).*(?:[?#]|$)",REJECT`);
     }
 
     // 打包完整 Userscript
@@ -546,13 +768,7 @@ export class AdHunterService {
 
   // 1. 基因特征探针
   function isTargetPage() {
-    return !!(
-      document.getElementById('xqbj-container') ||
-      document.getElementById('front-player') ||
-      document.querySelector('.pgx-slot, [data-front-feature-placement], #age-gate') ||
-      window.__SSP_ENABLED__ !== undefined ||
-      window.HlwPgxAds !== undefined
-    );
+    return true;
   }
 
   // 2. 运行时灭活
@@ -569,10 +785,9 @@ export class AdHunterService {
 
   // 4. DOM 守卫与弹窗速解
   function guard() {
-    if (!isTargetPage()) return;
     applyStyles();
 
-    // 自动解开 18 岁弹窗对页面滚动的锁定
+    // 自动解开弹窗对页面滚动的锁定
     const gate = document.getElementById('age-gate');
     if (gate) gate.remove();
     if (document.body) {
