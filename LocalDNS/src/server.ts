@@ -928,6 +928,7 @@ $httpClient.get({
       // LocalDNS 不启动 mihomo / sing-box，这里提供两份可编辑的本地虚拟配置，
       // 保存只写入 Storage，不会启动或重载任何代理核心。
       const proxyCores = [
+        { id: 'surge', name: 'Surge', format: 'CONF', mode: 'file', path: '/configs/surge/localdns.conf', directory: '/configs/surge', roots: ['/configs'] },
         { id: 'mihomo', name: 'Mihomo', format: 'YAML', mode: 'file', path: '/configs/mihomo/config.yaml', directory: '/configs/mihomo', roots: ['/configs'] },
         { id: 'sing-box', name: 'sing-box', format: 'JSON', mode: 'file', path: '/configs/sing-box/config.json', directory: '/configs/sing-box', roots: ['/configs'] },
       ];
@@ -957,7 +958,20 @@ $httpClient.get({
       };
       const proxyKey = (id: string) => `proxy_config_${id}`;
       const proxyRevKey = (id: string) => `proxy_config_${id}_revision`;
-      const readProxyContent = (id: string): string => {
+      const readProxyContent = async (id: string): Promise<string> => {
+        if (id === 'surge') {
+          try {
+            const surgeRes = await SurgeService.get().callSurgeApi('/v1/profiles/current?sensitive=0');
+            if (surgeRes.ok && surgeRes.data?.profile) {
+              const liveProfile = String(surgeRes.data.profile);
+              Storage.set(proxyKey('surge'), liveProfile);
+              return liveProfile;
+            }
+          } catch (_) {}
+          const custom = Storage.get<string>('localdns_custom_conf') || Storage.get<string>(proxyKey('surge'));
+          if (custom && custom.trim()) return custom;
+          return await SurgeService.get().generateSurgeConfig();
+        }
         const stored = Storage.get<string>(proxyKey(id));
         return typeof stored === 'string' ? stored : (proxySeeds[id] || '');
       };
@@ -1041,7 +1055,7 @@ $httpClient.get({
             ...core,
             available: true,
             exists: true,
-            active: false,
+            active: core.id === 'surge',
           })),
         });
       }
@@ -1056,7 +1070,7 @@ $httpClient.get({
               name: core.id,
               path: core.directory,
               directory: true,
-              active: false,
+              active: core.id === 'surge',
               size: 0,
               modified: 0,
             })),
@@ -1066,14 +1080,14 @@ $httpClient.get({
         if (!core) {
           return jsonResponse({ error: 'Directory not allowed' }, 403);
         }
-        const content = readProxyContent(core.id);
+        const content = await readProxyContent(core.id);
         return jsonResponse({
           directory: core.directory,
           files: [{
             name: core.path.split('/').pop(),
             path: core.path,
             directory: false,
-            active: false,
+            active: core.id === 'surge',
             size: content.length,
             modified: Date.now(),
           }],
@@ -1083,20 +1097,18 @@ $httpClient.get({
       // 29.6 /api/proxy-config/read
       if (subConfigPath === '/read' && method === 'POST') {
         const body = parseJsonBody(req);
-        const core = proxyCores.find((item) => item.id === body.core);
-        if (!core) {
-          return jsonResponse({ error: 'Unknown core' }, 404);
-        }
+        const core = proxyCores.find((item) => item.id === body.core) || proxyCores[0];
         const path = body.path || core.path;
         if (path !== core.path) {
           return jsonResponse({ error: 'Config path not allowed' }, 403);
         }
+        const content = await readProxyContent(core.id);
         return jsonResponse({
           core: core.id,
           path,
-          content: readProxyContent(core.id),
+          content,
           revision: proxyRevision(core.id),
-          active: false,
+          active: core.id === 'surge',
           mode: 'file',
           groupCount: 0,
           groupRevision: '',
@@ -1106,6 +1118,16 @@ $httpClient.get({
       // 29.7 /api/proxy-config/check
       if (subConfigPath === '/check' && method === 'POST') {
         const body = parseJsonBody(req);
+        if (body.core === 'surge' && typeof body.content === 'string') {
+          const txt = body.content.trim();
+          if (!txt) {
+            return jsonResponse({ ok: false, detail: 'Surge 配置文件内容不能为空。' }, 200);
+          }
+          if (!txt.includes('[') || !txt.includes(']')) {
+            return jsonResponse({ ok: false, detail: 'Surge 配置文件应包含区段头（如 [General]、[Proxy]、[Rule] 等）。' }, 200);
+          }
+          return jsonResponse({ ok: true, detail: 'Surge 配置文件格式校验通过；保存将通过 HTTP API 直接传回 Surge 并热载生效。' });
+        }
         if (body.core === 'sing-box' && typeof body.content === 'string') {
           try {
             JSON.parse(body.content);
@@ -1126,7 +1148,37 @@ $httpClient.get({
         if (body.path && body.path !== core.path) {
           return jsonResponse({ error: 'Config path not allowed' }, 403);
         }
-        const revision = writeProxyContent(core.id, typeof body.content === 'string' ? body.content : '');
+        const content = typeof body.content === 'string' ? body.content : '';
+        const revision = writeProxyContent(core.id, content);
+
+        if (core.id === 'surge') {
+          Storage.set('localdns_custom_conf', content);
+          let reloaded = false;
+          let reloadDetail = '';
+          try {
+            const reloadRes = await SurgeService.get().callSurgeApi('/v1/profiles/reload', 'POST', {});
+            await SurgeService.get().callSurgeApi('/v1/dns/flush', 'POST', {});
+            if (reloadRes.ok) {
+              reloaded = true;
+              reloadDetail = '已成功传回 Surge 并执行热载生效（DNS 缓存已自动冲刷）！';
+            } else {
+              reloadDetail = '配置已在 LocalDNS 保存，但传回 Surge 返回: ' + (reloadRes.error || `HTTP ${reloadRes.status}`);
+            }
+          } catch (e: any) {
+            reloadDetail = '配置已在 LocalDNS 保存，但通知 Surge 异常: ' + (e.message || String(e));
+          }
+
+          return jsonResponse({
+            ok: true,
+            revision,
+            unchanged: false,
+            confirmation: reloaded ? 'signal-and-health' : 'saved-only',
+            reloaded,
+            backup: null,
+            detail: reloadDetail,
+          });
+        }
+
         return jsonResponse({
           ok: true,
           revision,

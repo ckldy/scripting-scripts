@@ -132,11 +132,17 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
       const apiKey = getParam('api_key') || getParam('key');
       const isDownload = getParam('download') === '1' || getParam('download') === 'true';
 
-      const conf = await service.generateSurgeConfig({
-        host,
-        mode,
-        apiKey,
-      });
+      const customConf = Storage.get<string>('localdns_custom_conf');
+      let conf = '';
+      if (customConf && customConf.trim()) {
+        conf = customConf;
+      } else {
+        conf = await service.generateSurgeConfig({
+          host,
+          mode,
+          apiKey,
+        });
+      }
 
       const extraHeaders: Record<string, string> = {};
       if (isDownload) {

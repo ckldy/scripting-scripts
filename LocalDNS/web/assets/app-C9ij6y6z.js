@@ -15260,7 +15260,7 @@ const icons = {
   lock: '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 15v2"/>'
 };
 const icon = (name) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.file}</svg>`;
-const brands = { mihomo: { name: "Mihomo", format: "YAML", logo: "assets/img/proxy-panel.svg" }, "sing-box": { name: "sing-box", format: "JSON", logo: "assets/img/proxy-panel.svg" } };
+const brands = { surge: { name: "Surge", format: "CONF", logo: "assets/img/proxy-panel.svg" }, mihomo: { name: "Mihomo", format: "YAML", logo: "assets/img/proxy-panel.svg" }, "sing-box": { name: "sing-box", format: "JSON", logo: "assets/img/proxy-panel.svg" } };
 const brandOf = (id) => brands[id] || { name: String(id || "未知核心"), format: "", logo: "assets/img/proxy-panel.svg" };
 let active = null;
 let fallbackDispose = null;
@@ -15299,7 +15299,7 @@ async function mount$1(parent, context) {
     run();
   }
   const abort = new AbortController();
-  let editor, tools, cores = [], core = "mihomo", path = "", revision = "", base = "", newline = "\n", busy = false, programmatic = false, serviceReady = false, activeFile = false, groupRevision = "", fragmentMode = false, groupCount = 0, alive = true, mode = "file", directory = "", directoryCore = "mihomo", directoryFiles = [], browseSequence = 0, browsing = false;
+  let editor, tools, cores = [], core = "surge", path = "", revision = "", base = "", newline = "\n", busy = false, programmatic = false, serviceReady = false, activeFile = false, groupRevision = "", fragmentMode = false, groupCount = 0, alive = true, mode = "file", directory = "", directoryCore = "surge", directoryFiles = [], browseSequence = 0, browsing = false;
   let workspace = {};
   try {
     workspace = JSON.parse(preferences.getItem("localdns-proxy-config-workspace-v1") || "{}") || {};
@@ -15308,7 +15308,7 @@ async function mount$1(parent, context) {
   if (workspace.mode === "directory") mode = "directory";
   setHTML(parent, `<section class="pc-root" aria-label="代理配置编辑器">
       <div class="pc-heading"><div><button type="button" class="pc-back" id="pc-back">${icon("back")}系统管理</button><h1>代理配置</h1><p class="gc-sub">读取服务器文件或 HTTP 配置，校验后保存并应用。</p></div></div>
-      <div class="pc-sourcebar"><label for="pc-core-select">配置核心</label><select id="pc-core-select"><option value="mihomo">Mihomo · YAML</option><option value="sing-box">sing-box · JSON</option></select><div class="pc-source-modes" role="group" aria-label="文件浏览方式"><button type="button" data-pc-mode="file" aria-pressed="true">单文件</button><button type="button" data-pc-mode="directory" aria-pressed="false">目录</button></div><button type="button" class="button small" id="pc-http-toggle" aria-expanded="false" aria-controls="pc-http-form">HTTP 获取</button></div>
+      <div class="pc-sourcebar"><label for="pc-core-select">配置核心</label><select id="pc-core-select"><option value="surge">Surge · CONF</option><option value="mihomo">Mihomo · YAML</option><option value="sing-box">sing-box · JSON</option></select><div class="pc-source-modes" role="group" aria-label="文件浏览方式"><button type="button" data-pc-mode="file" aria-pressed="true">单文件</button><button type="button" data-pc-mode="directory" aria-pressed="false">目录</button></div><button type="button" class="button small" id="pc-http-toggle" aria-expanded="false" aria-controls="pc-http-form">HTTP 获取</button></div>
       <form class="pc-http-form" id="pc-http-form" hidden><label for="pc-http-url">HTTP(S) 配置链接</label><div class="pc-http-fields"><input id="pc-http-url" type="url" placeholder="https://example.com/config.yaml" autocomplete="off" spellcheck="false" required aria-describedby="pc-http-note pc-http-error"/><button type="submit" class="button" id="pc-http-read">读取到编辑器</button></div><label class="pc-keep-controller"><input type="checkbox" id="pc-keep-controller" checked/>保留目标核心的控制地址和密钥</label><p id="pc-http-note">先选择目标配置文件。读取成功后进入草稿，保存时写入该文件。</p><p id="pc-http-error" class="pc-form-error" role="alert" hidden></p></form>
       <details class="pc-setup" id="pc-setup" hidden><summary>恢复配置服务</summary><p>在核心所在服务器安装配套配置服务，然后重新读取。默认端口为 9098；自定义地址可在 ui/config.js 设置 proxyConfigBase。</p><code>sh install-proxy-config.sh http://服务器IP:9099</code><a href="help/proxy-config.txt" target="_blank" rel="noopener noreferrer">查看安装说明</a></details>
       <button type="button" class="pc-mobile-files" id="pc-toggle-files" aria-expanded="false" aria-controls="pc-directory-panel" hidden><span>切换配置文件</span><span>展开列表</span></button>
@@ -15691,7 +15691,7 @@ ${draft.preserved ? "已保留目标核心的控制地址和密钥。\n" : ""}${
           preferred = JSON.parse(preferences.getItem("localdns-proxy-config-file-v1") || "null");
         } catch {
         }
-        const chosen = cores.find((item) => item.id === (preferred == null ? void 0 : preferred.core) && item.available && item.exists) || cores.find((item) => item.available && item.exists);
+        const chosen = cores.find((item) => item.id === (preferred == null ? void 0 : preferred.core) && item.available && item.exists) || cores.find((item) => item.id === "surge" && item.available && item.exists) || cores.find((item) => item.available && item.exists);
         if (chosen) {
           await readFile(chosen.id, (preferred == null ? void 0 : preferred.core) === chosen.id && (preferred == null ? void 0 : preferred.path) ? preferred.path : chosen.path);
           if (workspace.core === chosen.id && typeof workspace.directory === "string") {

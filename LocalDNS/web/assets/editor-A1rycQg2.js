@@ -35030,6 +35030,12 @@ function syntaxCheck(text, type) {
   var _a2, _b;
   const diagnostics = [];
   if (!text.trim()) return [{ from: 0, to: 0, line: 1, message: "配置文件不能为空。" }];
+  if (type === "surge") {
+    if (!text.includes("[") || !text.includes("]")) {
+      return [{ from: 0, to: Math.min(text.length, 10), line: 1, message: "Surge 配置文件应包含区段头（如 [General]、[Proxy]、[Rule]）。" }];
+    }
+    return [];
+  }
   if (type === "sing-box") {
     const errors = [];
     const value = parse(text, errors, { allowTrailingComma: true, disallowComments: false });

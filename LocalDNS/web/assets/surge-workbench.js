@@ -2679,6 +2679,8 @@
 
     // 控制原生编辑器的显隐
     var sourceBar = q('.pc-sourcebar', pcRoot);
+    var workspaceEl = q('.pc-workspace', pcRoot);
+    var footnoteEl = q('.pc-footnote', pcRoot);
     var editorEl = q('#pc-editor', pcRoot);
     var statusEl = q('#pc-status', pcRoot);
     var actionsEl = q('.pc-actions', pcRoot);
@@ -2686,10 +2688,24 @@
     var rawShow = activeTab === 'raw-editor';
 
     if (sourceBar) sourceBar.style.display = rawShow ? '' : 'none';
+    if (workspaceEl) workspaceEl.style.display = rawShow ? '' : 'none';
+    if (footnoteEl) footnoteEl.style.display = rawShow ? '' : 'none';
     if (editorEl) editorEl.style.display = rawShow ? '' : 'none';
     if (statusEl) statusEl.style.display = rawShow ? '' : 'none';
     if (actionsEl) actionsEl.style.display = rawShow ? '' : 'none';
     if (httpForm && !rawShow) httpForm.hidden = true;
+
+    // 当切换至原生编辑时，确保配置核心选中并加载 Surge
+    if (rawShow) {
+      var coreSelect = q('#pc-core-select', pcRoot);
+      if (coreSelect && coreSelect.value !== 'surge') {
+        var surgeOpt = q('option[value="surge"]', coreSelect);
+        if (surgeOpt) {
+          coreSelect.value = 'surge';
+          coreSelect.dispatchEvent(new Event('change'));
+        }
+      }
+    }
 
     // 渲染我们注入的状态栏、Tab 栏与对应面板
     var html = renderHeaderStatus() + renderTabs();
