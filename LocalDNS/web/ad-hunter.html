@@ -684,7 +684,8 @@
       function isToken(raw) {
         const s = raw.toLowerCase().trim();
         if (s.length < 2 || s.length > 50 || FALSE_WORDS.has(s)) return false;
-        if (/^(ads?|banner|guanggao|gg|sponsor(ed)?|popunder|floating[-_]?ad|fixed[-_]?ad|couplet|adv)$/i.test(s)) return true;
+        if (/^(ads?|banner|guanggao|gg|sponsor(ed)?|popunder|floating[-_]?ad|fixed[-_]?ad|couplet|adv|qf|img-qf|bottom-img-qf|home-qf)$/i.test(s)) return true;
+        if (s.includes('exo-native') || s.includes('msg-native') || s.includes('native-widget') || s.includes('img-qf') || s.includes('home-qf')) return true;
         if (/^(ad|banner|gg|adv|sponsor)[-_](box|slot|card|container|wrapper|placement|item|content|area|zone|frame|header|footer|sidebar|top|bottom|left|right|float|fixed|popup|overlay|layer|module|block|wrap|view|list|pic|img)$/i.test(s)) return true;
         if (/^([a-z0-9]+)[-_](ad|ads|banner|gg|guanggao|sponsor|adv)$/i.test(s)) return true;
         if (/^([a-z0-9]+)[-_](ad|ads|banner|gg|adv)[-_]([a-z0-9]+)$/i.test(s)) return true;
@@ -722,7 +723,13 @@
         });
       }
 
-      // 2. 主流联盟组件
+      // 2. 主流联盟组件与通栏横幅 (QF 旗帜横幅)
+      if (html.includes('home-qf') || html.includes('img-qf') || html.includes('bottom-img-qf') || html.includes('/images/qf/')) {
+        rep.detectedSlots.push({
+          selector: '.home-qf, .img-qf1, .img-qf2, .bottom-img-qf1, .bottom-img-qf2, [class*="img-qf"], img[src*="/images/qf/"], a:has(> img[src*="/images/qf/"]), a[href*="amazonaws.com"], a[href*="guotiai4.cc"], a[href*="ifengyue.online"], a[href*=":5012"], a[href*=":5002"], a[href*=":30400"]',
+          description: '通栏横幅广告容器与博彩外链图片 (QF 旗帜横幅)'
+        });
+      }
       if (html.includes('adsbygoogle') || html.includes('google-analytics') || html.includes('doubleclick')) {
         rep.detectedSlots.push({ selector: 'ins.adsbygoogle, [data-ad-client], [data-ad-slot], [data-ad-format], [data-ad-unit]', description: 'Google AdSense 联盟广告组件与自定义插槽' });
       }

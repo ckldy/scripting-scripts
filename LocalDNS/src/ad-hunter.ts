@@ -69,9 +69,9 @@ const FALSE_POSITIVE_WORDS = new Set([
 function isAdToken(raw: string): boolean {
   const s = raw.toLowerCase().trim();
   if (s.length < 2 || s.length > 50 || FALSE_POSITIVE_WORDS.has(s)) return false;
-  // 1. 精确广告根词与联盟组件前缀
-  if (/^(ads?|banner|guanggao|gg|sponsor(ed)?|popunder|floating[-_]?ad|fixed[-_]?ad|couplet|adv|exo|popunder\d*)$/i.test(s)) return true;
-  if (s.includes('exo-native') || s.includes('msg-native') || s.includes('native-widget')) return true;
+  // 1. 精确广告根词与联盟组件前缀 (含 QF 旗帜横幅)
+  if (/^(ads?|banner|guanggao|gg|sponsor(ed)?|popunder|floating[-_]?ad|fixed[-_]?ad|couplet|adv|exo|qf|img-qf|bottom-img-qf|home-qf|popunder\d*)$/i.test(s)) return true;
+  if (s.includes('exo-native') || s.includes('msg-native') || s.includes('native-widget') || s.includes('img-qf') || s.includes('home-qf')) return true;
   // 2. 广告复合词
   if (/^(ad|banner|gg|adv|sponsor)[-_](box|slot|card|container|wrapper|placement|item|content|area|zone|frame|header|footer|sidebar|top|bottom|left|right|float|fixed|popup|overlay|layer|module|block|wrap|view|list|pic|img)$/i.test(s)) return true;
   if (/^([a-z0-9]+)[-_](ad|ads|banner|gg|guanggao|sponsor|adv)$/i.test(s)) return true;
@@ -535,6 +535,43 @@ export class AdHunterService {
     }
 
     // ==================== 3. 主流广告联盟与插槽特征扫描 ====================
+    // 3.0 通用通栏横幅广告 (Banners / 旗帜广告位 / QF 模式)
+    const bannerClasses = new Set<string>();
+    if (html.includes('home-qf') || html.includes('img-qf') || html.includes('bottom-img-qf') || html.includes('/images/qf/')) {
+      bannerClasses.add('.home-qf');
+      bannerClasses.add('.img-qf1');
+      bannerClasses.add('.img-qf2');
+      bannerClasses.add('.bottom-img-qf1');
+      bannerClasses.add('.bottom-img-qf2');
+      bannerClasses.add('[class*="img-qf"]');
+      bannerClasses.add('img[src*="/images/qf/"]');
+      bannerClasses.add('a:has(> img[src*="/images/qf/"])');
+      bannerClasses.add('div:has(> a > img[src*="/images/qf/"])');
+    }
+
+    // 扫描直接跳转至外部 IP 端口或境外博彩的广告外链横幅
+    const ipLinkRegex = /<a[^>]+href=["'](https?:\/\/\d+\.\d+\.\d+\.\d+(?::\d+)?\/?[^"']*)["'][^>]*>/gi;
+    let foundIpLinks = 0;
+    while (ipLinkRegex.exec(html) !== null) {
+      foundIpLinks++;
+    }
+    if (foundIpLinks > 0 || html.includes('amazonaws.com/?shareName') || html.includes('ifengyue.online') || html.includes('guotiai4.cc')) {
+      bannerClasses.add('a[href^="http://101."], a[href^="https://101."]');
+      bannerClasses.add('a[href^="http://157."], a[href^="https://157."]');
+      bannerClasses.add('a[href*=":5012"], a[href*=":5002"], a[href*=":30400"]');
+      bannerClasses.add('a[href*="amazonaws.com"]');
+      bannerClasses.add('a[href*="ifengyue.online"]');
+      bannerClasses.add('a[href*="guotiai4.cc"]');
+      bannerClasses.add('a.navFooter');
+    }
+
+    if (bannerClasses.size > 0) {
+      report.detectedSlots.push({
+        selector: Array.from(bannerClasses).join(', '),
+        description: `扫描到 ${bannerClasses.size} 组通栏横幅广告容器与博彩外链图片 (QF 旗帜横幅)`,
+      });
+    }
+
     // 3.1 Google AdSense
     if (html.includes('adsbygoogle') || html.includes('google-analytics') || html.includes('googlesyndication') || html.includes('doubleclick')) {
       report.detectedSlots.push({

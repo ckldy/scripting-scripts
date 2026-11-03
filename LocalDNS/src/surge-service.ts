@@ -1333,9 +1333,25 @@ export class SurgeService {
     if (!res.ok) {
       return { error: res.error || `HTTP ${res.status}` };
     }
+    let text = '';
+    if (typeof res.data === 'string') {
+      text = res.data;
+    } else if (typeof res.data?.data === 'string') {
+      // Surge TF436 API 报文格式: { length: N, offset: 0, data: "<base64>" }，自动执行 Base64 解码为真实文本
+      try {
+        text = Buffer.from(res.data.data, 'base64').toString('utf-8');
+      } catch {
+        text = res.data.data;
+      }
+    } else if (typeof res.data?.content === 'string') {
+      text = res.data.content;
+    } else {
+      text = JSON.stringify(res.data);
+    }
+
     return {
       data: res.data,
-      text: typeof res.data === 'string' ? res.data : (typeof res.data?.content === 'string' ? res.data.content : JSON.stringify(res.data)),
+      text,
     };
   }
 
