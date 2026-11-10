@@ -30,30 +30,37 @@ async function runTests() {
   assert(await FileManager.exists(Path.join(webDir, 'version.json')), 'version.json exists');
   assert(await FileManager.exists(Path.join(webDir, 'config.js')), 'config.js exists');
   assert(await FileManager.exists(Path.join(webDir, 'build-meta.json')), 'build-meta.json exists');
-  assert(await FileManager.exists(Path.join(webDir, 'assets/app-C9ij6y6z.js')), 'bundled app js exists');
-  assert(await FileManager.exists(Path.join(webDir, 'assets/index-qdjMEPt4.css')), 'bundled css exists');
-  assert(await FileManager.exists(Path.join(webDir, 'assets/editor-A1rycQg2.js')), 'proxy editor bundle exists');
+  // 打包文件名带内容哈希：app/css 从 index.html 解析，editor 从 app bundle 的懒加载引用解析，
+  // 换 UI 包时测试会自动跟随，不再需要手改文件名
+  const htmlStr = await FileManager.readAsString(Path.join(webDir, 'index.html'));
+  const appName = (htmlStr.match(/\/ui\/assets\/(app-[A-Za-z0-9_-]+\.js)/) || [])[1] || '';
+  const cssName = (htmlStr.match(/\/ui\/assets\/(index-[A-Za-z0-9_-]+\.css)/) || [])[1] || '';
+  assert(!!appName, `index.html references bundled app js (${appName || 'missing'})`);
+  assert(!!cssName, `index.html references bundled css (${cssName || 'missing'})`);
+  assert(!!appName && (await FileManager.exists(Path.join(webDir, 'assets', appName))), `bundled app js exists (${appName})`);
+  assert(!!cssName && (await FileManager.exists(Path.join(webDir, 'assets', cssName))), `bundled css exists (${cssName})`);
+  const appBundle = await FileManager.readAsString(Path.join(webDir, 'assets', appName));
+  const editorName = (appBundle.match(/editor-[A-Za-z0-9_-]+\.js/) || ['editor-A1rycQg2.js'])[0];
+  assert(await FileManager.exists(Path.join(webDir, 'assets', editorName)), `proxy editor bundle exists (${editorName})`);
   assert(!(await FileManager.exists(Path.join(webDir, 'assets/js/chart.umd.min.js'))), 'unused chart.js removed (upstream 2026.10.26.1)');
   assert(await FileManager.exists(Path.join(webDir, 'custom/settings.json')), 'custom/settings.json exists');
 
   // 读取 version.json 校验
   const verStr = await FileManager.readAsString(Path.join(webDir, 'version.json'));
   const verData = JSON.parse(verStr);
-  assert(verData.uiVersion === '2026.11.03.2', `UI version matches 2026.11.03.2 (got: ${verData.uiVersion})`);
+  assert(verData.uiVersion === '2026.11.07.2', `UI version matches 2026.11.07.2 (got: ${verData.uiVersion})`);
   assert(verData.backendVersion === 'FJMOS', `Backend version matches FJMOS (got: ${verData.backendVersion})`);
-  assert(verData.releaseTag === 'fjmos-ui-v2026.11.03.2', `Release tag matches (got: ${verData.releaseTag})`);
+  assert(verData.releaseTag === 'fjn01-ui-v2026.11.07.2', `Release tag matches (got: ${verData.releaseTag})`);
 
   // 检查 index.html 包含双皮肤及新资源引入
-  const htmlStr = await FileManager.readAsString(Path.join(webDir, 'index.html'));
   assert(htmlStr.includes('data-skin="claude"'), 'index.html includes Claude skin attribute');
-  assert(htmlStr.includes('/ui/assets/app-C9ij6y6z.js'), 'index.html loads bundled app js');
-  assert(htmlStr.includes('/ui/assets/index-qdjMEPt4.css'), 'index.html loads bundled css');
+  assert(htmlStr.includes(`/ui/assets/${appName}`), 'index.html loads bundled app js');
+  assert(htmlStr.includes(`/ui/assets/${cssName}`), 'index.html loads bundled css');
   assert(htmlStr.includes('/ui/config.js'), 'index.html loads ui config.js');
   assert(htmlStr.includes('/ui/assets/livepulse.js'), 'index.html keeps local livepulse heartbeat patch');
   assert(htmlStr.includes('data-backend-version="FJMOS"'), 'index.html has FJMOS data attribute');
 
   // 校验打包 bundle 内含关键前端能力
-  const appBundle = await FileManager.readAsString(Path.join(webDir, 'assets/app-C9ij6y6z.js'));
   assert(appBundle.length > 500000, `bundle size sane (got ${appBundle.length})`);
   assert(appBundle.includes('/api/v2/audit/logs'), 'bundle calls v2 audit logs');
   assert(appBundle.includes('/api/v1/audit/settings'), 'bundle supports audit settings (log dir)');
@@ -62,8 +69,14 @@ async function runTests() {
   assert(appBundle.includes('geoip_non_cn'), 'bundle supports geoip_non_cn rule group');
   assert(appBundle.includes('foreign_ip'), 'bundle supports foreign_ip rule group');
   assert(appBundle.includes('/api/v1/cache/settings'), 'bundle supports cache settings (optional)');
-  const bundleCss = await FileManager.readAsString(Path.join(webDir, 'assets/index-qdjMEPt4.css'));
+  const bundleCss = await FileManager.readAsString(Path.join(webDir, 'assets', cssName));
   assert(bundleCss.length > 100000, `bundled css size sane (got ${bundleCss.length})`);
+
+  // 本地 Surge 集成补丁必须始终重放在上游包上（不能被上游替换覆盖）
+  assert(appBundle.includes('surge: { name: "Surge", format: "CONF"'), 'app bundle keeps local Surge core brand');
+  assert(appBundle.includes('<option value="surge">Surge · CONF</option>'), 'app bundle keeps local Surge core option');
+  const editorBundle = await FileManager.readAsString(Path.join(webDir, 'assets', editorName));
+  assert(editorBundle.includes('配置文件应包含区段头'), 'editor bundle keeps local Surge section validation');
 
   // 校验本地 livepulse 补丁的「阶段 06 出站 + 全链路回环」能力未被覆盖
   const pulseSrc = await FileManager.readAsString(Path.join(webDir, 'assets/livepulse.js'));
@@ -82,6 +95,19 @@ async function runTests() {
 
   const baseUrl = `http://127.0.0.1:${startRes.port}`;
 
+  // 分流组快照：回归用例会全量替换 direct 组文本、并向 proxy 追加测试规则，
+  // 结束后必须原样写回，否则测试会把真实分流表覆盖成测试数据（曾把 direct 写成 3 条）。
+  const groupSnapshot: Record<string, string> = {};
+  for (const gid of ['direct', 'proxy']) {
+    try {
+      const r = await fetch(`${baseUrl}/api/v1/surge/diversion/rules/text?group=${gid}`);
+      if (r.status === 200) {
+        const d = await r.json();
+        if (typeof d.text === 'string') groupSnapshot[gid] = d.text;
+      }
+    } catch {}
+  }
+
   try {
     // 2.1 验证 /ui/ 静态托管
     const resUi = await fetch(`${baseUrl}/ui/index.html`);
@@ -96,8 +122,8 @@ async function runTests() {
     assert(verJson.backendVersion === 'FJMOS', `Static version.json returns FJMOS`);
 
     // 2.3 验证 /ui/assets/index-*.css 打包 CSS 静态托管
-    const resClaudeCss = await fetch(`${baseUrl}/ui/assets/index-qdjMEPt4.css`);
-    assert(resClaudeCss.status === 200, `/ui/assets/index-qdjMEPt4.css returns 200 OK`);
+    const resClaudeCss = await fetch(`${baseUrl}/ui/assets/${cssName}`);
+    assert(resClaudeCss.status === 200, `/ui/assets/${cssName} returns 200 OK`);
     assert((resClaudeCss.headers.get('Content-Type') || '').includes('text/css'), 'CSS Content-Type is correct');
 
     // 2.4 验证 /api/v1/status 契约
@@ -336,6 +362,23 @@ async function runTests() {
     assert(hubText.includes('splash _reject'), 'Hub 模块包含 URL Rewrite 规则');
     assert(!hubText.includes('ad.bilibili.com'), 'Hub 模块已彻底剔除广告域名（已下沉到 LocalDNS 拦截）');
 
+    // 2.15.2.1 YouTube 客户端去广告：内置脚本必须置顶、覆盖客户端 API 且走二进制体模式
+    const hubLines = hubText.split('\n');
+    const ytLineIdx = hubLines.findIndex((l: string) => l.startsWith('localdns_builtin_yt_web'));
+    const ytLine = hubLines[ytLineIdx] || '';
+    const ytEnhanceIdx = hubLines.findIndex((l: string) => l.includes('youtube.enhance.response'));
+    assert(ytLineIdx !== -1, 'Hub includes built-in YouTube ad cleaner');
+    assert(hubText.includes('binary-body-mode=1') && hubText.includes('engine=webview'), 'Built-in YouTube cleaner keeps protobuf binary body mode');
+    // 2026-11-07 编排：内置脚本只负责 www/m.youtube.com；App 的 youtubei 端点交给 enhance 完整脚本，
+    // 内置行里若出现 youtubei 指纹反而是 Hub 自检会判为旧版的信号。
+    assert(!ytLine.includes('youtubei[.]googleapis[.]com'), 'Built-in YouTube cleaner stays scoped to www/m.youtube.com');
+    assert(ytEnhanceIdx === -1 || ytLineIdx < ytEnhanceIdx, 'Built-in YouTube cleaner is placed before remote scripts');
+    // Surge 的 [MITM] 同名键只保留最后一行：必须合并成单行 hostname，否则前面的域名会被静默抹掉。
+    // 媒体域名是否出现取决于已装模块（2026-11-07 起媒体 MITM 禁令已移除），因此只校验结构不校验媒体。
+    const mitmBlock = (hubText.split('[MITM]')[1] || '').split('\n[')[0];
+    const hostnameLines = mitmBlock.split('\n').filter((l: string) => l.trim().startsWith('hostname'));
+    assert(hostnameLines.length <= 1, `Hub [MITM] merges hostname into one line (got ${hostnameLines.length})`);
+
     // 2.15.3 动态分流组与 RULE-SET 导出
     const resGroups = await fetch(`${baseUrl}/api/v1/surge/diversion/groups`);
     assert(resGroups.status === 200, 'GET /api/v1/surge/diversion/groups returns 200 OK');
@@ -346,6 +389,20 @@ async function runTests() {
     assert(resDirectList.status === 200, 'GET /rules/direct.list returns 200 OK');
     const directListText = await resDirectList.text();
     assert(directListText.includes('baidu.com') || directListText.includes('DOMAIN-SUFFIX,cn'), 'Direct RULE-SET exports active direct rules');
+
+    // 2.15.3.1 行尾 # 注释必须在导入时被剥离，否则 RULE-SET 整行在 Surge 侧静默失效
+    const resDirtyImport = await fetch(`${baseUrl}/api/v1/surge/rules/batch-import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: 'DOMAIN-SUFFIX,contract-dirty.test # 广告注释\nDOMAIN-SUFFIX,contract-clean.test',
+        targetGroupOverride: 'block',
+        downloadRuleSets: false,
+      }),
+    });
+    assert(resDirtyImport.status === 200, 'POST batch-import with inline # comment returns 200');
+    const mixedListText = await (await fetch(`${baseUrl}/rules/block.list`)).text();
+    assert(mixedListText.includes('contract-dirty.test') && !mixedListText.includes('contract-dirty.test #'), 'Inline # comment stripped before RULE-SET export');
 
     // 2.15.4 Surge 联动配置获取与保存
     const resSurgeCfg = await fetch(`${baseUrl}/api/v1/surge/config`);
@@ -480,6 +537,19 @@ async function runTests() {
     console.error('API Test Error:', err);
     failed++;
   } finally {
+    // 先把分流组写回快照，再清理测试模块（顺序不能反：规则写回会触发缓存重载）
+    for (const [gid, text] of Object.entries(groupSnapshot)) {
+      try {
+        await fetch(`${baseUrl}/api/v1/surge/diversion/rules/text`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ group_id: gid, text }),
+        });
+      } catch {}
+    }
+    // 回归测试不能把测试模块留在生产库：旧版遗留的 test_bili 曾以启用态常驻，
+    // 其 PUT 用例改出的 live.bilibili.com,REJECT 会真实误伤直播。
+    try { await fetch(`${baseUrl}/api/v1/surge/modules/test_bili`, { method: 'DELETE' }); } catch {}
     server.stop();
     console.log('HTTP Server stopped.');
   }

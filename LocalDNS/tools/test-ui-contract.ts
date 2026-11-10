@@ -1,15 +1,15 @@
-import { Script } from 'scripting';
+import { Path, Script } from 'scripting';
 import { LocalDnsServer } from '../src/server';
 import { Store } from '../src/store';
 
 /**
- * 新版上游 SPA（FJHAI / UI 2026.11.01.1）契约校验。
- * 重点覆盖 UI normalizeResponse 对 GET 响应的严格类型校验，
- * 以及 upstream/config 的 group 字段兼容、/api/v1/features 的 legacy 探测、
+ * 上游 SPA（FJN01 / UI 2026.11.07.2）契约校验。
+ * 重点覆盖 UI normalizeResponse 对 GET 响应的严格类型校验、
+ * upstream/config 的 group 字段兼容、/api/v1/features 的 legacy 探测、
  * 独立缓存开关 (switch13/switch4) 与 国外 IP 段 (foreign_ip / foreign_cidrs)。
  */
 async function main() {
-  console.log('=== [LocalDNS] UI Contract Verification (FJHAI / UI 2026.11.01.1) ===');
+  console.log('=== [LocalDNS] UI Contract Verification (FJN01 / UI 2026.11.07.2) ===');
   let passed = 0;
   let failed = 0;
   const assert = (cond: boolean, desc: string) => {
@@ -32,9 +32,13 @@ async function main() {
   const base = `http://127.0.0.1:${startRes.port}`;
 
   try {
-    // 打包资源静态托管
-    const appJs = await fetch(`${base}/ui/assets/app-D0OSKPpj.js`);
-    assert(appJs.status === 200, `/ui/assets/app-D0OSKPpj.js returns 200 (got ${appJs.status})`);
+    // 打包资源静态托管（文件名带内容哈希，从本地 index.html 解析）
+    const projectDir = Script.directory.includes('tools') ? Path.dirname(Script.directory) : Script.directory;
+    const htmlStr = await FileManager.readAsString(Path.join(projectDir, 'web', 'index.html'));
+    const appName = (htmlStr.match(/\/ui\/assets\/(app-[A-Za-z0-9_-]+\.js)/) || [])[1] || '';
+    assert(!!appName, `index.html references bundled app js (${appName || 'missing'})`);
+    const appJs = await fetch(`${base}/ui/assets/${appName}`);
+    assert(appJs.status === 200, `/ui/assets/${appName} returns 200 (got ${appJs.status})`);
     assert((appJs.headers.get('Content-Type') || '').includes('javascript'), 'app bundle Content-Type is javascript');
     const pulse = await fetch(`${base}/ui/assets/livepulse.js`);
     assert(pulse.status === 200, `/ui/assets/livepulse.js returns 200 (got ${pulse.status})`);

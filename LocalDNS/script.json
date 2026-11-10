@@ -2,9 +2,9 @@
   "name": "LocalDNS",
   "icon": "shield.lefthalf.filled",
   "color": "#6366f1",
-  "version": "1.15.0",
+  "version": "1.15.10",
   "author": "vcncv",
-  "description": "本地 DNS 与安全服务系统，v1.15.0 全量落地 Surge TestFlight 436 核心新特性：原生配置编辑支持直读当前生效 Surge 完整配置与实时热载；AdHunter 接入落盘抓包会话 (Saved Capture Sessions) 深度提取 App 与接口广告指纹；工作台新增抓包会话审查面板与 Raw 报文查看器；新增 Tailscale & WireGuard 回环穿透直连保护规则与流量下钻拆解；去广告清洗 O(k) 父域哈希与全量直连 DoH 极速运行。对齐上游 FJMOS / UI 2026.11.03.2，由 vcncv 移植构建。",
+  "description": "本地 DNS 与安全服务系统，v1.15.0 全量落地 Surge TestFlight 436 核心新特性：原生配置编辑支持直读当前生效 Surge 完整配置与实时热载；AdHunter 接入落盘抓包会话 (Saved Capture Sessions) 深度提取 App 与接口广告指纹；工作台新增抓包会话审查面板与 Raw 报文查看器；新增 Tailscale & WireGuard 回环穿透直连保护规则与流量下钻拆解；去广告清洗 O(k) 父域哈希与全量直连 DoH 极速运行。对齐上游 UI 2026.11.07.2（FJMOS 内核保留），由 vcncv 移植构建。",
   "remoteResource": {
     "url": "https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/LocalDNS.zip"
   }

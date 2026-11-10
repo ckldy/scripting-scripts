@@ -6,7 +6,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 
 | 脚本 | 版本 | 说明 | 安装链接 |
 |---|---|---|---|
-| LocalDNS（本地 DNS 服务） | 1.8.0 | 本地 DNS 与安全服务系统，v1.8.0 同步上游 FJGIR / UI 2026.10.21.2 打包版控制台（新增审计日志目录）+ 智能测速选最快 IP、DoT/TCP 上游、IP 治理、per-client、DNS64、LRU/持久化缓存；原 v1.6.0 彻底瘦身去伪存真，砍掉虚假 L7 代理与伪切片清洗，回归纯粹极致的 DNS 核心：RFC 1035/3596 二进制 DNS wire 编解码、开箱即用 18.5 万条 AdGuard 广告与隐私追踪域名拦截 (返回 0.0.0.0)、四级内存缓存 (TTL 动态衰减与过期自愈响应)、Happy Eyeballs 多上游并发竞速解析、对齐上游 FJGIR / UI 2026.10.21.2 清单工作台 (支持名单备份与 7 天流量时序)、提供安全 DoH 与合规 Apple 原生加密 DNS 描述文件（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
+| LocalDNS（本地 DNS 服务） | 1.15.10 | 本地 DNS 与安全服务系统，v1.15.10 修复面板「缓存命中率」恒为 0%（读 raw 池改为读聚合指标）并按上游分组调优境外 DoH 超时（2.5s→6s，17% abort 归零），对齐 Surge TestFlight 436–444 特性；上游 FJMOS / UI 2026.11.07.2 打包版控制台（支持原生配置直读热载、落盘抓包会话审查、Tailscale/WireGuard 回环保护）+ 智能测速选最快 IP、DoT/TCP 上游、IP 治理、per-client、DNS64、LRU/持久化缓存；原 v1.6.0 彻底瘦身去伪存真，砍掉虚假 L7 代理与伪切片清洗，回归纯粹极致的 DNS 核心：RFC 1035/3596 二进制 DNS wire 编解码、开箱即用 18.5 万条 AdGuard 广告与隐私追踪域名拦截 (返回 0.0.0.0)、四级内存缓存 (TTL 动态衰减与过期自愈响应)、Happy Eyeballs 多上游并发竞速解析、对齐上游 FJGIR / UI 2026.10.21.2 清单工作台 (支持名单备份与 7 天流量时序)、提供安全 DoH 与合规 Apple 原生加密 DNS 描述文件（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
 | 台风路径 | 2.3.1 | 实时台风路径、多机构预报与气象图层；主程序刷新后会同步重载用户小组件，大号组件地图缓存批处理仅重载一次 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F台风路径.zip%22%5D) |
 | 黃豆短劇 | 1.2.0 | 浏览、搜索与收藏黃豆短劇内容，支持播放历史、剧集播放、上下滑切集与进度条 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D) |
 | NetRadio（网络收音机） | 1.0.1 | 全球 1000+ 公开网络电台（按 36 个国家/地区归类），黑胶唱机舞台、电平示波器、主题调色板与 iOS 原生后台/锁屏播控（基于 net-redio 移植，作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D) |
@@ -56,8 +56,9 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 
 
 ### 🛡️ LocalDNS (本地 DNS 服务与安全管理系统)
-- **版本**：`1.8.0` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
+- **版本**：`1.15.10` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
 - **特性**：
+  - **v1.15.10 缓存命中率与上游超时**：面板「缓存命中率」不再恒为 0%（`audit.getStats()` 改读 `CacheManager` 聚合指标，修复前 `/metrics` 真实命中 742/942=78.8% 而接口报 0）；境外 DoH 超时按分组（domestic 2.5s、foreign/ECS/proxy 6s），消除隧道内冷握手触发的 17% abort，并避免每次 abort 捨断 keep-alive；新增 `tools/diff-hub-module.py` 做模块正文过期判定。
   - **v1.8.0 同步上游 FJGIR / UI 2026.10.21.2**：前端升级为上游打包版 SPA 控制台（同款双皮肤），新增「审计控制 → 自定义日志目录」；后端版本号 FJGAC→FJGIR，新增 `/api/v1/audit/settings`；修复新 SPA「DNS 趋势」缺 `localdns_queries_total` 指标导致的空白；
   - **v1.6.0 彻底瘦身·去伪存真·回归纯粹 DNS 核心**：
     - **推倒不切实际的伪 L7 代理**：砍掉无法在 DNS 网络层生效的虚假 HTTP 代理嗅探、伪切片清洗与模拟沙箱，专注打造全网最快、最稳、最纯净的本地 DNS 基础设施；

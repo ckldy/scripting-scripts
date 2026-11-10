@@ -866,9 +866,47 @@ export class AdHunterService {
       defuserScriptlet += `try {\n  const now = new Date();\n  const dateKey = \`\${now.getFullYear()}-\${String(now.getMonth() + 1).padStart(2, '0')}-\${String(now.getDate()).padStart(2, '0')}\`;\n  localStorage.setItem('hlw_age_verify_date', dateKey);\n} catch (_) {}\nObject.defineProperty(window, 'HlwPgxAds', {\n  get: () => ({ boot: () => {} }),\n  set: () => {},\n  configurable: false\n});\nwindow.__SSP_ENABLED__ = false;\nwindow.__SSP_SLOTS__ = [];\n`;
     }
     defuserScriptlet += `// 灭活商业广告引擎全局对象\ntry { Object.defineProperty(window, 'AdProvider', { get: () => ({}), set: () => {}, configurable: false }); Object.defineProperty(window, 'popunder', { get: () => ({}), set: () => {}, configurable: false }); window.adsbygoogle = { push: function(){} }; try { Object.freeze(window.adsbygoogle); } catch(_) {} } catch(_) {}\n`;
-    defuserScriptlet += `// 核心防御 1：阻断全局恶意点击劫持与 TouchJacking 监听器注册\ntry {\n  const _rawAdd = EventTarget.prototype.addEventListener;\n  EventTarget.prototype.addEventListener = function (type, listener, options) {\n    if (this === window || this === document || (this && this.tagName === 'BODY') || (this && this.tagName === 'HTML')) {\n      if (type === 'click' || type === 'touchstart' || type === 'touchend' || type === 'mousedown') {\n        const fnStr = String(listener || '');\n        if (fnStr.includes('decodeURI') || fnStr.includes('popunder') || fnStr.includes('clocid') || fnStr.includes('cltgid') || fnStr.includes('epidermispushup') || fnStr.includes('magsrv') || fnStr.includes('pemsrv') || fnStr.includes('window.open') || fnStr.includes('location.href')) {\n          console.log('[AdHunter] 已阻断全局恶意点击劫持监听器:', type);\n          return;\n        }\n      }\n    }\n    return _rawAdd.call(this, type, listener, options);\n  };\n} catch(_) {}\n`;
-    defuserScriptlet += `// 核心防御 2：阻断动态 <a> 标签模拟点击劫持 (Anchor Click-Hijack)\ntry {\n  const _rawAClick = HTMLAnchorElement.prototype.click;\n  HTMLAnchorElement.prototype.click = function () {\n    const href = String(this.href || '');\n    if (href && (href.includes('101.237.') || href.includes('157.185.') || href.includes('amazonaws.com') || href.includes('guotiai') || href.includes('ifengyue') || href.includes('magsrv') || href.includes('pemsrv') || href.includes('popunder') || href.includes('oxgok') || /sponsored|aff|cid=|shareName|ref_id/i.test(href))) {\n      console.log('[AdHunter] 已阻断脚本模拟点击恶意外跳:', href);\n      return;\n    }\n    return _rawAClick.call(this);\n  };\n} catch(_) {}\n`;
-    defuserScriptlet += `// 核心防御 3：弹窗与点击劫持防御 (Popunder Defuser)\nconst _rawOpen = window.open;\nwindow.open = function(url, target, features) {\n  if (!url || /sponsored|aff|chat|game|peach|trwl1|ohmycams|cpro|magsrv|pemsrv|oxgok|popunder|ad\\.|101\\.237|157\\.185|amazonaws|guotiai|ifengyue|cid=|ref_id|shareName/i.test(url)) {\n    console.log('[AdHunter] 阻断恶意外链弹窗:', url);\n    return null;\n  }\n  return _rawOpen.call(window, url, target, features);\n};\n`;
+    defuserScriptlet += String.raw`// 精准防劫持：仅按广告域名 / 极窄 popunder 指纹拦截，绝不误伤正常弹窗
+try {
+  const AD_HOSTS = ['magsrv.com','pemsrv.com','realsrv.com','exosrv.com','exoclick.com','juicyads.com','trafficjunky.net','popads.net','popcash.net','propellerads.com','onclickads.net','clickadu.com','adsterra.com','hilltopads.net','popunder.net','doubleclick.net','googlesyndication.com','googleadservices.com','adnxs.com'];
+  const POP_RE = /(?:^|\/)(?:popunder|popunder2|adframe)(?:[\/.]|$)|[?&](?:popunder|popunder_id|clocid|cltgid|epidermispushup)=/i;
+  const isBad = (raw) => {
+    if (typeof raw !== 'string' || !raw) return false;
+    var u;
+    try {
+      u = new URL(raw, location.href);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+      if (u.hostname === location.hostname) return false;
+    } catch (_) { return false; }
+    var h = u.hostname.toLowerCase();
+    for (var i = 0; i < AD_HOSTS.length; i++) {
+      var d = AD_HOSTS[i];
+      if (h === d || h.endsWith('.' + d)) return true;
+    }
+    return POP_RE.test(u.pathname + u.search);
+  };
+  const _rawAdd = EventTarget.prototype.addEventListener;
+  EventTarget.prototype.addEventListener = function (type, listener, options) {
+    if (location.hostname.includes('youtube.com')) return _rawAdd.call(this, type, listener, options);
+    if ((type === 'click' || type === 'touchstart' || type === 'touchend' || type === 'mousedown' || type === 'pointerdown') &&
+        (this === window || this === document || (this && (this.tagName === 'BODY' || this.tagName === 'HTML')))) {
+      var f = String(listener || '');
+      if (f.includes('epidermispushup') || f.includes('clocid') || f.includes('cltgid') || f.includes('magsrv') || f.includes('pemsrv') || f.includes('popunder')) return;
+    }
+    return _rawAdd.call(this, type, listener, options);
+  };
+  const _rawAClick = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function () {
+    if (isBad(String(this.href || ''))) return;
+    return _rawAClick.call(this);
+  };
+  const _rawOpen = window.open;
+  window.open = function (url, t, f) {
+    if (isBad(url)) return null;
+    return _rawOpen.apply(window, arguments);
+  };
+} catch (_) {}
+`;
 
     // Surge 规则（零域名 URL-REGEX 或 DOMAIN-SUFFIX）
     const surgeUrlRegex: string[] = [];
@@ -882,10 +920,7 @@ export class AdHunterService {
       }
     }
 
-    // 若无匹配规则，保底提供通用过滤参考
-    if (surgeUrlRegex.length === 0) {
-      surgeUrlRegex.push(`URL-REGEX,"^https?:\\/\\/[^\\/]+\\/.*(ad|banner|splash|popunder).*(?:[?#]|$)",REJECT`);
-    }
+    // 不再合成裸子串 URL-REGEX（会误杀 /download、/shadow 等正常资源）；无规则时留空即可。
 
     // 打包完整 Userscript
     const userscriptCode = `// ==UserScript==
@@ -1115,20 +1150,21 @@ export class AdHunterService {
         selectorsMerged = newSelectors.length;
       }
 
-      // 3.2 提取广告域名并注入母核防弹窗拦截白名单 (Popunder Defuser)
+      // 3.2 广告域名写入母核的「域名黑名单数组」（绝不再改写正则，避免误伤正常弹窗）
       const adDomainsToDefuse: string[] = [];
       for (const r of (report.synthesizedRules.surgeUrlRegex || [])) {
         if (r.startsWith('DOMAIN-SUFFIX,') || r.startsWith('DOMAIN,')) {
-          const dom = r.split(',')[1]?.trim();
-          if (dom && !hubCode.includes(dom)) {
-            adDomainsToDefuse.push(dom.replace(/\./g, '\\.'));
+          const dom = r.split(',')[1]?.trim().toLowerCase();
+          if (dom && dom.includes('.') && !hubCode.includes(`'${dom}'`)) {
+            adDomainsToDefuse.push(dom);
           }
         }
       }
 
-      if (adDomainsToDefuse.length > 0 && hubCode.includes('/sponsored|aff|chat|game')) {
-        const patternInsert = `|${adDomainsToDefuse.join('|')}`;
-        hubCode = hubCode.replace('/sponsored|aff|chat|game', `/sponsored|aff|chat|game${patternInsert}`);
+      const HOST_END_MARK = '// [ADHUNTER_HOSTS_END]';
+      if (adDomainsToDefuse.length > 0 && hubCode.includes(HOST_END_MARK)) {
+        const listLiteral = adDomainsToDefuse.map((d) => `'${d}'`).join(', ');
+        hubCode = hubCode.replace(HOST_END_MARK, `    ${listLiteral},\n    ${HOST_END_MARK}`);
         defusersMerged = adDomainsToDefuse.length;
       }
 

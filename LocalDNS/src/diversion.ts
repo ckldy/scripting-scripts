@@ -4,6 +4,20 @@ import { SurgeService } from './surge-service';
 import { SurgeDatabase } from './surge-db';
 import type { UpstreamGroup, DiversionSource } from './types';
 
+/**
+ * YouTube 播放完整性放行名单（硬豁免，优先级高于任何拦截引擎）
+ * 依据：这些域名只承载播放打点/统计，一旦被黑洞化成 0.0.0.0，
+ * 播放器会在播放中途判定上报失败，弹出「有中断问题，是否继续观看？」或直接「无法播放」。
+ * 内置 AdGuard 清单已注释掉同类规则，此处做引擎级兜底，防止被外部导入名单再次拦回。
+ */
+const PLAYBACK_VITAL_HOSTS = new Set<string>([
+  's.youtube.com',
+  's2.youtube.com',
+  'video-stats.video.google.com',
+  'video-stats.l.google.com',
+  'stats_check.youtube.com',
+]);
+
 export interface RouteResult {
   group: UpstreamGroup | 'blocked' | 'rewrite';
   domainSet: string;
@@ -128,8 +142,11 @@ export class DiversionEngine {
         continue;
       }
       // Strip leading full: or domain: prefixes if any
-      const cleaned = line.replace(/^(?:full:|domain:)/i, '').toLowerCase();
-      set.add(cleaned);
+      let cleaned = line.replace(/^(?:full:|domain:)/i, '').toLowerCase();
+      // 关键修复：`*.example.com` / `.example.com` 统一归一化为 `example.com`，
+      // 否则 matchSet 的父域匹配永远命中不了通配符条目（曾导致代理节点域名走境外解析死锁）。
+      cleaned = cleaned.replace(/^\*\./, '').replace(/^\./, '').trim();
+      if (cleaned) set.add(cleaned);
     }
     return set;
   }
@@ -148,7 +165,7 @@ export class DiversionEngine {
     return false;
   }
 
-  match(domain: string, clientIp: string): RouteResult {
+  match(domain: string, clientIp: string, opts?: { skipHit?: boolean }): RouteResult {
     let d = domain.trim().toLowerCase();
     d = d.replace(/^[a-zA-Z]+:\/\//, '').split('/')[0].split('?')[0].replace(/:\d+$/, '').replace(/\.$/, '');
     const store = Store.get();
@@ -159,8 +176,13 @@ export class DiversionEngine {
       return { group: 'rewrite', domainSet: 'rewrite', rewriteIp: this.rewrites.get(d) };
     }
 
+    // 1.1 YouTube 播放完整性放行（必须先于所有拦截引擎，否则播放中途会中断）
+    if (this.matchSet(d, PLAYBACK_VITAL_HOSTS)) {
+      return { group: 'foreign', domainSet: 'playback_allow' };
+    }
+
     // 1.5 检查活跃 App 模块的脱水 DNS 拦截库 (高优先级)
-    const moduleBlocked = SurgeService.get().isDomainBlocked(d);
+    const moduleBlocked = SurgeService.get().isDomainBlocked(d, opts?.skipHit === true);
     if (moduleBlocked.blocked) {
       return { group: 'blocked', domainSet: 'surge_module_block' };
     }

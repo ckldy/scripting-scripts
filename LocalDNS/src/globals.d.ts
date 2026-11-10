@@ -17,6 +17,7 @@ declare class Data {
   toUTF8(): string;
   toRawString(encoding?: string): string;
   toBase64(): string;
+  toHexString(): string;
   toUint8Array(): Uint8Array | null;
   size: number;
 }
@@ -25,6 +26,10 @@ declare class FileEntity {
   close(): void;
   readonly path: string;
 }
+declare namespace Crypto {
+  function sha256(data: Data): Data;
+}
+
 declare namespace Storage {
   function get<T = any>(key: string, options?: { shared?: boolean }): T | null;
   function set<T = any>(key: string, value: T, options?: { shared?: boolean }): boolean;
@@ -76,6 +81,7 @@ declare namespace FileManager {
   function writeAsStringSync(path: string, content: string): void;
   function readAsData(path: string): Promise<Data>;
   function readAsDataSync(path: string): Data;
+  function createDirectory(path: string, recursive?: boolean): Promise<void>;
 }
 declare class HttpResponseBody {
   static text(text: string): HttpResponseBody;

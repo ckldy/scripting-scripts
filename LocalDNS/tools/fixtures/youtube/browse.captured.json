@@ -1,0 +1,909 @@
+{
+ "contents": {
+  "twoColumnBrowseResultsRenderer": {
+   "tabs": [
+    {
+     "tabRenderer": {
+      "selected": true,
+      "content": {
+       "richGridRenderer": {
+        "contents": [
+         {
+          "richSectionRenderer": {
+           "content": {
+            "feedNudgeRenderer": {
+             "title": {
+              "runs": [
+               {
+                "text": "<redacted>"
+               }
+              ],
+              "accessibility": {
+               "accessibilityData": {
+                "label": "“YouTube 历史记录”已停用"
+               }
+              }
+             },
+             "subtitle": {
+              "runs": [
+               {
+                "text": "<redacted>"
+               },
+               {
+                "text": "<redacted>",
+                "navigationEndpoint": {
+                 "clickTrackingParams": "CBkQ1IcKIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+                 "commandMetadata": {
+                  "webCommandMetadata": {
+                   "url": "https://support.google.com/youtube/answer/95725",
+                   "webPageType": "WEB_PAGE_TYPE_UNKNOWN",
+                   "rootVe": 83769
+                  }
+                 },
+                 "urlEndpoint": {
+                  "url": "https://support.google.com/youtube/answer/95725",
+                  "target": "TARGET_NEW_WINDOW"
+                 }
+                }
+               }
+              ],
+              "accessibility": {
+               "accessibilityData": {
+                "label": "你可以随时启用观看记录和搜索记录，让系统推荐符合你兴趣的最新视频。\n\n若要更新设置，请启用“YouTube 历史记录”并确认设置，同意使用 Cookie 和相关数据。了解详情"
+               }
+              }
+             },
+             "primaryButton": {
+              "buttonRenderer": {
+               "style": "STYLE_MONO_TONAL",
+               "size": "SIZE_DEFAULT",
+               "isDisabled": false,
+               "text": {
+                "runs": [
+                 {
+                  "text": "<redacted>"
+                 }
+                ],
+                "accessibility": {
+                 "accessibilityData": {
+                  "label": "更新设置"
+                 }
+                }
+               },
+               "command": {
+                "clickTrackingParams": "CBoQ8FsiEwjFq9SPlvaXAxUxmycCHf35F0rKAQRKaAoC",
+                "commandExecutorCommand": {
+                 "commands": [
+                  {
+                   "clickTrackingParams": "CBoQ8FsiEwjFq9SPlvaXAxUxmycCHf35F0rKAQRKaAoC",
+                   "commandMetadata": {
+                    "webCommandMetadata": {
+                     "url": "https://consent.youtube.com/d?continue=https://www.youtube.com/%3Fcbrd%3D1&gl=CZ&m=0&pc=yt&uxe=bip&oyh=1&cm=6&hl=zh-CN&src=4",
+                     "webPageType": "WEB_PAGE_TYPE_UNKNOWN",
+                     "rootVe": 83769
+                    }
+                   },
+                   "urlEndpoint": {
+                    "url": "https://consent.youtube.com/d?continue=https://www.youtube.com/%3Fcbrd%3D1&gl=CZ&m=0&pc=yt&uxe=bip&oyh=1&cm=6&hl=zh-CN&src=4",
+                    "target": "TARGET_NONE"
+                   }
+                  },
+                  {
+                   "clickTrackingParams": "CBoQ8FsiEwjFq9SPlvaXAxUxmycCHf35F0rKAQRKaAoC",
+                   "commandMetadata": {
+                    "webCommandMetadata": {
+                     "sendPost": true,
+                     "apiUrl": "/youtubei/v1/feedback"
+                    }
+                   },
+                   "feedbackEndpoint": {
+                    "feedbackToken": "AB9zfpLZRHoZz1izA-9HrADXr0F07Y6lvXseJYG5NH5VEunHvFEQDV8VWcLV5nkit1DATWSt0AUUXG5mijnVYvSlpj24V6KvsdWXJBS4BRQ03aoTEVjuyfWMlBpSGRgRhLsvYVC2nzdVONEsR27rRu8qSuBYD_s7…"
+                   }
+                  }
+                 ]
+                }
+               }
+              }
+             },
+             "impressionEndpoint": {
+              "clickTrackingParams": "CBkQ1IcKIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+              "commandMetadata": {
+               "webCommandMetadata": {
+                "sendPost": true,
+                "apiUrl": "/youtubei/v1/feedback"
+               }
+              },
+              "feedbackEndpoint": {
+               "feedbackToken": "AB9zfpJ7QXL6y9_9iu72zJOqm86Prnr_x-ix9dRkmvFJf8xaDOuwe2cqlj9oL-McMRDmh5praoaj5BrBC7FR99g0ZzjpHITtuUAzkyfWxHk4X9fZEof1VhkEKardozbWbZ0OXQhsjbi-ORDjnJa_PqACXv-YAHA6…"
+              }
+             },
+             "style": "FEED_NUDGE_STYLE_BUTTONS",
+             "applyModernizedStyle": true,
+             "enableHorizontalButtons": false,
+             "contentsLocation": "FEED_NUDGE_CONTENTS_LOCATION_UNKNOWN",
+             "trimStyle": "FEED_NUDGE_TRIM_STYLE_NO_TRIM",
+             "backgroundStyle": "FEED_NUDGE_BACKGROUND_STYLE_UNKNOWN",
+             "disableDropShadow": true
+            }
+           }
+          }
+         }
+        ],
+        "targetId": "browse-feedFEwhat_to_watch",
+        "reflowOptions": {
+         "minimumRowsOfVideosAtStart": 2,
+         "minimumRowsOfVideosBetweenSections": 1
+        },
+        "layoutSizing": "RICH_GRID_LAYOUT_SIZING_STANDARD"
+       }
+      },
+      "tabIdentifier": "FEwhat_to_watch"
+     }
+    }
+   ]
+  }
+ },
+ "header": {
+  "feedTabbedHeaderRenderer": {
+   "title": {
+    "runs": [
+     {
+      "text": "<redacted>"
+     }
+    ]
+   }
+  }
+ },
+ "topbar": {
+  "desktopTopbarRenderer": {
+   "logo": {
+    "topbarLogoRenderer": {
+     "iconImage": {
+      "iconType": "YOUTUBE_LOGO"
+     },
+     "tooltipText": {
+      "runs": [
+       {
+        "text": "<redacted>"
+       }
+      ]
+     },
+     "endpoint": {
+      "clickTrackingParams": "CBUQsV4iEwjFq9SPlvaXAxUxmycCHf35F0rKAQRKaAoC",
+      "commandMetadata": {
+       "webCommandMetadata": {
+        "url": "/",
+        "webPageType": "WEB_PAGE_TYPE_BROWSE",
+        "rootVe": 3854,
+        "apiUrl": "/youtubei/v1/browse"
+       }
+      },
+      "browseEndpoint": {
+       "browseId": "FEwhat_to_watch"
+      }
+     },
+     "overrideEntityKey": "EgZ0b3BiYXIg9QEoAQ%3D%3D"
+    }
+   },
+   "searchbox": {
+    "fusionSearchboxRenderer": {
+     "icon": {
+      "iconType": "SEARCH"
+     },
+     "placeholderText": {
+      "runs": [
+       {
+        "text": "<redacted>"
+       }
+      ]
+     },
+     "config": {
+      "webSearchboxConfig": {
+       "requestLanguage": "zh-CN",
+       "requestDomain": "us",
+       "hasOnscreenKeyboard": false,
+       "focusSearchbox": true
+      }
+     },
+     "searchEndpoint": {
+      "clickTrackingParams": "CBEQ7VAiEwjFq9SPlvaXAxUxmycCHf35F0rKAQRKaAoC",
+      "commandMetadata": {
+       "webCommandMetadata": {
+        "url": "/results?search_query=",
+        "webPageType": "WEB_PAGE_TYPE_SEARCH",
+        "rootVe": 4724
+       }
+      },
+      "searchEndpoint": {
+       "query": ""
+      }
+     },
+     "clearButton": {
+      "buttonRenderer": {
+       "style": "STYLE_DEFAULT",
+       "size": "SIZE_DEFAULT",
+       "isDisabled": false,
+       "icon": {
+        "iconType": "CLOSE"
+       },
+       "accessibilityData": {
+        "accessibilityData": {
+         "label": "清空搜索查询"
+        }
+       }
+      }
+     },
+     "showImageSourceDialog": {
+      "clickTrackingParams": "CBEQ7VAiEwjFq9SPlvaXAxUxmycCHf35F0rKAQRKaAoC",
+      "showDialogCommand": {
+       "panelLoadingStrategy": {
+        "inlineContent": {
+         "dialogViewModel": {
+          "header": {
+           "dialogHeaderViewModel": {
+            "headline": {
+             "content": "图片来源"
+            }
+           }
+          },
+          "footer": {
+           "panelFooterViewModel": {
+            "primaryButton": {
+             "buttonViewModel": {
+              "title": "<redacted>",
+              "style": "BUTTON_VIEW_MODEL_STYLE_MONO",
+              "isFullWidth": true,
+              "type": "BUTTON_VIEW_MODEL_TYPE_FILLED"
+             }
+            },
+            "secondaryButton": {
+             "buttonViewModel": {
+              "title": "<redacted>",
+              "style": "BUTTON_VIEW_MODEL_STYLE_MONO",
+              "isFullWidth": true,
+              "type": "BUTTON_VIEW_MODEL_TYPE_TONAL"
+             }
+            },
+            "shouldHideDivider": true
+           }
+          },
+          "content": {
+           "basicContentViewModel": {
+            "paragraphs": [
+             {
+              "text": {
+               "content": "访问图片来源网站？"
+              }
+             }
+            ]
+           }
+          }
+         }
+        }
+       }
+      }
+     },
+     "disableAiAppearance": true
+    }
+   },
+   "interstitial": {
+    "consentBumpV2Renderer": {
+     "interstitialLogoAside": {
+      "runs": [
+       {
+        "text": "<redacted>"
+       }
+      ]
+     },
+     "languagePickerButton": {
+      "buttonRenderer": {
+       "style": "STYLE_SUGGESTIVE",
+       "size": "SIZE_DEFAULT",
+       "isDisabled": false,
+       "text": {
+        "simpleText": "zh-CN"
+       },
+       "icon": {
+        "iconType": "PRIVACY_PUBLIC"
+       },
+       "accessibility": {
+        "label": "语言：Chinese"
+       }
+      }
+     },
+     "interstitialTitle": {
+      "runs": [
+       {
+        "text": "<redacted>"
+       }
+      ]
+     },
+     "customizeButton": {
+      "buttonRenderer": {
+       "style": "STYLE_MONO_TONAL",
+       "size": "SIZE_DEFAULT",
+       "isDisabled": false,
+       "text": {
+        "simpleText": "更多选项"
+       },
+       "command": {
+        "clickTrackingParams": "CA8Q24AHIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+        "commandMetadata": {
+         "webCommandMetadata": {
+          "url": "https://consent.youtube.com/d?continue=https://www.youtube.com/%3Fcbrd%3D1&gl=CZ&m=0&pc=yt&uxe=bip&cm=2&hl=zh-CN&src=2&escs=AdYY5jB0Tu50JfD7f8PFr5Y-PkehopT67Puv…",
+          "webPageType": "WEB_PAGE_TYPE_UNKNOWN",
+          "rootVe": 83769
+         }
+        },
+        "urlEndpoint": {
+         "url": "https://consent.youtube.com/d?continue=https://www.youtube.com/%3Fcbrd%3D1&gl=CZ&m=0&pc=yt&uxe=bip&cm=2&hl=zh-CN&src=2&escs=AdYY5jB0Tu50JfD7f8PFr5Y-PkehopT67Puv…"
+        }
+       }
+      }
+     },
+     "agreeButton": {
+      "buttonRenderer": {
+       "style": "STYLE_MONO_FILLED",
+       "size": "SIZE_DEFAULT",
+       "isDisabled": false,
+       "text": {
+        "simpleText": "全部接受"
+       },
+       "accessibility": {
+        "label": "接受 Google 出于所述的目的使用 Cookie 和其他数据"
+       },
+       "command": {
+        "clickTrackingParams": "CA4Q2oAHIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+        "saveConsentAction": {
+         "socsCookie": "CAISFwgDEgoxMDE1MjM3ODE3GgV6aC1DTiABGgYIgNS51wY",
+         "savePreferenceUrl": "https://consent.youtube.com/save?continue=https://www.youtube.com/&gl=CZ&m=0&pc=yt&x=5&src=2&hl=zh-CN&bl=1015237817&cm=2&set_eom=false&set_apyt=true&set_ytc=tru…"
+        }
+       }
+      }
+     },
+     "privacyLink": {
+      "runs": [
+       {
+        "text": "<redacted>",
+        "navigationEndpoint": {
+         "clickTrackingParams": "CAoQ3IAHIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+         "commandMetadata": {
+          "webCommandMetadata": {
+           "url": "https://policies.google.com/privacy?hl=zh-CN",
+           "webPageType": "WEB_PAGE_TYPE_UNKNOWN",
+           "rootVe": 83769
+          }
+         },
+         "urlEndpoint": {
+          "url": "https://policies.google.com/privacy?hl=zh-CN"
+         }
+        }
+       }
+      ]
+     },
+     "termsLink": {
+      "runs": [
+       {
+        "text": "<redacted>",
+        "navigationEndpoint": {
+         "clickTrackingParams": "CAoQ3IAHIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+         "commandMetadata": {
+          "webCommandMetadata": {
+           "url": "https://policies.google.com/terms?hl=zh-CN",
+           "webPageType": "WEB_PAGE_TYPE_UNKNOWN",
+           "rootVe": 83769
+          }
+         },
+         "urlEndpoint": {
+          "url": "https://policies.google.com/terms?hl=zh-CN"
+         }
+        }
+       }
+      ]
+     },
+     "signInButton": {
+      "buttonRenderer": {
+       "style": "STYLE_SUGGESTIVE",
+       "size": "SIZE_DEFAULT",
+       "isDisabled": false,
+       "text": {
+        "simpleText": "登录"
+       },
+       "icon": {
+        "iconType": "ACCOUNT_CIRCLE"
+       },
+       "tooltip": "登录",
+       "command": {
+        "clickTrackingParams": "CA0Qmu8HIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+        "commandMetadata": {
+         "webCommandMetadata": {
+          "url": "https://accounts.google.com/ServiceLogin?service=youtube&uilel=3&passive=true&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue%26ap…",
+          "webPageType": "WEB_PAGE_TYPE_UNKNOWN",
+          "rootVe": 83769
+         }
+        },
+        "signInEndpoint": {
+         "hack": true
+        }
+       }
+      }
+     },
+     "languageList": {
+      "dropdownRenderer": {
+       "entries": [
+        {
+         "dropdownItemRenderer": {
+          "label": {
+           "simpleText": "Afrikaans"
+          },
+          "isSelected": false,
+          "stringValue": "af",
+          "onSelectCommand": {
+           "clickTrackingParams": "CAoQ3IAHIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+           "commandMetadata": {
+            "webCommandMetadata": {
+             "sendPost": true
+            }
+           },
+           "signalServiceEndpoint": {
+            "signal": "CLIENT_SIGNAL",
+            "actions": [
+             {
+              "clickTrackingParams": "CAoQ3IAHIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+              "selectLanguageCommand": {
+               "hl": "af"
+              }
+             }
+            ]
+           }
+          }
+         }
+        },
+        {
+         "dropdownItemRenderer": {
+          "label": {
+           "simpleText": "Azərbaycan"
+          },
+          "isSelected": false,
+          "stringValue": "az",
+          "onSelectCommand": {
+           "clickTrackingParams": "CAoQ3IAHIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+           "commandMetadata": {
+            "webCommandMetadata": {
+             "sendPost": true
+            }
+           },
+           "signalServiceEndpoint": {
+            "signal": "CLIENT_SIGNAL",
+            "actions": [
+             {
+              "clickTrackingParams": "CAoQ3IAHIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+              "selectLanguageCommand": {
+               "hl": "az"
+              }
+             }
+            ]
+           }
+          }
+         }
+        }
+       ],
+       "accessibility": {
+        "label": "选择你的语言"
+       }
+      }
+     },
+     "readMoreButton": {
+      "buttonRenderer": {
+       "style": "STYLE_MONO_TONAL",
+       "size": "SIZE_DEFAULT",
+       "isDisabled": false,
+       "text": {
+        "simpleText": "了解详情"
+       },
+       "icon": {
+        "iconType": "EXPAND_MORE"
+       },
+       "iconPosition": "BUTTON_ICON_POSITION_TYPE_RIGHT_OF_TEXT"
+      }
+     },
+     "disableP13nButton": {
+      "buttonRenderer": {
+       "style": "STYLE_MONO_FILLED",
+       "size": "SIZE_DEFAULT",
+       "isDisabled": false,
+       "text": {
+        "simpleText": "全部拒绝"
+       },
+       "accessibilityData": {
+        "accessibilityData": {
+         "label": "拒绝 Google 出于所述的目的使用 Cookie 和其他数据"
+        }
+       },
+       "command": {
+        "clickTrackingParams": "CAsQrsUIIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+        "disablePersonalizationAction": {
+         "socsCookie": "CAESFwgDEgoxMDE1MjM3ODE3GgV6aC1DTiABGgYIgNS51wY",
+         "savePreferenceUrl": "https://consent.youtube.com/save?continue=https://www.youtube.com/&gl=CZ&m=0&pc=yt&x=5&src=2&hl=zh-CN&bl=1015237817&cm=2&set_eom=true&escs=AdYY5jAiKy2A1GTbPuT4K…"
+        }
+       }
+      }
+     },
+     "loadingMessage": {
+      "runs": [
+       {
+        "text": "<redacted>"
+       }
+      ]
+     },
+     "errorMessage": {
+      "runs": [
+       {
+        "text": "<redacted>"
+       }
+      ]
+     },
+     "eomV1Text": {
+      "essentialCookieMsg": {
+       "begin": {
+        "runs": [
+         {
+          "text": "<redacted>"
+         },
+         {
+          "text": "<redacted>",
+          "navigationEndpoint": {
+           "clickTrackingParams": "CAoQ3IAHIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+           "commandMetadata": {
+            "webCommandMetadata": {
+             "url": "https://policies.google.com/technologies/cookies?hl=zh-CN",
+             "webPageType": "WEB_PAGE_TYPE_UNKNOWN",
+             "rootVe": 83769
+            }
+           },
+           "urlEndpoint": {
+            "url": "https://policies.google.com/technologies/cookies?hl=zh-CN"
+           }
+          }
+         }
+        ]
+       },
+       "items": [
+        {
+         "runs": [
+          {
+           "text": "<redacted>"
+          }
+         ]
+        },
+        {
+         "runs": [
+          {
+           "text": "<redacted>"
+          }
+         ]
+        }
+       ]
+      },
+      "nonEssentialCookieMsg": {
+       "begin": {
+        "runs": [
+         {
+          "text": "<redacted>"
+         }
+        ]
+       },
+       "items": [
+        {
+         "runs": [
+          {
+           "text": "<redacted>"
+          }
+         ]
+        },
+        {
+         "runs": [
+          {
+           "text": "<redacted>"
+          }
+         ]
+        }
+       ]
+      },
+      "ifReject": {
+       "runs": [
+        {
+         "text": "<redacted>"
+        }
+       ]
+      },
+      "personalization": {
+       "runs": [
+        {
+         "text": "<redacted>"
+        }
+       ]
+      },
+      "moreOptions": {
+       "runs": [
+        {
+         "text": "<redacted>"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "topbarButtons": [
+    {
+     "topbarMenuButtonRenderer": {
+      "icon": {
+       "iconType": "MORE_VERT"
+      },
+      "menuRequest": {
+       "clickTrackingParams": "CAgQ_qsBGAAiEwjFq9SPlvaXAxUxmycCHf35F0rKAQRKaAoC",
+       "commandMetadata": {
+        "webCommandMetadata": {
+         "sendPost": true,
+         "apiUrl": "/youtubei/v1/account/account_menu"
+        }
+       },
+       "signalServiceEndpoint": {
+        "signal": "GET_ACCOUNT_MENU",
+        "actions": [
+         {
+          "clickTrackingParams": "CAgQ_qsBGAAiEwjFq9SPlvaXAxUxmycCHf35F0rKAQRKaAoC",
+          "openPopupAction": {
+           "popup": {
+            "multiPageMenuRenderer": {
+             "style": "MULTI_PAGE_MENU_STYLE_TYPE_SYSTEM",
+             "showLoadingSpinner": true
+            }
+           },
+           "popupType": "DROPDOWN",
+           "beReused": true
+          }
+         }
+        ]
+       }
+      },
+      "accessibility": {
+       "accessibilityData": {
+        "label": "设置"
+       }
+      },
+      "tooltip": "设置",
+      "style": "STYLE_DEFAULT"
+     }
+    },
+    {
+     "buttonRenderer": {
+      "style": "STYLE_SUGGESTIVE",
+      "size": "SIZE_SMALL",
+      "text": {
+       "runs": [
+        {
+         "text": "<redacted>"
+        }
+       ]
+      },
+      "icon": {
+       "iconType": "AVATAR_LOGGED_OUT"
+      },
+      "navigationEndpoint": {
+       "clickTrackingParams": "CAcQ1IAEGAEiEwjFq9SPlvaXAxUxmycCHf35F0rKAQRKaAoC",
+       "commandMetadata": {
+        "webCommandMetadata": {
+         "url": "https://accounts.google.com/ServiceLogin?service=youtube&uilel=3&passive=true&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue%26ap…",
+         "webPageType": "WEB_PAGE_TYPE_UNKNOWN",
+         "rootVe": 83769
+        }
+       },
+       "signInEndpoint": {
+        "idamTag": "65620"
+       }
+      },
+      "targetId": "topbar-signin"
+     }
+    }
+   ],
+   "hotkeyDialog": {
+    "hotkeyDialogRenderer": {
+     "title": {
+      "runs": [
+       {
+        "text": "<redacted>"
+       }
+      ]
+     },
+     "sections": [
+      {
+       "hotkeyDialogSectionRenderer": {
+        "title": {
+         "runs": [
+          {
+           "text": "<redacted>"
+          }
+         ]
+        },
+        "options": [
+         {
+          "hotkeyDialogSectionOptionRenderer": {
+           "label": {
+            "runs": [
+             {
+              "text": "<redacted>"
+             }
+            ]
+           },
+           "hotkey": "k"
+          }
+         },
+         {
+          "hotkeyDialogSectionOptionRenderer": {
+           "label": {
+            "runs": [
+             {
+              "text": "<redacted>"
+             }
+            ]
+           },
+           "hotkey": "j"
+          }
+         }
+        ]
+       }
+      },
+      {
+       "hotkeyDialogSectionRenderer": {
+        "title": {
+         "runs": [
+          {
+           "text": "<redacted>"
+          }
+         ]
+        },
+        "options": [
+         {
+          "hotkeyDialogSectionOptionRenderer": {
+           "label": {
+            "runs": [
+             {
+              "text": "<redacted>"
+             }
+            ]
+           },
+           "hotkey": "f"
+          }
+         },
+         {
+          "hotkeyDialogSectionOptionRenderer": {
+           "label": {
+            "runs": [
+             {
+              "text": "<redacted>"
+             }
+            ]
+           },
+           "hotkey": "t"
+          }
+         }
+        ]
+       }
+      }
+     ],
+     "dismissButton": {
+      "buttonRenderer": {
+       "style": "STYLE_BLUE_TEXT",
+       "size": "SIZE_DEFAULT",
+       "isDisabled": false,
+       "text": {
+        "runs": [
+         {
+          "text": "<redacted>"
+         }
+        ]
+       }
+      }
+     }
+    }
+   },
+   "backButton": {
+    "buttonRenderer": {
+     "command": {
+      "clickTrackingParams": "CAQQvIYDIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+      "commandMetadata": {
+       "webCommandMetadata": {
+        "sendPost": true
+       }
+      },
+      "signalServiceEndpoint": {
+       "signal": "CLIENT_SIGNAL",
+       "actions": [
+        {
+         "clickTrackingParams": "CAQQvIYDIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+         "signalAction": {
+          "signal": "HISTORY_BACK"
+         }
+        }
+       ]
+      }
+     }
+    }
+   },
+   "forwardButton": {
+    "buttonRenderer": {
+     "command": {
+      "clickTrackingParams": "CAMQvYYDIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+      "commandMetadata": {
+       "webCommandMetadata": {
+        "sendPost": true
+       }
+      },
+      "signalServiceEndpoint": {
+       "signal": "CLIENT_SIGNAL",
+       "actions": [
+        {
+         "clickTrackingParams": "CAMQvYYDIhMIxavUj5b2lwMVMZsnAh39-RdKygEESmgKAg==",
+         "signalAction": {
+          "signal": "HISTORY_FORWARD"
+         }
+        }
+       ]
+      }
+     }
+    }
+   },
+   "a11ySkipNavigationButton": {
+    "buttonRenderer": {
+     "style": "STYLE_DEFAULT",
+     "size": "SIZE_DEFAULT",
+     "isDisabled": false,
+     "text": {
+      "runs": [
+       {
+        "text": "<redacted>"
+       }
+      ]
+     },
+     "command": {
+      "clickTrackingParams": "CAIQ8FsiEwjFq9SPlvaXAxUxmycCHf35F0rKAQRKaAoC",
+      "commandMetadata": {
+       "webCommandMetadata": {
+        "sendPost": true
+       }
+      },
+      "signalServiceEndpoint": {
+       "signal": "CLIENT_SIGNAL",
+       "actions": [
+        {
+         "clickTrackingParams": "CAIQ8FsiEwjFq9SPlvaXAxUxmycCHf35F0rKAQRKaAoC",
+         "signalAction": {
+          "signal": "SKIP_NAVIGATION"
+         }
+        }
+       ]
+      }
+     }
+    }
+   }
+  }
+ },
+ "frameworkUpdates": {
+  "entityBatchUpdate": {
+   "mutations": [
+    {
+     "entityKey": "EgZ0b3BiYXIg9QEoAQ%3D%3D",
+     "type": "ENTITY_MUTATION_TYPE_DELETE",
+     "options": {
+      "persistenceOption": "ENTITY_PERSISTENCE_OPTION_INMEMORY_AND_PERSIST"
+     }
+    }
+   ],
+   "timestamp": {
+    "seconds": "1794065317",
+    "nanos": 638750812
+   }
+  }
+ }
+}

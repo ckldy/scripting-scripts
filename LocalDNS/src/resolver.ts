@@ -9,6 +9,7 @@ import { Store } from './store';
 import { CacheManager } from './cache';
 import { DiversionEngine } from './diversion';
 import { AuditManager } from './audit';
+import { metrics } from './metrics';
 import { SpeedChecker } from './speedcheck';
 import { queryTcpDns, queryDot } from './upstream-tcp';
 import { IpRulesEngine } from './ip-rules';
@@ -246,7 +247,9 @@ export class DnsResolver {
     }
 
     // 3. Diversion & Rule Matching
+    const matchStart = Date.now();
     const diversion = DiversionEngine.get().match(domain, clientIp);
+    metrics.recordMatch(Date.now() - matchStart, diversion);
 
     // 3.1 Rewrite
     if (diversion.group === 'rewrite' && diversion.rewriteIp) {
@@ -302,8 +305,12 @@ export class DnsResolver {
     }
 
     // 6. Determine target group (with per-client override)
-    // 强制直连原则：DNS 查询全部走国内高速直连上游 (domestic)，绝不走代理节点，消除代理网络往返及握手延迟
+    // 分流原则：国内域名走国内直连上游 (domestic)，毫秒极速；
+    // 境外/流媒体/代理流量走 foreign/proxy，返回真实干净 IP，彻底杜绝国内上游参与以防止 GFW 假 IP 污染
     let targetGroup: UpstreamGroup = 'domestic';
+    if (diversion.group === 'foreign' || diversion.group === 'foreign_ecs' || diversion.group === 'proxy') {
+      targetGroup = diversion.group === 'foreign_ecs' ? 'foreign_ecs' : (diversion.group === 'proxy' ? 'proxy' : 'foreign');
+    }
     if (clientMatch?.group) targetGroup = clientMatch.group;
 
     const cacheManager = CacheManager.get();
@@ -334,10 +341,28 @@ export class DnsResolver {
     const upstreamConfig = store.getUpstreamConfig();
     let groupNodes = (upstreamConfig[targetGroup] || []).filter(n => n.enabled !== false);
     let actualQueryGroup: UpstreamGroup = targetGroup;
+
+    // 境外与代理流量隔离保障：
+    // proxy 与 foreign/foreign_ecs 属于纯境外分组，只能在境外节点互备，绝对禁止国内 DNS 参与！
     if (groupNodes.length === 0) {
-      groupNodes = (upstreamConfig.domestic || []).filter(n => n.enabled !== false);
-      actualQueryGroup = 'domestic';
+      if (targetGroup === 'proxy') {
+        // proxy 组若未单独配置节点，无缝使用 foreign 纯净节点 (1.1.1.1 / dns.google)
+        groupNodes = (upstreamConfig.foreign || []).filter(n => n.enabled !== false);
+        actualQueryGroup = 'foreign';
+        if (groupNodes.length === 0) {
+          groupNodes = (upstreamConfig.foreign_ecs || []).filter(n => n.enabled !== false);
+          actualQueryGroup = 'foreign_ecs';
+        }
+      } else if (targetGroup === 'foreign') {
+        groupNodes = (upstreamConfig.foreign_ecs || []).filter(n => n.enabled !== false);
+        actualQueryGroup = 'foreign_ecs';
+      } else if (targetGroup === 'foreign_ecs') {
+        groupNodes = (upstreamConfig.foreign || []).filter(n => n.enabled !== false);
+        actualQueryGroup = 'foreign';
+      }
     }
+
+    // 关键安全底线：境外/代理分组在没有任何境外节点可用时，宁可 SERVFAIL 也绝对不能 fallback 到 domestic！
     if (groupNodes.length === 0) {
       this.logQuery({ traceId, clientIp, domain, qtypeName, domainSet: diversion.domainSet, rcode: 'SERVFAIL', duration: Date.now() - startTime, answers: [] });
       return serializeDnsPacket(createEmptyResponse(query, 2, 'SERVFAIL'));
@@ -475,6 +500,16 @@ export class DnsResolver {
     return { ...respPacket, answers: [...others, ...finalAddr] };
   }
 
+  /**
+   * Foreign/ECS/proxy DoH leaves the device through the tunnel: a cold TLS handshake alone
+   * costs ~1s, so the old 2.5s default aborted ~17% of them — and each abort also tears down
+   * the keep-alive connection, which makes the next query pay a fresh handshake again.
+   * Domestic IP-based DoH stays on the tight default so a dead resolver is noticed fast.
+   */
+  private groupTimeout(group: string): number {
+    return group === 'domestic' ? 2500 : 6000;
+  }
+
   private async queryUpstreamNodes(
     nodes: UpstreamNode[],
     group: UpstreamGroup,
@@ -485,17 +520,10 @@ export class DnsResolver {
     const candidatePromises: Array<Promise<{ node: UpstreamNode; rawBytes: Uint8Array; actualGroup: string }>> = [];
 
     nodes.forEach(node => {
-      candidatePromises.push(this.querySingleNode(node, group, queryBytes, node.timeout || 2500));
+      candidatePromises.push(this.querySingleNode(node, group, queryBytes, node.timeout || this.groupTimeout(group)));
     });
 
-    // 直连保障竞速：若因客户端规则指定了非 domestic 分组，立即并行启动国内直连节点竞速（0ms 零延迟，杜绝 350ms 盲等）
-    if (group !== 'domestic') {
-      const domesticNodes = (Store.get().getUpstreamConfig().domestic || []).filter(n => n.enabled !== false);
-      if (domesticNodes.length > 0) {
-        const domPromises = domesticNodes.map(n => this.querySingleNode(n, 'domestic', queryBytes, 2000));
-        candidatePromises.push(Promise.any(domPromises));
-      }
-    }
+    // 隔离原则：境外/代理节点只在各自纯净上游中查询，严禁让国内 DNS 参与竞速，彻底避免 GFW 抢答返回假 IP 污染
 
     const winner = await Promise.any(candidatePromises);
     const latency = Date.now() - startTime;
@@ -592,7 +620,7 @@ export class DnsResolver {
     const addresses = respPacket.answers.map(a => String(a.data)).filter(Boolean);
     const minTtl = respPacket.answers.length > 0 ? Math.min(...respPacket.answers.map(a => a.ttl || 300)) : 300;
     const isBlocked = addresses.includes('0.0.0.0') || addresses.includes('::');
-    const diversion = DiversionEngine.get().match(domain, clientIp);
+    const diversion = DiversionEngine.get().match(domain, clientIp, { skipHit: true });
     return { addresses, ttl: minTtl, rcode: respPacket.rcodeName, blocked: isBlocked, domainSet: diversion.domainSet };
   }
 }

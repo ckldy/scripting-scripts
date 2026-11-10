@@ -6,6 +6,7 @@
  */
 
 import { Path, Script } from 'scripting';
+import { isOverbroadRejectRule } from './rule-guard';
 
 export interface ModuleArgumentItem {
   key: string;
@@ -24,6 +25,52 @@ export interface AppModule {
   custom_arguments?: Record<string, string>;
   created_at: number;
   updated_at: number;
+}
+
+export interface ScriptRegistryEntry {
+  name: string;
+  source_url: string;
+  local_path: string;
+  sha256: string;
+  bytes: number;
+  engine?: string;
+  max_size?: number;
+  enabled: boolean;
+  last_checked: number;
+}
+
+export interface CanonicalRuleStatus {
+  generated: boolean;
+  generated_at: number;
+  duration_ms: number;
+  rules: number;
+  enabled_rules: number;
+  block_rules: number;
+  sources: number;
+  bindings: number;
+  current_block_rules: number;
+  missing_in_canonical: string[];
+  extra_in_canonical: string[];
+  dirty: boolean;
+  consistent: boolean;
+}
+
+export interface CanonicalBlockRule {
+  type: string;
+  pattern: string;
+  action: string;
+}
+
+export interface CanonicalSyncResult {
+  ok: boolean;
+  kind: 'module' | 'diversion_group';
+  ref: string;
+  skipped?: boolean;
+  rules: number;
+  affected: number;
+  consistent: boolean;
+  dirty: boolean;
+  error?: string;
 }
 
 export interface DnsRule {
@@ -126,6 +173,7 @@ export interface TopologyLink {
 export class SurgeDatabase {
   private static instance: SurgeDatabase;
   private db: SQLite.Database | null = null;
+  private canonicalSyncChain: Promise<void> = Promise.resolve();
   private initialized = false;
   private initPromise: Promise<void> | null = null;
 
@@ -168,7 +216,17 @@ export class SurgeDatabase {
           await this.db.execute('PRAGMA synchronous = NORMAL;');
         } catch {}
         try {
-          await this.db.execute('PRAGMA journal_mode = WAL;');
+          // PRAGMA journal_mode 需要读取返回行才会真正切换，execute 有时只是准备语句。
+          await this.db.fetchOne('PRAGMA journal_mode = WAL;');
+        } catch {}
+        try {
+          await this.db.execute('PRAGMA cache_size = -20000;');
+        } catch {}
+        try {
+          await this.db.execute('PRAGMA temp_store = MEMORY;');
+        } catch {}
+        try {
+          await this.db.execute('PRAGMA mmap_size = 268435456;');
         } catch {}
 
         await this.createTables();
@@ -210,6 +268,15 @@ export class SurgeDatabase {
         } catch {}
         try {
           await this.db.execute('UPDATE remote_rule_sets SET enabled = 1 WHERE enabled IS NULL;');
+        } catch {}
+        // 历史数据修复：早期导入把行尾 # 注释并进了 pattern，
+        // 导致 43% 的 block 规则与几乎全部 proxy 规则在导出与 Surge 侧静默失效。
+        // 幂等：修完后再次启动匹配 0 行，开销仅一次全表扫描。
+        try {
+          await this.db.execute(
+            "UPDATE diversion_rules SET pattern = TRIM(SUBSTR(pattern, 1, INSTR(pattern, ' #') - 1)) WHERE pattern LIKE '% #%' AND INSTR(pattern, ' #') > 1"
+          );
+          await this.db.execute("DELETE FROM diversion_rules WHERE TRIM(pattern) = ''");
         } catch {}
         await this.seedDefaults();
         this.initialized = true;
@@ -355,7 +422,70 @@ export class SurgeDatabase {
         timestamp INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_topo_ts ON topology_links(timestamp);
+
+      CREATE TABLE IF NOT EXISTS optimization_flags (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS script_registry (
+        name TEXT PRIMARY KEY,
+        source_url TEXT NOT NULL,
+        local_path TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        bytes INTEGER NOT NULL,
+        engine TEXT,
+        max_size INTEGER,
+        enabled INTEGER DEFAULT 1,
+        last_checked INTEGER NOT NULL
+      );
+
+      -- Phase 5：canonical 规则影子表。只读旁路，不参与 DNS 匹配。
+      CREATE TABLE IF NOT EXISTS rule_sources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        source_ref TEXT NOT NULL,
+        name TEXT,
+        enabled INTEGER DEFAULT 1,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(kind, source_ref)
+      );
+
+      CREATE TABLE IF NOT EXISTS rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        pattern TEXT NOT NULL,
+        action TEXT NOT NULL,
+        priority INTEGER DEFAULT 0,
+        enabled INTEGER DEFAULT 1,
+        hash TEXT NOT NULL UNIQUE,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS rule_bindings (
+        rule_id INTEGER NOT NULL,
+        source_id INTEGER NOT NULL,
+        raw_rule TEXT,
+        created_at INTEGER NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        PRIMARY KEY (rule_id, source_id),
+        FOREIGN KEY(rule_id) REFERENCES rules(id) ON DELETE CASCADE,
+        FOREIGN KEY(source_id) REFERENCES rule_sources(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_rules_action_enabled ON rules(action, enabled);
+      CREATE INDEX IF NOT EXISTS idx_rules_type_pattern ON rules(type, pattern);
+      CREATE INDEX IF NOT EXISTS idx_bindings_source ON rule_bindings(source_id);
+      CREATE INDEX IF NOT EXISTS idx_mod_http_module ON module_http_rules(module_id, rule_type);
+      CREATE INDEX IF NOT EXISTS idx_div_group_enabled ON diversion_rules(group_id, enabled);
+      CREATE INDEX IF NOT EXISTS idx_mod_dns_enabled ON module_dns_rules(module_id, enabled);
     `);
+
+    // Phase 5 迁移：早期影子表没有 binding 级 enabled，补列（已存在则忽略）。
+    try {
+      await this.getDb().execute('ALTER TABLE rule_bindings ADD COLUMN enabled INTEGER DEFAULT 1');
+    } catch {}
   }
 
   private async seedDefaults(): Promise<void> {
@@ -421,6 +551,595 @@ export class SurgeDatabase {
         );
       }
     }
+
+    // 优化开关：默认全部关闭，只有验证通过后才逐项打开；可随时回滚。
+    const defaultFlags: Record<string, string> = {
+      'opt.db_tx': '1',
+      'opt.hit_counter': '1',
+      'opt.metrics': '1',
+      'opt.script_registry': '0',
+      'opt.script_local_paths': '0',
+      'opt.dedupe_scripts': '0',
+      'opt.rules_v2': '0',
+      'opt.canonical_dirty': '0',
+      'opt.snapshot_v2': '0',
+      'opt.cname_check': '0',
+    };
+    const now = Date.now();
+    for (const [key, value] of Object.entries(defaultFlags)) {
+      await this.getDb().execute(
+        'INSERT OR IGNORE INTO optimization_flags (key, value, updated_at) VALUES (?, ?, ?)',
+        [key, value, now]
+      );
+    }
+  }
+
+  public async getOptimizationFlag(key: string, fallback = '0'): Promise<string> {
+    await this.init();
+    const row = await this.getDb().fetchOne<{ value: string }>(
+      'SELECT value FROM optimization_flags WHERE key = ?',
+      [key]
+    );
+    return row?.value ?? fallback;
+  }
+
+  public async setOptimizationFlag(key: string, value: string): Promise<void> {
+    await this.init();
+    await this.getDb().execute(
+      'INSERT OR REPLACE INTO optimization_flags (key, value, updated_at) VALUES (?, ?, ?)',
+      [key, value, Date.now()]
+    );
+  }
+
+  public async listOptimizationFlags(): Promise<Record<string, string>> {
+    await this.init();
+    const rows = await this.getDb().fetchAll<{ key: string; value: string }>(
+      'SELECT key, value FROM optimization_flags ORDER BY key ASC'
+    );
+    const out: Record<string, string> = {};
+    for (const r of rows) out[r.key] = r.value;
+    return out;
+  }
+
+  public async upsertScriptRegistry(entry: ScriptRegistryEntry): Promise<void> {
+    await this.init();
+    await this.getDb().execute(
+      `INSERT OR REPLACE INTO script_registry
+       (name, source_url, local_path, sha256, bytes, engine, max_size, enabled, last_checked)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        entry.name,
+        entry.source_url,
+        entry.local_path,
+        entry.sha256,
+        entry.bytes,
+        entry.engine || null,
+        entry.max_size !== undefined ? entry.max_size : null,
+        entry.enabled ? 1 : 0,
+        entry.last_checked,
+      ]
+    );
+  }
+
+  public async listScriptRegistry(): Promise<ScriptRegistryEntry[]> {
+    await this.init();
+    const rows = await this.getDb().fetchAll<any>('SELECT * FROM script_registry ORDER BY name ASC');
+    return rows.map((r: any) => ({
+      name: r.name,
+      source_url: r.source_url,
+      local_path: r.local_path,
+      sha256: r.sha256,
+      bytes: Number(r.bytes || 0),
+      engine: r.engine || undefined,
+      max_size: r.max_size === null || r.max_size === undefined ? undefined : Number(r.max_size),
+      enabled: Boolean(r.enabled),
+      last_checked: Number(r.last_checked || 0),
+    }));
+  }
+
+  public async getScriptRegistry(name: string): Promise<ScriptRegistryEntry | null> {
+    await this.init();
+    const r = await this.getDb().fetchOne<any>('SELECT * FROM script_registry WHERE name = ?', [name]);
+    if (!r) return null;
+    return {
+      name: r.name,
+      source_url: r.source_url,
+      local_path: r.local_path,
+      sha256: r.sha256,
+      bytes: Number(r.bytes || 0),
+      engine: r.engine || undefined,
+      max_size: r.max_size === null || r.max_size === undefined ? undefined : Number(r.max_size),
+      enabled: Boolean(r.enabled),
+      last_checked: Number(r.last_checked || 0),
+    };
+  }
+
+  // ==================== Canonical Rules (Phase 5 shadow) ====================
+
+  /** 源表变更后只标脏，不阻塞写入；重建成功后清零。 */
+  private async markCanonicalDirty(): Promise<void> {
+    try {
+      await this.setOptimizationFlag('opt.canonical_dirty', '1');
+    } catch (e) {
+      console.warn('[canonical] mark dirty failed:', e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /**
+   * 从现有 module_dns_rules + diversion_rules 旁路物化 canonical 规则。
+   * 只写 rule_* 影子表，不改变 DNS 读取路径、不改变现有规则表。
+   */
+  public async rebuildCanonicalRules(): Promise<CanonicalRuleStatus> {
+    await this.init();
+    const started = Date.now();
+    const db = this.getDb();
+    await this.setOptimizationFlag('opt.canonical_dirty', '1');
+
+    const modules = await db.fetchAll<any>('SELECT id, name, enabled FROM app_modules');
+    const groups = await db.fetchAll<any>('SELECT id, name, enabled, surge_policy, priority FROM diversion_groups');
+    const sourceRows = new Map<string, { kind: string; source_ref: string; name: string; enabled: number }>();
+    for (const m of modules) {
+      sourceRows.set(`module\u0000${m.id}`, {
+        kind: 'module',
+        source_ref: String(m.id),
+        name: m.name || String(m.id),
+        enabled: Number(m.enabled) === 1 ? 1 : 0,
+      });
+    }
+    for (const g of groups) {
+      sourceRows.set(`diversion_group\u0000${g.id}`, {
+        kind: 'diversion_group',
+        source_ref: String(g.id),
+        name: g.name || String(g.id),
+        enabled: Number(g.enabled) === 1 ? 1 : 0,
+      });
+    }
+
+    await db.transaction([
+      { sql: 'DELETE FROM rule_bindings' },
+      { sql: 'DELETE FROM rules' },
+      { sql: 'DELETE FROM rule_sources' },
+    ]);
+
+    const sourceSteps: SQLite.TransactionStep[] = [];
+    for (const s of sourceRows.values()) {
+      sourceSteps.push({
+        sql: 'INSERT INTO rule_sources (kind, source_ref, name, enabled, updated_at) VALUES (?, ?, ?, ?, ?)',
+        args: [s.kind, s.source_ref, s.name, s.enabled, started],
+      });
+    }
+    if (sourceSteps.length) await db.transaction(sourceSteps);
+
+    const sourceDbRows = await db.fetchAll<any>('SELECT id, kind, source_ref FROM rule_sources');
+    const sourceIdMap = new Map<string, number>();
+    for (const s of sourceDbRows) {
+      sourceIdMap.set(`${s.kind}\u0000${s.source_ref}`, Number(s.id));
+    }
+
+    const moduleDns = await db.fetchAll<any>(
+      'SELECT module_id, type, pattern, action, enabled FROM module_dns_rules'
+    );
+    const divRules = await db.fetchAll<any>(
+      'SELECT group_id, match_type, pattern, enabled FROM diversion_rules'
+    );
+    const groupMap = new Map<string, any>();
+    for (const g of groups) groupMap.set(String(g.id), g);
+
+    interface RuleAgg {
+      type: string;
+      pattern: string;
+      action: string;
+      priority: number;
+      enabled: boolean;
+    }
+    const ruleAgg = new Map<string, RuleAgg>();
+    const bindingAgg = new Map<string, { hash: string; sourceKey: string; raw: string; enabled: boolean }>();
+
+    const addRule = (
+      type: string,
+      pattern: string,
+      action: string,
+      priority: number,
+      sourceEnabled: boolean,
+      ruleEnabled: boolean,
+      sourceKey: string,
+      raw: string
+    ) => {
+      const t = String(type || '').trim().toUpperCase();
+      const p = String(pattern || '').trim().toLowerCase();
+      const a = String(action || '').trim().toUpperCase();
+      if (!t || !p || !a) return;
+      const hash = `${t}\u0001${p}\u0001${a}`;
+      const effectiveEnabled = sourceEnabled && ruleEnabled;
+      const cur = ruleAgg.get(hash);
+      if (cur) {
+        cur.enabled = cur.enabled || effectiveEnabled;
+        cur.priority = Math.max(cur.priority, priority);
+      } else {
+        ruleAgg.set(hash, { type: t, pattern: p, action: a, priority, enabled: effectiveEnabled });
+      }
+
+      const bindingKey = `${hash}\u0001${sourceKey}`;
+      const bind = bindingAgg.get(bindingKey);
+      if (bind) {
+        bind.enabled = bind.enabled || ruleEnabled;
+      } else {
+        bindingAgg.set(bindingKey, { hash, sourceKey, raw, enabled: ruleEnabled });
+      }
+    };
+
+    for (const r of moduleDns) {
+      const sourceKey = `module\u0000${r.module_id}`;
+      const src = sourceRows.get(sourceKey);
+      addRule(
+        r.type,
+        r.pattern,
+        r.action,
+        0,
+        Number(r.enabled) === 1 && Number(src?.enabled) === 1,
+        Number(r.enabled) === 1,
+        sourceKey,
+        `${r.type},${r.pattern},${r.action}`
+      );
+    }
+
+    for (const r of divRules) {
+      const g = groupMap.get(String(r.group_id));
+      if (!g) continue;
+      const sourceKey = `diversion_group\u0000${r.group_id}`;
+      const src = sourceRows.get(sourceKey);
+      addRule(
+        r.match_type,
+        r.pattern,
+        g.surge_policy,
+        Number(g.priority || 0),
+        Number(r.enabled) === 1 && Number(g.enabled) === 1 && Number(src?.enabled) === 1,
+        Number(r.enabled) === 1,
+        sourceKey,
+        `${r.match_type},${r.pattern},${g.surge_policy}`
+      );
+    }
+
+    const ruleRows = [...ruleAgg.entries()].map(([hash, r]) => ({ hash, ...r }));
+    const bindings = [...bindingAgg.values()];
+    const chunk = 1000;
+    for (let i = 0; i < ruleRows.length; i += chunk) {
+      const steps: SQLite.TransactionStep[] = [];
+      for (const r of ruleRows.slice(i, i + chunk)) {
+        steps.push({
+          sql: 'INSERT OR IGNORE INTO rules (type, pattern, action, priority, enabled, hash, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          args: [r.type, r.pattern, r.action, r.priority, r.enabled ? 1 : 0, r.hash, started],
+        });
+      }
+      if (steps.length) await db.transaction(steps);
+    }
+
+    const ruleDbRows = await db.fetchAll<any>('SELECT id, hash FROM rules');
+    const ruleIdMap = new Map<string, number>();
+    for (const r of ruleDbRows) ruleIdMap.set(String(r.hash), Number(r.id));
+
+    for (let i = 0; i < bindings.length; i += chunk) {
+      const steps: SQLite.TransactionStep[] = [];
+      for (const b of bindings.slice(i, i + chunk)) {
+        const rid = ruleIdMap.get(b.hash);
+        const sid = sourceIdMap.get(b.sourceKey);
+        if (!rid || !sid) continue;
+        steps.push({
+          sql: 'INSERT OR IGNORE INTO rule_bindings (rule_id, source_id, raw_rule, created_at, enabled) VALUES (?, ?, ?, ?, ?)',
+          args: [rid, sid, b.raw, started, b.enabled ? 1 : 0],
+        });
+      }
+      if (steps.length) await db.transaction(steps);
+    }
+
+    await db.execute(`UPDATE rules SET enabled = CASE WHEN EXISTS (
+      SELECT 1 FROM rule_bindings b JOIN rule_sources s ON s.id = b.source_id
+      WHERE b.rule_id = rules.id AND b.enabled = 1 AND s.enabled = 1
+    ) THEN 1 ELSE 0 END`);
+
+    await this.setOptimizationFlag('opt.canonical_dirty', '0');
+    return await this.getCanonicalRuleStatus(started, Date.now() - started);
+  }
+
+  /** 只读 canonical 状态；调用前若表为空则 generated=false。 */
+  public async getCanonicalRuleStatus(startedAt?: number, durationMs?: number): Promise<CanonicalRuleStatus> {
+    await this.init();
+    const db = this.getDb();
+    const count = async (sql: string, args: any[] = []): Promise<number> => {
+      const row = await db.fetchOne<any>(sql, args);
+      return Number(row?.c || 0);
+    };
+    const rules = await count('SELECT COUNT(*) AS c FROM rules');
+    const enabledRules = await count('SELECT COUNT(*) AS c FROM rules WHERE enabled = 1');
+    const blockRules = await count("SELECT COUNT(*) AS c FROM rules WHERE enabled = 1 AND action LIKE 'REJECT%'");
+    const sources = await count('SELECT COUNT(*) AS c FROM rule_sources');
+    const bindings = await count('SELECT COUNT(*) AS c FROM rule_bindings');
+    const current = await this.getActiveDnsBlockRules();
+
+    const canonicalRows = await db.fetchAll<any>(
+      "SELECT type, pattern FROM rules WHERE enabled = 1 AND action LIKE 'REJECT%'"
+    );
+    const norm = (s: any) => String(s || '').trim().toLowerCase();
+    const keyOf = (r: { type: string; pattern: string }) => `${String(r.type || '').toUpperCase()}\u0001${norm(r.pattern)}`;
+    const canonicalSet = new Set<string>(canonicalRows.map(keyOf));
+    const currentSet = new Set<string>(current.map(keyOf));
+    const missing = [...currentSet].filter((k) => !canonicalSet.has(k));
+    const extra = [...canonicalSet].filter((k) => !currentSet.has(k));
+    const maxRow = await db.fetchOne<any>('SELECT MAX(updated_at) AS t FROM rules');
+    const generatedAt = Number(startedAt || maxRow?.t || 0);
+    const dirty = (await this.getOptimizationFlag('opt.canonical_dirty', '0')) === '1';
+
+    return {
+      generated: rules > 0,
+      generated_at: generatedAt,
+      duration_ms: Number(durationMs || 0),
+      rules,
+      enabled_rules: enabledRules,
+      block_rules: blockRules,
+      sources,
+      bindings,
+      current_block_rules: current.length,
+      missing_in_canonical: missing.slice(0, 200),
+      extra_in_canonical: extra.slice(0, 200),
+      dirty,
+      consistent: rules > 0 && missing.length === 0 && extra.length === 0 && !dirty,
+    };
+  }
+
+  /**
+   * Phase 5c：只同步一个来源（模块/分流组），避免每次 60k 全量重建。
+   * 串行执行，失败时保持 dirty=1，运行时自动回退旧缓存。
+   */
+  public syncCanonicalSource(
+    kind: 'module' | 'diversion_group',
+    ref: string
+  ): Promise<CanonicalSyncResult> {
+    const run = this.canonicalSyncChain.then(() => this.doSyncCanonicalSource(kind, ref));
+    this.canonicalSyncChain = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  private async doSyncCanonicalSource(
+    kind: 'module' | 'diversion_group',
+    ref: string
+  ): Promise<CanonicalSyncResult> {
+    await this.init();
+    const started = Date.now();
+    const db = this.getDb();
+    const resultBase = { kind, ref, rules: 0, affected: 0, consistent: false, dirty: true };
+
+    try {
+      const ruleCount = Number((await db.fetchOne<any>('SELECT COUNT(*) AS c FROM rules'))?.c || 0);
+      if (ruleCount === 0) {
+        const status = await this.rebuildCanonicalRules();
+        return {
+          ok: true,
+          kind,
+          ref,
+          skipped: true,
+          rules: status.rules,
+          affected: 0,
+          consistent: status.consistent,
+          dirty: status.dirty,
+        };
+      }
+
+      await this.setOptimizationFlag('opt.canonical_dirty', '1');
+
+      let sourceName = ref;
+      let sourceEnabled = 0;
+      let groupPolicy = 'REJECT';
+      let groupPriority = 0;
+      let sourceExists = false;
+      if (kind === 'module') {
+        const m = await db.fetchOne<any>('SELECT id, name, enabled FROM app_modules WHERE id = ?', [ref]);
+        if (m) {
+          sourceExists = true;
+          sourceName = m.name || ref;
+          sourceEnabled = Number(m.enabled) === 1 ? 1 : 0;
+        }
+      } else {
+        const g = await db.fetchOne<any>(
+          'SELECT id, name, enabled, surge_policy, priority FROM diversion_groups WHERE id = ?',
+          [ref]
+        );
+        if (g) {
+          sourceExists = true;
+          sourceName = g.name || ref;
+          sourceEnabled = Number(g.enabled) === 1 ? 1 : 0;
+          groupPolicy = String(g.surge_policy || 'REJECT').toUpperCase();
+          groupPriority = Number(g.priority || 0);
+        }
+      }
+
+      let sourceRow = await db.fetchOne<any>(
+        'SELECT id, enabled FROM rule_sources WHERE kind = ? AND source_ref = ?',
+        [kind, ref]
+      );
+      let sourceId: number | null = sourceRow ? Number(sourceRow.id) : null;
+      const affected = new Set<number>();
+
+      if (sourceId !== null) {
+        const oldRows = await db.fetchAll<any>('SELECT rule_id FROM rule_bindings WHERE source_id = ?', [sourceId]);
+        for (const r of oldRows) affected.add(Number(r.rule_id));
+        await db.execute('DELETE FROM rule_bindings WHERE source_id = ?', [sourceId]);
+      }
+
+      if (!sourceExists) {
+        if (sourceId !== null) {
+          await db.execute('DELETE FROM rule_sources WHERE id = ?', [sourceId]);
+          sourceId = null;
+        }
+      } else if (sourceId === null) {
+        await db.execute(
+          'INSERT INTO rule_sources (kind, source_ref, name, enabled, updated_at) VALUES (?, ?, ?, ?, ?)',
+          [kind, ref, sourceName, sourceEnabled, started]
+        );
+        const inserted = await db.fetchOne<any>(
+          'SELECT id FROM rule_sources WHERE kind = ? AND source_ref = ?',
+          [kind, ref]
+        );
+        sourceId = inserted ? Number(inserted.id) : null;
+      } else {
+        await db.execute(
+          'UPDATE rule_sources SET name = ?, enabled = ?, updated_at = ? WHERE id = ?',
+          [sourceName, sourceEnabled, started, sourceId]
+        );
+      }
+
+      interface RuleAgg {
+        type: string;
+        pattern: string;
+        action: string;
+        priority: number;
+        enabled: boolean;
+        hash: string;
+      }
+      const ruleAgg = new Map<string, RuleAgg>();
+      const bindingAgg = new Map<string, { hash: string; enabled: boolean; raw: string }>();
+
+      const addRule = (type: any, pattern: any, action: any, priority: number, ruleEnabled: boolean, raw: string) => {
+        const t = String(type || '').trim().toUpperCase();
+        const p = String(pattern || '').trim().toLowerCase();
+        const a = String(action || '').trim().toUpperCase();
+        if (!t || !p || !a) return;
+        const hash = `${t}\u0001${p}\u0001${a}`;
+        const cur = ruleAgg.get(hash);
+        if (cur) {
+          cur.priority = Math.max(cur.priority, priority);
+          cur.enabled = cur.enabled || ruleEnabled;
+        } else {
+          ruleAgg.set(hash, { type: t, pattern: p, action: a, priority, enabled: ruleEnabled, hash });
+        }
+        const bind = bindingAgg.get(hash);
+        if (bind) bind.enabled = bind.enabled || ruleEnabled;
+        else bindingAgg.set(hash, { hash, enabled: ruleEnabled, raw });
+      };
+
+      if (sourceExists) {
+        if (kind === 'module') {
+          const rows = await db.fetchAll<any>(
+            'SELECT type, pattern, action, enabled FROM module_dns_rules WHERE module_id = ?',
+            [ref]
+          );
+          for (const r of rows) {
+            addRule(
+              r.type,
+              r.pattern,
+              r.action,
+              0,
+              Number(r.enabled) === 1,
+              `${r.type},${r.pattern},${r.action}`
+            );
+          }
+        } else {
+          const rows = await db.fetchAll<any>(
+            'SELECT match_type, pattern, enabled FROM diversion_rules WHERE group_id = ?',
+            [ref]
+          );
+          for (const r of rows) {
+            addRule(
+              r.match_type,
+              r.pattern,
+              groupPolicy,
+              groupPriority,
+              Number(r.enabled) === 1,
+              `${r.match_type},${r.pattern},${groupPolicy}`
+            );
+          }
+        }
+      }
+
+      const ruleRows = [...ruleAgg.values()];
+      const chunk = 1000;
+      for (let i = 0; i < ruleRows.length; i += chunk) {
+        const steps: SQLite.TransactionStep[] = [];
+        for (const r of ruleRows.slice(i, i + chunk)) {
+          steps.push({
+            sql: 'INSERT OR IGNORE INTO rules (type, pattern, action, priority, enabled, hash, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            args: [r.type, r.pattern, r.action, r.priority, r.enabled ? 1 : 0, r.hash, started],
+          });
+        }
+        if (steps.length) await db.transaction(steps);
+      }
+
+      const ruleIdMap = new Map<string, number>();
+      for (let i = 0; i < ruleRows.length; i += 500) {
+        const hashes = ruleRows.slice(i, i + 500).map((r) => r.hash);
+        const placeholders = hashes.map(() => '?').join(',');
+        const rows = await db.fetchAll<any>(`SELECT id, hash FROM rules WHERE hash IN (${placeholders})`, hashes);
+        for (const r of rows) ruleIdMap.set(String(r.hash), Number(r.id));
+      }
+
+      if (sourceId !== null) {
+        const bindingRows = [...bindingAgg.values()];
+        for (let i = 0; i < bindingRows.length; i += chunk) {
+          const steps: SQLite.TransactionStep[] = [];
+          for (const b of bindingRows.slice(i, i + chunk)) {
+            const rid = ruleIdMap.get(b.hash);
+            if (!rid) continue;
+            affected.add(rid);
+            steps.push({
+              sql: 'INSERT OR IGNORE INTO rule_bindings (rule_id, source_id, raw_rule, created_at, enabled) VALUES (?, ?, ?, ?, ?)',
+              args: [rid, sourceId, b.raw, started, b.enabled ? 1 : 0],
+            });
+          }
+          if (steps.length) await db.transaction(steps);
+        }
+      }
+
+      const affectedList = [...affected];
+      for (let i = 0; i < affectedList.length; i += chunk) {
+        const ids = affectedList.slice(i, i + chunk);
+        const placeholders = ids.map(() => '?').join(',');
+        await db.execute(
+          `DELETE FROM rules WHERE id IN (${placeholders}) AND NOT EXISTS (
+            SELECT 1 FROM rule_bindings b WHERE b.rule_id = rules.id
+          )`,
+          ids
+        );
+        await db.execute(
+          `UPDATE rules SET updated_at = ?, enabled = CASE WHEN EXISTS (
+            SELECT 1 FROM rule_bindings b JOIN rule_sources s ON s.id = b.source_id
+            WHERE b.rule_id = rules.id AND b.enabled = 1 AND s.enabled = 1
+          ) THEN 1 ELSE 0 END WHERE id IN (${placeholders})`,
+          [started, ...ids]
+        );
+      }
+
+      await this.setOptimizationFlag('opt.canonical_dirty', '0');
+      const status = await this.getCanonicalRuleStatus(started, Date.now() - started);
+      if (!status.consistent) await this.setOptimizationFlag('opt.canonical_dirty', '1');
+      return {
+        ok: true,
+        kind,
+        ref,
+        rules: ruleRows.length,
+        affected: affected.size,
+        consistent: status.consistent,
+        dirty: status.dirty,
+      };
+    } catch (e) {
+      await this.setOptimizationFlag('opt.canonical_dirty', '1').catch(() => undefined);
+      return {
+        ...resultBase,
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+  }
+
+  /** 供影子 matcher 使用的 canonical block 规则。 */
+  public async getCanonicalBlockRules(): Promise<CanonicalBlockRule[]> {
+    await this.init();
+    const rows = await this.getDb().fetchAll<any>(
+      "SELECT type, pattern, action FROM rules WHERE enabled = 1 AND action LIKE 'REJECT%'"
+    );
+    return rows.map((r: any) => ({
+      type: String(r.type || '').toUpperCase(),
+      pattern: String(r.pattern || '').trim().toLowerCase(),
+      action: String(r.action || '').toUpperCase(),
+    }));
   }
 
   // ==================== App Modules ====================
@@ -524,6 +1243,7 @@ export class SurgeDatabase {
   public async deleteModule(id: string): Promise<void> {
     await this.init();
     await this.getDb().execute('DELETE FROM app_modules WHERE id = ?', [id]);
+    await this.syncCanonicalSource('module', id);
   }
 
   // ==================== Module Rules & Assets ====================
@@ -536,29 +1256,37 @@ export class SurgeDatabase {
     generalSettings: GeneralSetting[]
   ): Promise<void> {
     await this.init();
-    // 事务替换
-    await this.getDb().execute('DELETE FROM module_dns_rules WHERE module_id = ?', [moduleId]);
-    await this.getDb().execute('DELETE FROM module_mitm_hosts WHERE module_id = ?', [moduleId]);
-    await this.getDb().execute('DELETE FROM module_http_rules WHERE module_id = ?', [moduleId]);
-    await this.getDb().execute('DELETE FROM module_general_settings WHERE module_id = ?', [moduleId]);
+    await this.markCanonicalDirty();
+
+    // 2026-11-07 Phase 1：所有 DELETE + INSERT 先构造成同一条事务。
+    // opt.db_tx 关闭时仍按旧顺序逐条执行，保证可回滚且行为完全一致。
+    const steps: SQLite.TransactionStep[] = [
+      { sql: 'DELETE FROM module_dns_rules WHERE module_id = ?', args: [moduleId] },
+      { sql: 'DELETE FROM module_mitm_hosts WHERE module_id = ?', args: [moduleId] },
+      { sql: 'DELETE FROM module_http_rules WHERE module_id = ?', args: [moduleId] },
+      { sql: 'DELETE FROM module_general_settings WHERE module_id = ?', args: [moduleId] },
+    ];
 
     for (const r of dnsRules) {
-      await this.getDb().execute(
-        'INSERT INTO module_dns_rules (module_id, type, pattern, action, enabled) VALUES (?, ?, ?, ?, ?)',
-        [moduleId, r.type, r.pattern, r.action, r.enabled !== false ? 1 : 0]
-      );
+      steps.push({
+        sql: 'INSERT INTO module_dns_rules (module_id, type, pattern, action, enabled) VALUES (?, ?, ?, ?, ?)',
+        args: [moduleId, r.type, r.pattern, r.action, r.enabled !== false ? 1 : 0],
+      });
     }
     for (const host of mitmHosts) {
       const h = host.trim();
       if (h) {
-        await this.getDb().execute('INSERT INTO module_mitm_hosts (module_id, hostname, enabled) VALUES (?, ?, 1)', [moduleId, h]);
+        steps.push({
+          sql: 'INSERT INTO module_mitm_hosts (module_id, hostname, enabled) VALUES (?, ?, 1)',
+          args: [moduleId, h],
+        });
       }
     }
     for (const hr of httpRules) {
-      await this.getDb().execute(
-        `INSERT INTO module_http_rules (module_id, rule_type, sub_type, pattern, target, script_name, requires_body, max_size, binary_body, engine, argument, timeout, enabled)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
+      steps.push({
+        sql: `INSERT INTO module_http_rules (module_id, rule_type, sub_type, pattern, target, script_name, requires_body, max_size, binary_body, engine, argument, timeout, enabled)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
           moduleId,
           hr.rule_type,
           hr.sub_type,
@@ -572,48 +1300,162 @@ export class SurgeDatabase {
           hr.argument || null,
           hr.timeout !== undefined ? hr.timeout : null,
           hr.enabled !== false ? 1 : 0,
-        ]
-      );
+        ],
+      });
     }
     for (const gs of generalSettings) {
-      await this.getDb().execute(
-        'INSERT INTO module_general_settings (module_id, key, operator, value) VALUES (?, ?, ?, ?)',
-        [moduleId, gs.key, gs.operator || '=', gs.value]
-      );
+      steps.push({
+        sql: 'INSERT INTO module_general_settings (module_id, key, operator, value) VALUES (?, ?, ?, ?)',
+        args: [moduleId, gs.key, gs.operator || '=', gs.value],
+      });
     }
+
+    const useTx = (await this.getOptimizationFlag('opt.db_tx', '0')) === '1';
+    if (useTx) {
+      await this.getDb().transaction(steps);
+    } else {
+      for (const step of steps) {
+        await this.getDb().execute(step.sql, step.args ?? []);
+      }
+    }
+    await this.syncCanonicalSource('module', moduleId);
   }
 
+  /**
+   * AdHunter 写入「零域名 URL-REGEX」规则。
+   *
+   * 设计约束（2026-11-07）：
+   *  1. 模块只存放**清洗后的数据**（[Rule] 行）；规则同时写回 raw_content，
+   *     模块自身即可重建，不会被下一次重解析洗掉。
+   *  2. 绝不在模块里内联 JS / 引用外部脚本：若规则带 script-path，必须是
+   *     LocalDNS 自己的 /scripts/* URL，否则直接丢弃（避免把大段脚本压进
+   *     Surge 网络扩展）。
+   */
   public async addAdHunterRules(urlRegexList: string[]): Promise<number> {
     await this.init();
     const moduleId = 'mod_adhunter';
     const now = Date.now();
-    await this.saveModule({
-      id: moduleId,
-      name: 'AdHunter 智能特征去广告',
-      category: 'privacy',
-      source_url: 'http://127.0.0.1:9099/ad-hunter.html',
-      enabled: true,
-      raw_content: '#!name=AdHunter 智能特征去广告\n#!desc=AdHunter 自动分析合成的零域名 URL-REGEX 规则\n',
-      created_at: now,
-      updated_at: now,
-    });
 
-    let count = 0;
-    for (const ruleStr of urlRegexList) {
-      const existing = await this.getDb().fetchOne<{ id: number }>(
-        'SELECT id FROM module_http_rules WHERE module_id = ? AND pattern = ?',
-        [moduleId, ruleStr]
-      );
-      if (!existing) {
-        await this.getDb().execute(
-          `INSERT INTO module_http_rules (module_id, rule_type, sub_type, pattern, target, requires_body, max_size, binary_body, enabled)
-           VALUES (?, 'rule', '', ?, '', 0, 0, 0, 1)`,
-          [moduleId, ruleStr]
-        );
-        count++;
+    // 汇总“已存在”的规则：raw_content 与规则表任一为准，防止重复写入/丢失
+    const existingRules = new Set<string>();
+    const row = await this.getDb().fetchOne<{ raw_content: string | null }>(
+      'SELECT raw_content FROM app_modules WHERE id = ?',
+      [moduleId]
+    );
+    if (row?.raw_content) {
+      for (const line of row.raw_content.split(/\r?\n/)) {
+        const t = line.trim();
+        if (!t || t.startsWith('#') || t.startsWith('[')) continue;
+        if (isOverbroadRejectRule(t)) continue;
+        existingRules.add(t);
       }
     }
+    const tableRows = await this.getDb().fetchAll<{ pattern: string }>(
+      'SELECT pattern FROM module_http_rules WHERE module_id = ?',
+      [moduleId]
+    );
+    for (const r of tableRows) {
+      const t = (r.pattern || '').trim();
+      if (!t || isOverbroadRejectRule(t)) continue;
+      existingRules.add(t);
+    }
+
+    let count = 0;
+    let droppedExternalScript = 0;
+    for (const ruleStr of urlRegexList) {
+      const normalized = this.normalizeAdHunterRule(ruleStr);
+      if (normalized === null) {
+        droppedExternalScript++;
+        continue;
+      }
+      // 护栏：拒绝写入零域名过宽规则（旧版 AdHunter 曾因此把正常页面资源全杀，页面全白）
+      if (isOverbroadRejectRule(normalized)) continue;
+      if (existingRules.has(normalized)) continue;
+      existingRules.add(normalized);
+      count++;
+    }
+    if (droppedExternalScript > 0) {
+      console.warn(`[AdHunter] 丢弃 ${droppedExternalScript} 条引用外部脚本的规则（脚本必须由 LocalDNS /scripts/* 托管）`);
+    }
+
+    // 清洗后的规则回写 raw_content，让模块自包含（[Rule] 区段）
+    const ruleLines = Array.from(existingRules).filter((l) => l.length > 0);
+    const content = [
+      '#!name=AdHunter 智能特征去广告',
+      '#!desc=AdHunter 自动分析合成的零域名 URL-REGEX 规则（仅数据，脚本由 LocalDNS /scripts/* 托管）',
+      '#!category=LocalDNS',
+      '',
+      '[Rule]',
+      ...ruleLines,
+      '',
+    ].join('\n');
+
+    // 关键：app_modules 与子表之间是 ON DELETE CASCADE，INSERT OR REPLACE 会先删旧行，
+    // 连带清空 module_http_rules。Phase 1 把 app_modules upsert + 全量规则插入放进同一事务；
+    // opt.db_tx 关闭时仍按旧顺序逐条执行。
+    const steps: SQLite.TransactionStep[] = [
+      {
+        sql: `INSERT OR REPLACE INTO app_modules (id, name, category, source_url, enabled, raw_content, arguments_schema, arguments_desc, custom_arguments, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM app_modules WHERE id = ?), ?), ?)`,
+        args: [
+          moduleId,
+          'AdHunter 智能特征去广告',
+          'privacy',
+          'http://127.0.0.1:9099/ad-hunter.html',
+          1,
+          content,
+          null,
+          null,
+          null,
+          moduleId,
+          now,
+          now,
+        ],
+      },
+      { sql: 'DELETE FROM module_http_rules WHERE module_id = ?', args: [moduleId] },
+    ];
+    for (const ruleLine of ruleLines) {
+      steps.push({
+        sql: `INSERT INTO module_http_rules (module_id, rule_type, sub_type, pattern, target, requires_body, max_size, binary_body, enabled)
+              VALUES (?, 'rule', '', ?, '', 0, 0, 0, 1)`,
+        args: [moduleId, ruleLine],
+      });
+    }
+
+    const useTx = (await this.getOptimizationFlag('opt.db_tx', '0')) === '1';
+    if (useTx) {
+      await this.getDb().transaction(steps);
+    } else {
+      for (const step of steps) {
+        await this.getDb().execute(step.sql, step.args ?? []);
+      }
+    }
+
     return count;
+  }
+
+  /**
+   * 规范化 AdHunter 规则行：
+   *  - script-path 只允许指向 LocalDNS 自身（127.0.0.1/localhost），否则丢弃。
+   *  - 其余规则原样保留（URL-REGEX / DOMAIN / DOMAIN-SUFFIX）。
+   */
+  private normalizeAdHunterRule(ruleStr: string): string | null {
+    const line = (ruleStr || '').trim();
+    if (!line) return null;
+    const m = line.match(/script-path\s*=\s*([^,\s]+)/i);
+    if (m) {
+      const url = m[1].replace(/^["']|["']$/g, '');
+      let host = '';
+      try {
+        host = new URL(url).hostname.toLowerCase();
+      } catch {
+        host = '';
+      }
+      if (host !== '127.0.0.1' && host !== 'localhost') {
+        return null;
+      }
+    }
+    return line;
   }
 
   public async getActiveMitmHosts(): Promise<string[]> {
@@ -697,6 +1539,22 @@ export class SurgeDatabase {
       action: r.action,
       enabled: Boolean(r.enabled),
     }));
+  }
+
+  /**
+   * 批量回写命中计数。只更新 diversion_rules；module_dns_rules 没有 hit_count 列。
+   * 调用方每 5-10 秒合并一次，避免每次 DNS 命中都写 SQLite。
+   */
+  public async incrementDiversionRuleHits(
+    hits: Array<{ id: number; count: number; last: number }>
+  ): Promise<void> {
+    if (!hits.length) return;
+    await this.init();
+    const steps: SQLite.TransactionStep[] = hits.map((h) => ({
+      sql: 'UPDATE diversion_rules SET hit_count = COALESCE(hit_count, 0) + ?, last_hit_at = ? WHERE id = ?',
+      args: [h.count, h.last, h.id],
+    }));
+    await this.getDb().transaction(steps);
   }
 
   /**
@@ -788,16 +1646,19 @@ export class SurgeDatabase {
        VALUES (?, ?, ?, ?, ?, ?)`,
       [group.id, group.name, group.surge_policy, group.enabled ? 1 : 0, group.priority || 0, group.description || null]
     );
+    await this.syncCanonicalSource('diversion_group', group.id);
   }
 
   public async setDiversionGroupEnabled(id: string, enabled: boolean): Promise<void> {
     await this.init();
     await this.getDb().execute('UPDATE diversion_groups SET enabled = ? WHERE id = ?', [enabled ? 1 : 0, id]);
+    await this.syncCanonicalSource('diversion_group', id);
   }
 
   public async deleteDiversionGroup(id: string): Promise<void> {
     await this.init();
     await this.getDb().execute('DELETE FROM diversion_groups WHERE id = ?', [id]);
+    await this.syncCanonicalSource('diversion_group', id);
   }
 
   public async getDiversionRule(id: number): Promise<DiversionRule | null> {
@@ -978,7 +1839,10 @@ export class SurgeDatabase {
   ): Promise<number> {
     await this.init();
     await this.getDb().execute('DELETE FROM diversion_rules WHERE group_id = ?', [groupId]);
-    if (!rules || rules.length === 0) return 0;
+    if (!rules || rules.length === 0) {
+      await this.syncCanonicalSource('diversion_group', groupId);
+      return 0;
+    }
 
     const seen = new Set<string>();
     const toInsert: Array<{ match_type: string; pattern: string; comment: string | null }> = [];
@@ -1002,6 +1866,7 @@ export class SurgeDatabase {
       }));
       await this.getDb().transaction(steps);
     }
+    await this.syncCanonicalSource('diversion_group', groupId);
     return toInsert.length;
   }
 
@@ -1082,6 +1947,7 @@ export class SurgeDatabase {
     if (sourceUrl && !skipRecalculate) {
       await this.recalculateRuleSetCounts(sourceUrl);
     }
+    await this.syncCanonicalSource('diversion_group', groupId);
     return toInsertRules.length + bindingSteps.length;
   }
 

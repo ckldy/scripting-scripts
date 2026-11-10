@@ -1,10 +1,84 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.15.0 (Build 20261104)`  
+> **当前版本**：`v1.15.10 (Build 20261111)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.11.03.2` / 内核 `FJMOS`）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.11.07.2` / 内核 `FJMOS`）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地高性能 DNS 服务与安全管理系统。
+
+### v1.15.10 修复缓存命中率恒为 0% + 境外 DoH 超时按分组调优
+- **面板「缓存命中率」恒为 0%（真 bug）**：`audit.getStats()` 读的是 raw `mainCache` 池计数，而 main 池是 write-through 回退池、自身只看得见未命中，真实命中数在 `CacheManager` 的逻辑查询聚合量里。改为读 `getPoolMetrics()` 中 `cache_main`（聚合口径）。
+- **修复前证据**：`/metrics` 里 `localdns_cache_hit_total{tag="cache_main"} 742` / `query_total 942`（真实 **78.8%**），而 `/api/v1/status`、`/api/v2/audit/stats` 一致报 `0`。
+- **修复后验收**：同一进程内随查询爬升（6 次查询 16.7% → 9 次 37.5% → 12 次 50%），`/api/v2/audit/stats` 与面板同源。
+- **境外 DoH 超时按分组**：`domestic` 仍 2500ms（IP 直连、快，死了要早发现），`foreign` / `foreign_ecs` / `proxy` 提升到 6000ms。境外 DoH 必须经隧道，冷握手本身 ~1s，旧 2.5s 默认会把长尾直接 abort（`cloudflare_ip` 24/146、`google_doh` 25/146 ≈ **17%**），而每次 abort 还会掐断 keep-alive，让下一次再付一次握手 —— 越超时越慢。
+- **调优后实测**：8 个境外域名连续解析 **8/8 成功**（1.00–1.28s），重启后 `error_total` 全部为 **0**（两节点各 9 次查询、0 错误）。
+- **新增诊断工具**：`tools/diff-hub-module.py` 抓本地动态编译的 `/surge/hub.sgmodule` 与 Surge `get_module` 正文，按 `[Section]` 切分、忽略注释空行、归一化 `[Build: …]` 时间戳后逐段比对，判断「模块是否过期」不再靠肉眼（本次比对 7 个 section 全部逐行一致）。
+
+### v1.15.9 精确同步上游面板 2026.11.07.2（内核零改动）
+- **精确替换打包 SPA**：`app-DHEFTe3j.js`（858 KB）+ `index-V92FMUfL.css`（760 KB），旧 `app-WuMOQwvp.js` / `index-CuVu9oNC.css` 已彻底移除；`editor-A1rycQg2.js` 上游内容未变（`84ec8b8f…`），本地 Surge 区段校验原样保留。
+- **跟随上游本版改动**：设备名称字号字重 16px/600 → **14px/500**，IP 仍是 12px 等宽；升级入口主按钮按「实际更新内容」着色——只有 UI 有更新时突出「升级 UI」，UI 与内核都有更新才突出整套升级，单独「升级 UI」仍可点击。
+- **本地定制零丢失**：7 处 Surge 补丁（`Surge · CONF` 核心置顶、品牌与面板文案、默认核心 `surge` 及回退逻辑）与 editor 的 Surge 区段校验逐行重放；`livepulse.js`、`surge-workbench.js`、AdHunter 入口、`data-backend-version="FJMOS"`、同源 `proxyConfigBase` 全部保留。
+- **内核零改动的可验证依据**：上游 `.1` / `.2` 两版只改前端，`Full.zip` 沿用 `2026.11.06.1` 的 FJN01 内核与干净默认配置；对新旧 app bundle 提取全部 `/api/v1` · `/api/v2` 端点逐项比对，**29 → 29 无增无减**，`FJMOS` TS 后端、legacy 探测与 28 个既有契约行为不变，无需改内核代码。
+- **同步工具加固**：`tools/sync-upstream-ui.py` 新增 `latest` 参数（自动取 GitHub 最新正式 tag）；下载后用发行版 `SHA256SUMS.txt` 校验安装包（本次 `88f071fc…` 通过），校验表取不到时明确告警而不是静默跳过；收尾自检本地补丁特征串、`index.html` 三处定制与打包文件唯一性，任一不符硬失败；顺带清理改名后遗留的旧 `editor-*`。
+- **测试去硬编码**：`test-suite.ts` 与 `test-ui-contract.ts` 不再写死 `app-*` / `index-*` / `editor-*` 文件名，改为从 `index.html`（app/css）与 app bundle 的懒加载引用（editor）解析，下次换包不必再改测试；版本断言更新到 `2026.11.07.2`。
+- **回归测试不再污染生产库**：旧 `test-suite.ts` 会把 `test_bili` 模块以启用态留在库里（其 PUT 用例写出的 `live.bilibili.com,REJECT` 会真实误伤直播），并把 `direct` 分流组全量覆盖成 3 条测试规则。现在测试开始快照 `direct` / `proxy` 组文本、`finally` 原样写回，并删掉测试模块；两条与 2026-11-07 设计相反的旧断言（内置脚本覆盖 `youtubei`、MITM 禁媒体域名）改成校验当前编排（内置只管 `www/m.youtube.com`、`[MITM]` 只能一行 hostname）。
+
+### v1.15.8 回退 YouTube Enhance 脚本重排（客户端打不开）
+- **现象**：按 v1.15.7 把 `youtube.enhance.response` 排到内置脚本前面，并在 Surge 更新模块后，YouTube 客户端打不开；04:40 的请求记录显示 `browse` / `guide` 被 gholts `response.js` 改写后客户端停止继续请求。
+- **结论**：gholts `response.js` 的 protobuf transform 与当前 YouTube 客户端不兼容；Surge 每个响应只跑第一条匹配脚本，模块功能与客户端稳定不可兼得。
+- **回退**：内置 `localdns_builtin_yt_web` 恢复绝对置顶；YouTube Enhance 模块在 LocalDNS 侧关闭（`app_modules.enabled=0`），player / next 不再被 gholts 改写；browse / search / guide 等内置不匹配的端点仍可走 gholts（模块重新启用时）。
+- **恢复顺序**：Surge 里先保持 Hub 模块关闭，确认客户端能打开；再重新启用 Hub（只含内置脚本）。YouTube Enhance 要等 gholts 适配新客户端后再开，否则会再次把客户端改坏。
+
+### v1.15.7 修复 YouTube Enhance 被内置脚本遮蔽（已被 v1.15.8 回退）
+- 本版把内置脚本移到 `youtube.enhance.response` 之后，确实让模块功能跑起来了，但客户端打不开，已回退；保留本节作为排序机制的记录。
+
+### v1.15.6 修 YouTube 两条链路：网络扩展内存红线 + 网页钩子收紧
+- **网络扩展内存红线（App 漏广告与视频断流的总闸）**：Surge 事件日志实测到 `core.warning`——「脚本使用了过多内存，即将导致 Surge 引擎内存超限被系统终止」。引擎一旦被系统杀掉，MITM 与全部七层脚本**同时**失效：App 贴片广告回流、网页视频接连中断，而 `/v1/profiles/current` 看起来仍然一切正常。现在 `compileUnifiedHubModule()` 把导入脚本的 `max-size=-1`（不限流）与超大值统一收敛到 8 MiB：宁可让超大响应跳过脚本，也不把网络扩展的内存赌进去。
+- **Hub 自检上报引擎级告警**：`GET /api/v1/surge/hub-health` 新增 `warnings` 字段，直接列出 Surge 的「脚本内存超限」与「规则集/脚本远程加载失败」——这类故障不改配置文本，只比对 MITM 域名与脚本名永远看不出来。
+- **AdBlockHub 4.4.5**：
+  * **首屏贴片（4.4.5）**：YouTube 在 HTML 内联脚本里同步执行 `window.ytplayer.bootstrapPlayerResponse = window.ytInitialPlayerResponse`，紧接着 `createPlayer()`；`JSON.parse` 看不到这段 JS 对象字面量，10ms 轮询也赶不上同步赋值。现在在 `window.ytplayer` 上装 setter，赋值瞬间就地剥离 `adPlacements` / `playerAds` / `adBreakHeartbeatParams`，播放器拿到的首屏响应已是干净的。
+  * `ytInitialPlayerResponse` 是页面用 `var` 声明的全局（`configurable:false`），换 getter/setter 必然抛 `TypeError: Attempting to change configurable attribute of unconfigurable property`，旧版这段从 4.3.0 起就没真正生效过；保留「短时轮询 + 就地删键」作为兜底。
+  * `Response.prototype.json/text` 只对 `response.url` 含 `/youtubei/v1/` 的接口生效，不再重写首页 HTML、JS、媒体分片这类体量与格式都未知的响应（4.4.2 让网页端加载不出视频正是这一类误伤）。
+  * 遮罩守卫不再 `el.remove()` Polymer 的 `tp-yt-iron-overlay-backdrop` 单例，只摘 `opened` + `pointer-events:none`：节点被拔掉后 IronOverlayManager 仍握旧引用，后续弹窗与播放器控件会失联。
+  * iOS 起播兜底最多尝试 3 次、且只静音一次，避免反复 mute/unmute 被 WebKit 判成用户手势变更而直接暂停。
+- **验收**：`test-adblockhub-444.js` 17/17（含首屏 `bootstrapPlayerResponse` 同步剥离 5 项）、`test-youtube-web-script.js` 12/12、`test-popup-logic.js` 14/14。模块正文有改动，需在 Surge 内对「LocalDNS Unified Hub」点一次「更新」才会生效。
+
+### v1.15.5 修复 mod_adhunter 与 YouTube 网页遮罩
+- **mod_adhunter 规则总是被清空（真因）**：`app_modules` 与子表是 `ON DELETE CASCADE`，而 `saveModule()` 用 `INSERT OR REPLACE`——先删旧行就会把 `module_http_rules` 连带清空。旧代码「先插规则、后存模块」等于每次写完立刻被删，所以模块长期只剩 64 字节头、0 条规则。现在改成**先 `saveModule`、再把全量规则回写**。
+- **模块自包含**：`raw_content` 现在持久化 `[Rule]` 区段（清洗后的规则），不再依赖内存态；下次重解析不会被洗掉。
+- **JS 不落 Surge**：规则里若出现 `script-path`，只接受 `127.0.0.1` / `localhost`（即 LocalDNS 自己的 `/scripts/*`），外部脚本引用直接丢弃并记日志——保持「LocalDNS 处理脚本、Surge 只跑必要七层」的红线。
+- **历史脏数据清理**：`isOverbroadRejectRule` 命中的旧规则（如 `.*(ad|banner|splash|popunder).*`）在重建时被剔除，不再写入模块。
+- **YouTube 网页点不动（遮挡）修复**：AdBlockHub 4.4.1 删除 `ytd-popup-container:has(a[href*="/premium"])` 整块隐藏，新增 `tp-yt-iron-overlay-backdrop { pointer-events: none }` 与「无可见对话框时清理孤儿遮罩」定时守卫。
+- **验收**：`addAdHunterRules` 单测 5/5（写入、进入 Hub、外部脚本丢弃、raw_content 持久化、`[Rule]` 区段），全量回归 152/152。
+
+### v1.15.4 保持模块精简（回退实验性改动）
+- 网页去广告回到「接口 JSON 脱水」单通道：`youtube-web.js?v=20261106c`、pattern `player|next|reel/reel_watch_sequence`、`max-size=2MB`、`binary-body-mode=1`、`engine=webview`，与之前一致。
+- **撤销**临时加入的 HTML 文档通道（3MB 整页缓冲）与信息流 renderer 深度遍历：前者把整页文本压进 Surge 网络扩展，违背「LocalDNS 脱水、Surge 只保留必要七层」的设计，有内存风险；后者也增加 MITM CPU。
+- 网页广告的正确位置是浏览器内的 AdBlockHub 用户脚本（已有 `ytInitialPlayerResponse` / `JSON.parse` / `Response` 钩子），不占用 Surge 内存。
+- 保留的内核修复：模块规则 `#` 注释清洗、`*.googlevideo.com` 不进 MITM、内置脚本置顶、Hub 自检参数指纹。
+
+### v1.15.3 内核侧修复：广告清洗数据库、Hub 脚本顺序与 YouTube 客户端去广告
+- **修复规则清洗吞注释（29,564 条规则曾经静默失效）**：`parseRulesList()` 只剥 `//` 不剥 `#`，把「# 注释」并进了 `pattern`——block 组 22,941 条（43%）、proxy 组 6,623 条（99.9%），导出到 Surge 的 RULE-SET 整行不可用。现在导入即剥离、导出再兜底清洗，并在启动时幂等修复历史数据（已修复 29,564 条，block.list 脏行 1,933 → 0、proxy.list 6,623 → 0）。
+- **YouTube 客户端去广告修复**：内置 `localdns_builtin_yt_web` 强制置顶到 `[Script]` 首位（此前排在 96 个脚本末尾，任何远程脚本失败它就永远轮不到），保留 `requires-body + binary-body-mode + engine=webview + max-size=2MB`，pattern 覆盖 `youtubei.googleapis.com`，脚本 URL 升版 `?v=20261106c`。
+- **MITM 媒体红线落地**：编译期把 `*.googlevideo.com` 等媒体分片域名从 `[MITM]` 剔除——它们没有任何可剥离的广告字段，解密只会增加握手开销、弱网放大内存并导致播放中断。
+- **Hub 自检升级**：`/api/v1/surge/hub-health` 增加内置 YouTube 脚本的参数指纹比对，Surge 缓存的旧版模块正文会被判为 `scripts_not_applied` 并提示重装，而不是误报 healthy。
+- **一键安装保持稳定 URL**：不要给 Hub 安装链接加 `?v=` 破缓存参数——Surge 会把带参 URL 当成新模块，出现两个同名「LocalDNS Unified Hub」并导致脚本重复执行；需要刷新时在 Surge 里删掉旧模块再重装。
+- **验收**：DNS 层 293,321 条 AdGuard + 318 条模块脱水规则实测拦截（`ads.youtube.com`、`googleads.g.doubleclick.net`、`mobads.baidu.com` → `0.0.0.0`）；回归测试 152 项全通过（新增 6 项：内置脚本置顶/客户端覆盖/二进制体模式/MITM 媒体豁免/注释剥离）。
+
+### v1.15.2 精确同步上游 UI 2026.11.06.1（页面命名统一与字号收敛）
+- **精确替换打包 SPA**：`app-WuMOQwvp.js`（859 KB）+ `index-CuVu9oNC.css`（758 KB），旧 `app-CsE8sd7S.js` / `index-C5EjdCFs.css` 已彻底移除；`editor-A1rycQg2.js` 上游内容未变，本地 Surge 区段校验原样保留。
+- **页面命名与浏览器标签页统一**：日志 / 解析 / 分流 / 系统，不再混用「查询日志 / DNS 管理 / 规则管理 / 系统管理」；搜索旧名称仍可跳转到对应页面（上游保留别名）。
+- **Claude 浅色皮肤可读性修正**：主色徽章文字 `#C96442` → `#A44B2D`（对纸面对比度 3.77:1 → 5.60:1），徽章底色改为同色系，不再蓝底配橙字。
+- **字号收敛**：全站收敛到 11 / 12 / 13 / 14 / 16 / 18 / 20 / 22 / 24px，最小字号由 8px 提到 11px（28px 以上展示数字不变）。
+- **本地定制零丢失**：7 处 Surge 补丁（`Surge · CONF` 核心置顶、品牌与面板文案、默认核心 `surge` 及回退逻辑）与 editor 的 Surge 区段校验逐行重放；`livepulse.js`、`surge-workbench.js`、AdHunter 入口、`data-backend-version="FJMOS"`、同源 `proxyConfigBase` 全部保留。
+- **内核零改动**：本版上游只改前端；FJN01 四架构内核、默认配置与代理配置服务 1.7.1 与 `2026.11.05.6` 逐字节一致，新 UI 请求的 28 个 `/api/v1` · `/api/v2` 端点集合与上一版完全相同，`FJMOS` 后端无需改动。
+- **同步流程工具化**：新增 `tools/sync-upstream-ui.py`，一键完成备份、替换、7 处补丁重放、`index.html` 三处定制与 `version.json` 改写，并在每个锚点命中数不为 1 时硬失败。
+
+### v1.15.1 精确同步上游 UI 2026.11.05.6（FJN01 发行线，保留 FJMOS 内核）
+- **精确替换打包 SPA**：`app-CsE8sd7S.js`（858 KB）+ `index-C5EjdCFs.css`（759 KB）+ `editor-A1rycQg2.js`，旧 `app-C9ij6y6z.js` / `index-qdjMEPt4.css` 已彻底移除。
+- **本地定制零丢失（逐行重放）**：重新打上 7 处 Surge 集成补丁（`Surge · CONF` 核心置顶、品牌与面板文案、默认核心 `surge` 及回退逻辑）与 editor 的 Surge 区段结构校验；`livepulse.js`、`surge-workbench.js`、AdHunter 入口、`data-backend-version="FJMOS"` 全部原样保留。
+- **字体子集同步**：Noto Serif SC / Noto Sans SC UI 子集与 `fonts/manifest.json` 跟随上游重新子集化（936 字）。
+- **后端契约零改动**：新包 `/api/v1/*` 端点集合与上一版完全一致（23 个），仅升级 UI 产物，`FJMOS` 内核标识与全部接口行为保持不变。
 
 ### v1.15.0 落地 Surge TF436 特性全量支持与全链路增强
 - **Surge 原生配置实时编辑与一键热载**：

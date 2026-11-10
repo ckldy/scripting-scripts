@@ -1,0 +1,155 @@
+{
+ "playabilityStatus": {
+  "status": "UNPLAYABLE",
+  "reason": "视频无法播放",
+  "errorScreen": {
+   "playerErrorMessageRenderer": {
+    "subreason": {
+     "simpleText": "需要重新加载页面。"
+    },
+    "reason": {
+     "runs": [
+      {
+       "text": "<redacted>"
+      }
+     ]
+    },
+    "proceedButton": {
+     "buttonRenderer": {
+      "style": "STYLE_PRIMARY",
+      "size": "SIZE_DEFAULT",
+      "isDisabled": false,
+      "text": {
+       "runs": [
+        {
+         "text": "<redacted>"
+        }
+       ]
+      },
+      "command": {
+       "clickTrackingParams": "CAEQ8FsiEwjio-6NlvaXAxXsCboAHZ8_IgbKAQTszU3Q",
+       "signalAction": {
+        "signal": "RELOAD_PAGE"
+       }
+      }
+     }
+    },
+    "thumbnail": {
+     "thumbnails": [
+      {
+       "url": "//s.ytimg.com/yts/img/meh7-vflGevej7.png",
+       "width": 140,
+       "height": 100
+      }
+     ]
+    },
+    "icon": {
+     "iconType": "ERROR_OUTLINE"
+    }
+   }
+  },
+  "skip": {
+   "playabilityErrorSkipConfig": {
+    "skipOnPlayabilityError": false
+   }
+  },
+  "contextParams": "Q0FFU0FnZ0I="
+ },
+ "videoDetails": {
+  "videoId": "dQw4w9WgXcQ",
+  "title": "<redacted>",
+  "lengthSeconds": "213",
+  "keywords": [
+   "rick astley",
+   "Never Gonna Give You Up"
+  ],
+  "channelId": "UCuAXFkgsw1L7xaCfnd5JJOw",
+  "isOwnerViewing": false,
+  "shortDescription": "<redacted>",
+  "isCrawlable": true,
+  "thumbnail": {
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg?sqp=-oaymwEiCKgBEF5IWvKriqkDFQgBFQAAAAAYASUAAMhCPQCAokN4AQ==&rs=AOn4CLA5Omrav45uItUbRsmjEqaPxNlF2w",
+     "width": 168,
+     "height": 94
+    },
+    {
+     "url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg?sqp=-oaymwEiCMQBEG5IWvKriqkDFQgBFQAAAAAYASUAAMhCPQCAokN4AQ==&rs=AOn4CLAZnR3UUWV7JZdULd8cRA63RoAcVQ",
+     "width": 196,
+     "height": 110
+    }
+   ]
+  },
+  "allowRatings": true,
+  "viewCount": "1834670166",
+  "author": "<redacted>",
+  "isPrivate": false,
+  "isUnpluggedCorpus": false,
+  "isLiveContent": false,
+  "isTvfilmVideo": false
+ },
+ "microformat": {
+  "playerMicroformatRenderer": {
+   "thumbnail": {
+    "thumbnails": [
+     {
+      "url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg",
+      "width": 1280,
+      "height": 720
+     }
+    ]
+   },
+   "embed": {
+    "iframeUrl": "https://www.youtube.com/embed/dQw4w9WgXcQ",
+    "width": 1280,
+    "height": 720
+   },
+   "title": {
+    "simpleText": "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)"
+   },
+   "description": {
+    "simpleText": "The official video for “Never Gonna Give You Up” by Rick Astley. \n\nNever: The Autobiography 📚 OUT NOW! \nFollow this link to get your copy and listen to Rick’s …"
+   },
+   "lengthSeconds": "214",
+   "ownerProfileUrl": "http://www.youtube.com/@RickAstleyYT",
+   "externalChannelId": "UCuAXFkgsw1L7xaCfnd5JJOw",
+   "isFamilySafe": true,
+   "availableCountries": [
+    "AD",
+    "AE"
+   ],
+   "isUnlisted": false,
+   "hasYpcMetadata": false,
+   "viewCount": "1834670166",
+   "category": "Music",
+   "publishDate": "2009-10-24T23:57:33-07:00",
+   "ownerChannelName": "<redacted>",
+   "uploadDate": "2009-10-24T23:57:33-07:00",
+   "isShortsEligible": false,
+   "externalVideoId": "dQw4w9WgXcQ",
+   "likeCount": "19494334",
+   "canonicalUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+  }
+ },
+ "frameworkUpdates": {
+  "entityBatchUpdate": {
+   "mutations": [
+    {
+     "entityKey": "Eg0KC2RRdzR3OVdnWGNRIPYBKAE%3D",
+     "type": "ENTITY_MUTATION_TYPE_REPLACE",
+     "payload": {
+      "offlineabilityEntity": {
+       "key": "Eg0KC2RRdzR3OVdnWGNRIPYBKAE%3D",
+       "addToOfflineButtonState": "ADD_TO_OFFLINE_BUTTON_STATE_UNKNOWN"
+      }
+     }
+    }
+   ],
+   "timestamp": {
+    "seconds": "1794065313",
+    "nanos": 836122992
+   }
+  }
+ }
+}

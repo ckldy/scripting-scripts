@@ -2335,6 +2335,8 @@
       var host = location.hostname || '127.0.0.1';
       // Surge 安装远程模块时必须使用 HTTP 端口 9099，避免 HTTPS 9443 因本地证书强校验失败报错“无效模块”
       var port = (location.protocol === 'http:' && location.port) ? location.port : '9099';
+      // 注意：不要给安装 URL 加 ?v= 之类的查询参数——Surge 会按 URL 判定为新模块，
+      // 结果列表里出现两个同名模块，脚本被重复执行两遍。
       return 'http://' + host + ':' + port + '/surge/hub.sgmodule';
     }
 

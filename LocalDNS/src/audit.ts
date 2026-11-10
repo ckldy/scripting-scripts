@@ -288,8 +288,10 @@ export class AuditManager {
 
   getStats(): AuditStats {
     const avgDuration = this.totalQueries > 0 ? this.totalDurationMs / this.totalQueries : 0;
-    const mainCache = CacheManager.get().mainCache;
-    const cacheHitRate = mainCache.queries > 0 ? (mainCache.hits / mainCache.queries) * 100 : 0;
+    // cache_main in getPoolMetrics() is the aggregate of every logical lookup.
+    // The raw mainCache pool only sees write-through misses, so reading it reports 0% forever.
+    const coreCache = CacheManager.get().getPoolMetrics().find((m) => m.tag === 'cache_main');
+    const cacheHitRate = coreCache && coreCache.queries > 0 ? (coreCache.hits / coreCache.queries) * 100 : 0;
 
     return {
       total_queries: this.totalQueries,

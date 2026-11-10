@@ -196,9 +196,26 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
         `# 规则条数: ${rules.length} · 自动生成时间: ${new Date().toISOString()}`,
         '',
       ];
+      const sanitizePattern = (type: string, pattern: string): string => {
+        const raw = (pattern || '').trim();
+        // 正则 / UA 规则里的 # 可能是合法字符（如 [?#]），不能当注释删
+        if (/REGEX|USER-AGENT/i.test(type)) return raw;
+        // 域名与 IP 类规则绝不允许带行尾注释：Surge 会把 "# 注释" 当成 pattern 的一部分，
+        // 规则静默失效（历史库中 43% 的 block 规则、几乎全部 proxy 规则曾因此不生效）。
+        return raw.split('#')[0].split(' //')[0].trim();
+      };
       for (const r of rules) {
+        // 关键性能与防污染保障：
+        // 域名分流规则集（特别是置顶的 block.list）必须保持纯域名规则（DOMAIN / DOMAIN-SUFFIX / DOMAIN-KEYWORD）。
+        // 若混入 IP-CIDR，Surge 在未配置 no-resolve 时会被迫对每一个经过的域名执行本地 DNS 解析以检查 IP 匹配，
+        // 导致境外/流媒体域名（如 *.googlevideo.com）被国内上游返回 GFW 污染假 IP（Facebook/HostRoyale 等），直接引发播放中断与换源死循环。
+        if (group === 'block' && (r.match_type.includes('IP') || r.match_type.includes('GEOIP'))) {
+          continue;
+        }
         const comment = r.comment ? ` // ${r.comment}` : '';
-        lines.push(`${r.match_type},${r.pattern}${comment}`);
+        const safePattern = sanitizePattern(r.match_type, r.pattern);
+        if (!safePattern) continue;
+        lines.push(`${r.match_type},${safePattern}${comment}`);
       }
       return textResponse(lines.join('\n'), 200, 'text/plain; charset=utf-8');
     }

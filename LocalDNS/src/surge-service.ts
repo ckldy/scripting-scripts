@@ -8,7 +8,16 @@
  * 4. 内存级快速 DNS 拦截匹配集（零等待阻断）
  */
 
+import { Path, Script } from 'scripting';
 import { SurgeDatabase, type AppModule, type DnsRule, type HttpRule, type GeneralSetting, type ModuleArgumentItem } from './surge-db';
+import { isOverbroadRejectRule } from './rule-guard';
+import {
+  renderBuiltinWebRule,
+  YT_BUILTIN_WEB_SCRIPT,
+  YT_BUILTIN_WEB_RULE_NAME,
+  YT_BUILTIN_WEB_MAX_SIZE,
+  isBuiltinWebRuleLine,
+} from './youtube-rules';
 
 export interface ParsedModuleContent {
   name: string;
@@ -230,12 +239,44 @@ function parseSurgeScriptParams(paramsStr: string): {
   return { type, pattern, scriptPath, requiresBody, maxSize, binaryBody, engine, argument, timeout };
 }
 
+/**
+ * Surge 脚本响应体缓冲上限（字节）。
+ * `max-size=-1` / `0` 在 Surge 里表示「不限制」，整段响应体会常驻网络扩展内存。
+ * 2026-11-07 00:38 Surge 曾报「脚本使用了过多内存，即将导致引擎被系统终止」
+ * （当时是 3MB 级整页 HTML 脚本）；引擎一旦被系统杀掉，MITM 与全部脚本会同时失效，
+ * 表现就是 App 广告回流 + 视频请求接连中断。这里统一收敛为有界值：
+ * 宁可让超大响应跳过脚本，也不把网络扩展的内存赌进去。
+ */
+export const MAX_SCRIPT_BODY_BYTES = 8 * 1024 * 1024;
+
+export function clampScriptMaxSize(raw: number | undefined): number | undefined {
+  if (raw === undefined || raw === null || Number.isNaN(raw)) return raw;
+  if (raw <= 0) return MAX_SCRIPT_BODY_BYTES;
+  return Math.min(raw, MAX_SCRIPT_BODY_BYTES);
+}
+
 export class SurgeService {
   private static instance: SurgeService;
   private db: SurgeDatabase;
   private fastBlockExact = new Set<string>();
   private fastBlockSuffix = new Set<string>();
   private fastBlockKeyword: string[] = [];
+  private fastBlockExactIds = new Map<string, number>();
+  private fastBlockSuffixIds = new Map<string, number>();
+  private fastBlockKeywordIds = new Map<string, number>();
+  private canonicalBlockExact = new Set<string>();
+  private canonicalBlockSuffix = new Set<string>();
+  private canonicalBlockKeyword: string[] = [];
+  private canonicalBlockReady = false;
+  private rulesV2Enabled = false;
+  private canonicalDirty = false;
+  private canonicalShadowChecks = 0;
+  private canonicalShadowMismatches = 0;
+  private canonicalLastMismatchAt = 0;
+  private canonicalLastMismatchDomain = '';
+  private hitCounterEnabled = false;
+  private pendingHits = new Map<number, { count: number; last: number }>();
+  private hitFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private syncTimer: any = null;
 
   public static get(): SurgeService {
@@ -377,49 +418,183 @@ export class SurgeService {
     const exact = new Set<string>();
     const suffix = new Set<string>();
     const keyword: string[] = [];
+    const exactIds = new Map<string, number>();
+    const suffixIds = new Map<string, number>();
+    const keywordIds = new Map<string, number>();
 
     for (const r of rules) {
       const p = r.pattern.toLowerCase().trim();
       if (!p) continue;
+      const ruleId = r.module_id === 'diversion_block' && typeof r.id === 'number' ? r.id : undefined;
       if (r.type === 'DOMAIN') {
         exact.add(p);
+        if (ruleId !== undefined) exactIds.set(p, ruleId);
       } else if (r.type === 'DOMAIN-SUFFIX') {
         suffix.add(p);
+        if (ruleId !== undefined) suffixIds.set(p, ruleId);
       } else if (r.type === 'DOMAIN-KEYWORD') {
         keyword.push(p);
+        if (ruleId !== undefined) keywordIds.set(p, ruleId);
       }
     }
 
     this.fastBlockExact = exact;
     this.fastBlockSuffix = suffix;
     this.fastBlockKeyword = keyword;
+    this.fastBlockExactIds = exactIds;
+    this.fastBlockSuffixIds = suffixIds;
+    this.fastBlockKeywordIds = keywordIds;
+
+    // Phase 5b：canonical 只作为影子缓存；opt.rules_v2=1 才切到它。
+    const canonicalRules = await this.db.getCanonicalBlockRules();
+    const cExact = new Set<string>();
+    const cSuffix = new Set<string>();
+    const cKeyword: string[] = [];
+    for (const r of canonicalRules) {
+      if (r.type === 'DOMAIN') cExact.add(r.pattern);
+      else if (r.type === 'DOMAIN-SUFFIX') cSuffix.add(r.pattern);
+      else if (r.type === 'DOMAIN-KEYWORD') cKeyword.push(r.pattern);
+    }
+    this.canonicalBlockExact = cExact;
+    this.canonicalBlockSuffix = cSuffix;
+    this.canonicalBlockKeyword = cKeyword;
+    this.canonicalBlockReady = canonicalRules.length > 0;
+    this.rulesV2Enabled = (await this.db.getOptimizationFlag('opt.rules_v2', '0')) === '1';
+    this.canonicalDirty = (await this.db.getOptimizationFlag('opt.canonical_dirty', '0')) === '1';
+    this.canonicalShadowChecks = 0;
+    this.canonicalShadowMismatches = 0;
+    this.canonicalLastMismatchAt = 0;
+    this.canonicalLastMismatchDomain = '';
+
+    this.hitCounterEnabled = (await this.db.getOptimizationFlag('opt.hit_counter', '0')) === '1';
   }
 
-  /**
-   * 判断域名是否被活跃模块的 DNS 规则拦截（O(k) 常数级逐级父域哈希查询）
-   */
-  public isDomainBlocked(domain: string): { blocked: boolean; pattern?: string; ruleType?: string } {
-    const d = domain.toLowerCase().trim();
-    if (this.fastBlockExact.has(d)) {
-      return { blocked: true, pattern: d, ruleType: 'DOMAIN' };
+  private matchBlockCache(
+    d: string,
+    exact: Set<string>,
+    suffix: Set<string>,
+    keyword: string[],
+    ids?: { exact: Map<string, number>; suffix: Map<string, number>; keyword: Map<string, number> }
+  ): { blocked: boolean; pattern?: string; ruleType?: string; ruleId?: number } {
+    if (exact.has(d)) {
+      return { blocked: true, pattern: d, ruleType: 'DOMAIN', ruleId: ids?.exact.get(d) };
     }
-    if (this.fastBlockSuffix.has(d)) {
-      return { blocked: true, pattern: d, ruleType: 'DOMAIN-SUFFIX' };
+    if (suffix.has(d)) {
+      return { blocked: true, pattern: d, ruleType: 'DOMAIN-SUFFIX', ruleId: ids?.suffix.get(d) };
     }
     let idx = d.indexOf('.');
     while (idx !== -1) {
       const parent = d.slice(idx + 1);
-      if (this.fastBlockSuffix.has(parent)) {
-        return { blocked: true, pattern: parent, ruleType: 'DOMAIN-SUFFIX' };
+      if (suffix.has(parent)) {
+        return { blocked: true, pattern: parent, ruleType: 'DOMAIN-SUFFIX', ruleId: ids?.suffix.get(parent) };
       }
       idx = d.indexOf('.', idx + 1);
     }
-    for (const k of this.fastBlockKeyword) {
+    for (const k of keyword) {
       if (d.includes(k)) {
-        return { blocked: true, pattern: k, ruleType: 'DOMAIN-KEYWORD' };
+        return { blocked: true, pattern: k, ruleType: 'DOMAIN-KEYWORD', ruleId: ids?.keyword.get(k) };
       }
     }
     return { blocked: false };
+  }
+
+  /**
+   * 判断域名是否被活跃模块的 DNS 规则拦截（O(k) 常数级逐级父域哈希查询）。
+   * Phase 5b：默认仍返回旧缓存结果；canonical 只做双读影子。
+   */
+  public isDomainBlocked(domain: string, skipHit = false): { blocked: boolean; pattern?: string; ruleType?: string; ruleId?: number } {
+    const d = domain.toLowerCase().trim();
+    const current = this.matchBlockCache(d, this.fastBlockExact, this.fastBlockSuffix, this.fastBlockKeyword, {
+      exact: this.fastBlockExactIds,
+      suffix: this.fastBlockSuffixIds,
+      keyword: this.fastBlockKeywordIds,
+    });
+
+    let canonical = current;
+    if (this.canonicalBlockReady) {
+      canonical = this.matchBlockCache(
+        d,
+        this.canonicalBlockExact,
+        this.canonicalBlockSuffix,
+        this.canonicalBlockKeyword
+      );
+      this.canonicalShadowChecks++;
+      if (current.blocked !== canonical.blocked) {
+        this.canonicalShadowMismatches++;
+        this.canonicalLastMismatchAt = Date.now();
+        this.canonicalLastMismatchDomain = d;
+        if (this.canonicalShadowMismatches <= 20) {
+          console.warn(`[canonical-shadow] mismatch ${d}: old=${current.blocked} canonical=${canonical.blocked}`);
+        }
+      }
+    }
+
+    const useCanonical = this.rulesV2Enabled && this.canonicalBlockReady && !this.canonicalDirty;
+    const result = useCanonical ? canonical : current;
+    if (!skipHit && result.blocked) this.recordBlockHit(current.ruleId);
+    return result;
+  }
+
+  public getCanonicalRuntimeStatus(): {
+    rules_v2: boolean;
+    canonical_ready: boolean;
+    canonical_dirty: boolean;
+    canonical_rules: number;
+    checks: number;
+    mismatches: number;
+    last_mismatch_at: number;
+    last_mismatch_domain: string;
+  } {
+    return {
+      rules_v2: this.rulesV2Enabled,
+      canonical_ready: this.canonicalBlockReady,
+      canonical_dirty: this.canonicalDirty,
+      canonical_rules: this.canonicalBlockExact.size + this.canonicalBlockSuffix.size + this.canonicalBlockKeyword.length,
+      checks: this.canonicalShadowChecks,
+      mismatches: this.canonicalShadowMismatches,
+      last_mismatch_at: this.canonicalLastMismatchAt,
+      last_mismatch_domain: this.canonicalLastMismatchDomain,
+    };
+  }
+
+  /** 只在内存累加；每 5 秒合并写一次 SQLite，不阻塞 DNS 热路径。 */
+  private recordBlockHit(ruleId?: number): void {
+    if (!this.hitCounterEnabled || ruleId === undefined) return;
+    const cur = this.pendingHits.get(ruleId) || { count: 0, last: 0 };
+    cur.count += 1;
+    cur.last = Date.now();
+    this.pendingHits.set(ruleId, cur);
+    if (!this.hitFlushTimer) {
+      this.hitFlushTimer = setTimeout(() => {
+        void this.flushBlockHits();
+      }, 5000);
+    }
+  }
+
+  private async flushBlockHits(): Promise<void> {
+    this.hitFlushTimer = null;
+    const batch = this.pendingHits;
+    this.pendingHits = new Map();
+    if (!batch.size) return;
+    try {
+      await this.db.incrementDiversionRuleHits(
+        Array.from(batch.entries()).map(([id, v]) => ({ id, count: v.count, last: v.last }))
+      );
+    } catch (e) {
+      // 写失败时把计数合并回去，下次再试；不影响 DNS 返回。
+      for (const [id, v] of batch) {
+        const cur = this.pendingHits.get(id) || { count: 0, last: 0 };
+        cur.count += v.count;
+        cur.last = Math.max(cur.last, v.last);
+        this.pendingHits.set(id, cur);
+      }
+      if (!this.hitFlushTimer) {
+        this.hitFlushTimer = setTimeout(() => {
+          void this.flushBlockHits();
+        }, 10000);
+      }
+      console.warn('[SurgeService] hit flush failed:', e);
+    }
   }
 
   // ==================== .sgmodule 解析与脱水 ====================
@@ -745,9 +920,16 @@ export class SurgeService {
     const mitmSet = new Set<string>(mitmHosts);
     mitmSet.add('www.youtube.com');
     mitmSet.add('m.youtube.com');
+    mitmSet.add('youtubei.googleapis.com');
 
     // 剔除可能存在的根域名 youtube.com，防止与全量 TLS 握手产生不必要的解密开销
     mitmSet.delete('youtube.com');
+
+    // 2026-11-10 恢复：删掉 *.googlevideo.com 会让 youtube.enhance.init / ump / auto-hd
+    //   三个脚本彻底失去附着点（它们的作用域就是 *.googlevideo.com），客户端广告与
+    //   播放参数处理全部失效。当日实测：googlevideo 请求日志里不再出现
+    //   [MITM] Enable MITM，而 youtubei.googleapis.com 仍有 → 就是这里导致的。
+    //   播放中断的真正元凶已定位为 request 脚本里的 $done() 中止（已修），不是 MITM 本身。
 
     const nowStr = new Date().toISOString();
     const sections: string[] = [
@@ -768,13 +950,36 @@ export class SurgeService {
 
     // [Rule] (四层端口拦截如 DEST-PORT，以及非 REJECT 规则如 DOMAIN,bsbsb.top,DIRECT/PROXY)
     const hubRules = httpRules.filter((r) => r.rule_type === 'rule');
+    sections.push('[Rule]');
+    // 关键红线：拦截 QUIC (UDP 443)，迫使客户端回退 TCP 以便 MITM 解密与去广告脚本介入（最高优先级）
+    sections.push('# 拦截 QUIC (UDP 443)，迫使客户端回退 TCP 以便 MITM 解密与脚本去广告');
+    sections.push('AND,((PROTOCOL,UDP),(DEST-PORT,443)),REJECT-NO-DROP');
+    // 关键架构保障：YouTube 媒体流与核心节点置顶直达代理（优先于任何规则集与本地 DNS）
+    // 杜绝 Surge 评估后续规则（如 block.list）时因检查 IP-CIDR 而强行触发本地 DNS 解析，
+    // 彻底根除国内 DNS（AliDNS/DNSPod）对 googlevideo 返回 GFW 假 IP（Facebook/Dropbox 等）导致的频繁切源与报错。
+    sections.push('# --- YouTube 媒体流直达代理（置顶防污染，杜绝频繁换源）---');
+    sections.push('DOMAIN-SUFFIX,googlevideo.com,PROXY');
+    sections.push('DOMAIN-SUFFIX,ytimg.com,PROXY');
+    sections.push('DOMAIN,youtubei.googleapis.com,PROXY');
+
+    sections.push('# --- YouTube 广告统计/追踪端点（模块里的 URL Rewrite 实测不生效，改走 Rule 层）---');
+    sections.push('URL-REGEX,^https?://(www|m)[.]youtube[.]com/(pagead|pcs)/,REJECT');
+    sections.push('URL-REGEX,^https?://(www|m)[.]youtube[.]com/api/stats/ads,REJECT');
+    sections.push('URL-REGEX,^https?://s[.]youtube[.]com/api/stats/ads,REJECT');
+
     if (hubRules.length > 0) {
-      sections.push('[Rule]');
+      // 护栏：零域名规则一旦过宽（如 .*(ad|banner…).*）会把正常页面资源全 REJECT，
+      // 曾导致 www.youtube.com 的 CSS/JS 被拦光、整页空白，这里在编译期直接拦住。
       for (const hr of hubRules) {
+        const overbroad = isOverbroadRejectRule(hr.pattern);
+        if (overbroad) {
+          sections.push(`# [已拦截过宽规则] ${overbroad}`);
+          continue;
+        }
         sections.push(hr.pattern);
       }
-      sections.push('');
     }
+    sections.push('');
 
     // [MITM]
     // 关键修复：Surge 模块的 [MITM] 区段中，同名键 hostname 只能出现一次！
@@ -794,27 +999,19 @@ export class SurgeService {
       const otherHosts = validMitmHosts.filter((h) => !prioritySet.has(h));
       const sortedHosts = [...priorityHosts, ...otherHosts];
 
+      // 2026-11-10：%APPEND% 只能加不能减；之前用 "-host" 想顶掉媒体域，实测 Surge 不认，
+      // 已删除该尝试，避免自欺。现在媒体域正常保留在 MITM 里（客户端脚本依赖它）。
+
       sections.push(`hostname = %APPEND% ${sortedHosts.join(', ')}`);
       sections.push('');
     }
 
     // [URL Rewrite]
     const rewrites = httpRules.filter((r) => r.rule_type === 'rewrite');
-    const existingRewritePatterns = new Set(rewrites.map((r) => r.pattern));
-
-    // 内置兜底：YouTube 网页版广告端点（仅按完全相同的 pattern 去重，确保 http / m.youtube.com 也被覆盖）
-    const builtinRewrites: Array<[string, string]> = [
-      ['^https?://(www|m)[.]youtube[.]com/(pagead|pcs)/', '- reject'],
-      ['^https?://(www|m)[.]youtube[.]com/api/stats/ads', '- reject'],
-    ];
-
-    if (rewrites.length > 0 || builtinRewrites.length > 0) {
+    if (rewrites.length > 0) {
       sections.push('[URL Rewrite]');
       for (const rw of rewrites) {
         sections.push(`${rw.pattern} ${rw.target}`);
-      }
-      for (const [p, t] of builtinRewrites) {
-        if (!existingRewritePatterns.has(p)) sections.push(`${p} ${t}`);
       }
       sections.push('');
     }
@@ -854,6 +1051,26 @@ export class SurgeService {
     if (scripts.length > 0) {
       sections.push('[Script]');
       let idx = 1;
+
+      // Phase 4：opt.script_local_paths=1 时，已知脚本走 LocalDNS 本地镜像；
+      // 同时按“完整脚本配置”精确去重，同名但参数不同的脚本保留并告警。
+      const useLocalScripts = (await this.db.getOptimizationFlag('opt.script_local_paths', '0')) === '1';
+      const dedupeScripts = (await this.db.getOptimizationFlag('opt.dedupe_scripts', '0')) === '1';
+      const localScriptMap = new Map<string, string>();
+      if (useLocalScripts) {
+        for (const entry of await this.db.listScriptRegistry()) {
+          if (entry.enabled) {
+            localScriptMap.set(
+              entry.source_url,
+              `${baseUrl}/${entry.local_path.replace(/^web\//, '')}`
+            );
+          }
+        }
+      }
+      const seenScriptConfigs = new Set<string>();
+      const seenScriptNames = new Set<string>();
+
+
       for (const sc of scripts) {
         // 关键安全校验：Surge 远程订阅模块中，script-path 必须为 http:// 或 https:// 协议
         // 过滤无法下载的相对路径测试脚本，避免 Surge 安装时报“无效模块/无法下载脚本”
@@ -861,7 +1078,36 @@ export class SurgeService {
           continue;
         }
 
+        // 2026-11-07：按用户要求移除媒体脚本过滤，恢复原版 ump.js / initplayback / videoplayback 链路。
+
         const scName = sc.script_name || `localdns_hub_sc_${idx++}`;
+        const dedupeKey = [
+          sc.sub_type || '',
+          sc.pattern || '',
+          sc.target || '',
+          sc.argument || '',
+          sc.requires_body ? '1' : '0',
+          String(sc.max_size ?? ''),
+          sc.binary_body ? '1' : '0',
+          sc.engine || '',
+        ].join('\u0000');
+        if (dedupeScripts) {
+          if (seenScriptConfigs.has(dedupeKey)) {
+            console.warn(`[compile] duplicate script config skipped: ${scName}`);
+            continue;
+          }
+          seenScriptConfigs.add(dedupeKey);
+          if (seenScriptNames.has(scName)) {
+            console.warn(`[compile] same script name with different config: ${scName}`);
+          } else {
+            seenScriptNames.add(scName);
+          }
+        }
+        const effectiveTarget = localScriptMap.get(sc.target) || sc.target;
+        // 本地镜像只覆盖已注册的脚本（当前是 YouTube Enhance）；其他模块脚本正常走远程，不刷告警。
+        if (useLocalScripts && !localScriptMap.has(sc.target) && sc.target.includes('gholts/surge')) {
+          console.warn(`[compile] no local mirror for YouTube script, fallback remote: ${sc.target}`);
+        }
         const parts = [`type=${sc.sub_type}`];
         if (sc.pattern) {
           const cleanPattern = sc.pattern.replace(/^["']|["']$/g, '');
@@ -880,35 +1126,63 @@ export class SurgeService {
           parts.push(`argument="${inner}"`);
         }
         if (sc.requires_body) parts.push('requires-body=1');
-        if (sc.max_size !== undefined) parts.push(`max-size=${sc.max_size}`);
+        let scriptMaxSize = clampScriptMaxSize(sc.max_size);
+        // 2026-11-07：auto-hd 在 videoplayback 上解析 body，Surge 曾报 8MB 内存告警；上限收到 1MB。
+        if (scName === 'youtube.enhance.auto-hd' && scriptMaxSize !== undefined) {
+          scriptMaxSize = Math.min(scriptMaxSize, 1048576);
+        }
+        if (scriptMaxSize !== undefined) parts.push(`max-size=${scriptMaxSize}`);
         if (sc.binary_body) parts.push('binary-body-mode=1');
-        if (sc.engine) parts.push(`engine=${sc.engine}`);
+        let scriptEngine = sc.engine;
+        // 关键防护：YouTube 客户端响应解析脚本 (response.js) 依赖 TextEncoder，JSC 引擎不自带，必须强制 webview 引擎
+        if (sc.target && sc.target.includes('youtube/response.js')) {
+          scriptEngine = 'webview';
+        }
+        if (scriptEngine) parts.push(`engine=${scriptEngine}`);
         if (sc.timeout !== undefined) parts.push(`timeout=${sc.timeout}`);
-        parts.push(`script-path=${sc.target}`);
+        parts.push(`script-path=${effectiveTarget}`);
         sections.push(`${scName} = ${parts.join(',')}`);
       }
 
-      // 内置：YouTube 网页版 JSON 广告清理脚本（LocalDNS 本地托管，不依赖 GitHub）
-      // 保持合理的 512KB 大小上限，在网络层剥离广告数据实现直接播放，且绝不超限内存
-      const builtinYtPattern = '^https?://([a-zA-Z0-9_-]+\\.)?youtube[.]com/youtubei/v1/(?:player|next|reel/reel_watch_sequence)(?:[?].*)?$';
-      const hasBuiltinYt = scripts.some((s) => (s.target || '').includes('/scripts/youtube-web.js'));
+
+      // 内置：YouTube 网页版「小 JSON 接口」广告清理（本地托管，走 JSON.parse 脱水）。
+      // 规则定义集中在 src/youtube-rules.ts（单一真相）；此处只负责「发布不可变脚本 + 注入行」。
+      // 内存红线：只匹配 /youtubei/v1/* 小接口，绝不缓冲 /watch 整页 HTML（历史 3MB 通道曾杀引擎）。
+      const hasBuiltinYt = scripts.some(
+        (sc) => (sc.target || '').includes(`/scripts/${YT_BUILTIN_WEB_SCRIPT}`)
+          || (sc.script_name || '') === YT_BUILTIN_WEB_RULE_NAME,
+      );
       if (!hasBuiltinYt) {
-        sections.push(
-          `localdns_builtin_yt_web = type=http-response,pattern="${builtinYtPattern}",script-path=${baseUrl}/scripts/youtube-web.js,requires-body=1,max-size=524288`
-        );
+        const immutable = await this.publishBuiltinWebScript();
+        sections.push(renderBuiltinWebRule(baseUrl, immutable));
       }
       sections.push('');
     }
 
-    // 兜底注入：确保内置 YouTube 网页版去广告脚本始终存在
-    if (!sections.some((s) => s.includes('localdns_builtin_yt_web'))) {
-      const builtinLine = 'localdns_builtin_yt_web = type=http-response,pattern="^https?://([a-zA-Z0-9_-]+\\.)?youtube[.]com/youtubei/v1/(?:player|next|reel/reel_watch_sequence)(?:[?].*)?$",script-path=' + baseUrl + '/scripts/youtube-web.js,requires-body=1,max-size=524288';
-      // 关键优化：必须置顶在 [Script] 区段最上方，确保网页版请求优先命中纯净直接播放脚本
+    // 兜底注入：确保内置脚本存在（规则仍来自 youtube-rules.ts，不写死长字符串）
+    if (!sections.some((sec) => isBuiltinWebRuleLine(sec))) {
+      const immutable = await this.publishBuiltinWebScript();
+      const builtinLine = renderBuiltinWebRule(baseUrl, immutable);
       const scriptHeaderIdx = sections.indexOf('[Script]');
       if (scriptHeaderIdx !== -1) {
         sections.splice(scriptHeaderIdx + 1, 0, builtinLine);
       } else {
         sections.push('[Script]', builtinLine);
+      }
+    }
+
+    // 关键防线：内置脚本必须置顶。
+    // 2026-11-07 回退：把 youtube.enhance.response 排到前面虽然让模块功能跑起来了，
+    // 但 gholts 的 protobuf transform 与当前 YouTube 客户端不兼容，browse/player 响应
+    // 被改写后客户端直接打不开。稳定优先：内置脚本恢复绝对置顶，模块的 player/next
+    // 功能继续被 Surge 的“每个响应只跑第一条匹配脚本”规则遮蔽；browse/search/guide
+    // 等内置不匹配的端点仍会走 youtube.enhance.response。
+    const scriptHdrIdx = sections.indexOf('[Script]');
+    if (scriptHdrIdx !== -1) {
+      const idx = sections.findIndex((s) => isBuiltinWebRuleLine(s));
+      if (idx !== -1 && idx !== scriptHdrIdx + 1) {
+        const [line] = sections.splice(idx, 1);
+        sections.splice(scriptHdrIdx + 1, 0, line);
       }
     }
 
@@ -1132,6 +1406,70 @@ export class SurgeService {
    * 典型故障：Surge MITM 引擎卡死（模块开关/热重载都救不回来），只有重启 Surge 才恢复。
    * 该自检用于把“徽章在、功能没了”这种隐性故障显性化。
    */
+  /**
+   * 采集 Surge 引擎级告警。
+   * 这类故障不改 /v1/profiles/current 的文本，却会让「配置看起来全对、实际全不生效」：
+   *  - 脚本内存超限：网络扩展即将被系统终止，一旦被杀，MITM 与所有脚本同时失效；
+   *  - 远程规则集 / 脚本加载失败：raw.githubusercontent.com 拉不到，对应去广告能力直接缺位。
+   * 只做告警上报，不改 verdict，避免把历史事件永久误报成故障。
+   */
+  private async collectEngineWarnings(activeProfile?: string): Promise<string[]> {
+    const res = await this.callSurgeApi('\/v1\/events');
+    const events: any[] = Array.isArray(res.data?.events) ? res.data.events : [];
+    const out: string[] = [];
+    for (const ev of events) {
+      const content = String(ev?.content || '');
+      const id = String(ev?.identifier || '');
+      if (id.startsWith('core.warning') && /内存|memory/i.test(content)) {
+        // 历史事件里可能引用已经不在当前 profile 的脚本（例如已移除的 localdns_builtin_yt_html）。
+        // 只保留当前仍注册的脚本告警，避免永久误报。
+        const m = content.match(/[“"]([^”"]+)[”"]/);
+        if (m && activeProfile && !activeProfile.includes(`${m[1]} = `)) continue;
+        out.push(`引擎内存告警：${content}`);
+      } else if (/^(ruleset|script|module)\.load\.failed/.test(id)) {
+        if (activeProfile && /https?:\/\//.test(content)) {
+          const url = (content.match(/https?:\/\/[^\s，,]+/) || [])[0];
+          if (url && !activeProfile.includes(url)) continue;
+        }
+        out.push(`远程资源加载失败：${content}`);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * 单 Hub 对账：只处理 LocalDNS Unified Hub* 模块，保留 preferred（默认 LocalCanary/Full），停用其余。
+   * 手动调用，不在编译期自动执行，避免误停用户模块。
+   */
+  public async reconcileHubModules(preferredName?: string): Promise<{
+    ok: boolean;
+    hubs: string[];
+    kept: string | null;
+    disabled: string[];
+    error?: string;
+  }> {
+    const res = await this.callSurgeApi('/v1/modules');
+    if (!res.ok) {
+      return { ok: false, hubs: [], kept: null, disabled: [], error: res.error || `HTTP ${res.status}` };
+    }
+    const enabled: string[] = Array.isArray(res.data?.enabled) ? res.data.enabled : [];
+    const hubs = enabled.filter((n) => /^LocalDNS Unified Hub/i.test(n));
+    if (hubs.length <= 1) {
+      return { ok: true, hubs, kept: hubs[0] || null, disabled: [] };
+    }
+    const preferred =
+      preferredName && hubs.includes(preferredName)
+        ? preferredName
+        : hubs.find((n) => n.includes('LocalCanary')) || hubs.find((n) => n.includes('Full')) || hubs[0];
+    const disabled: string[] = [];
+    for (const name of hubs) {
+      if (name === preferred) continue;
+      const r = await this.callSurgeApi('/v1/modules', 'POST', { name, enabled: false });
+      if (r.ok) disabled.push(name);
+    }
+    return { ok: true, hubs, kept: preferred, disabled };
+  }
+
   public async checkHubHealth(): Promise<{
     ok: boolean;
     verdict: 'healthy' | 'surge_api_offline' | 'hub_module_disabled' | 'mitm_not_applied' | 'scripts_not_applied';
@@ -1140,7 +1478,10 @@ export class SurgeService {
     appliedHosts: number;
     missingHosts: string[];
     missingScripts: string[];
+    staleParams?: string[];
+    warnings?: string[];
   }> {
+    let warnings = await this.collectEngineWarnings();
     const miss = {
       ok: false,
       verdict: 'surge_api_offline' as const,
@@ -1149,6 +1490,7 @@ export class SurgeService {
       appliedHosts: 0,
       missingHosts: [] as string[],
       missingScripts: [] as string[],
+      warnings,
     };
 
     const ping = await this.callSurgeApi('/v1/outbound');
@@ -1193,6 +1535,11 @@ export class SurgeService {
     if (!profile) {
       return { ...miss, expectedHosts: expectedHosts.size, verdict: 'mitm_not_applied', advice: '无法读取 Surge 生效配置，请重启 Surge 后重试。' };
     }
+    warnings = await this.collectEngineWarnings(profile);
+    const enabledHubs = enabledList.filter((n) => /^LocalDNS Unified Hub/i.test(n));
+    if (enabledHubs.length > 1) {
+      warnings.push(`多个 LocalDNS Hub 同时启用：${enabledHubs.join(', ')}`);
+    }
 
     const appliedHosts = new Set<string>();
     let inMitmSec = false;
@@ -1214,6 +1561,38 @@ export class SurgeService {
     const missingHosts = [...expectedHosts].filter((h) => !appliedHosts.has(h));
     const missingScripts = expectedScripts.filter((name) => !profile.includes(`${name} = type=`));
 
+    // 2.5 YouTube 去广告脚本指纹校验。
+    // 2026-11-07 正确编排：内置只负责 www/m.youtube.com；App 的 youtubei 交给完整
+    // youtube.enhance.response + ump/init/auto-hd，且 *.googlevideo.com 必须在 MITM。
+    // 旧校验把 youtubei 当作内置脚本的必需参数，会把正确配置误报成旧版。
+    const ytAppliedLine = profile
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => l.startsWith('localdns_builtin_yt_web = '));
+    const ytRequiredFlags = ['binary-body-mode=1', 'engine=webview'];
+    const ytForbiddenFlags = ['youtubei[.]googleapis[.]com'];
+    const fullYtScripts = ['youtube.enhance.response', 'youtube.enhance.ump', 'youtube.enhance.init', 'youtube.enhance.auto-hd'];
+    const missingYtScripts = fullYtScripts.filter((name) => !profile.includes(`${name} = `));
+    const staleParams = [
+      ...(ytAppliedLine ? ytRequiredFlags.filter((flag) => !ytAppliedLine.includes(flag)) : []),
+      ...(ytAppliedLine ? ytForbiddenFlags.filter((flag) => ytAppliedLine.includes(flag)).map((flag) => `!${flag}`) : []),
+      ...missingYtScripts,
+      ...(appliedHosts.has('*.googlevideo.com') ? [] : ['*.googlevideo.com']),
+    ];
+    if (staleParams.length > 0) {
+      return {
+        ok: false,
+        verdict: 'scripts_not_applied',
+        advice: `YouTube 去广告模块不完整：内置脚本应只匹配 www/m.youtube.com，App 端点需要 youtube.enhance.response/ump/init/auto-hd，且 *.googlevideo.com 必须在 MITM。缺少或多余：${staleParams.join(' / ')}。请用新的模块 URL/名称安装完整版，再停用旧模块。`,
+        expectedHosts: expectedHosts.size,
+        appliedHosts: appliedHosts.size,
+        missingHosts: [],
+        missingScripts: [],
+        staleParams,
+        warnings,
+      };
+    }
+
     if (missingHosts.length > 0) {
       return {
         ok: false,
@@ -1223,6 +1602,7 @@ export class SurgeService {
         appliedHosts: appliedHosts.size,
         missingHosts: missingHosts.slice(0, 20),
         missingScripts: missingScripts.slice(0, 20),
+        warnings,
       };
     }
 
@@ -1235,6 +1615,7 @@ export class SurgeService {
         appliedHosts: appliedHosts.size,
         missingHosts: [],
         missingScripts: missingScripts.slice(0, 20),
+        warnings,
       };
     }
 
@@ -1246,6 +1627,7 @@ export class SurgeService {
       appliedHosts: appliedHosts.size,
       missingHosts: [],
       missingScripts: [],
+      warnings,
     };
   }
 
@@ -1425,6 +1807,8 @@ export class SurgeService {
     if (this.syncTimer) clearTimeout(this.syncTimer);
     this.syncTimer = setTimeout(async () => {
       try {
+        // 分组/规则集写入后，先刷新本地 DNS 缓存（含 canonical 影子）。
+        await this.reloadDnsBlockCache();
         const cfg = await this.db.getSurgeConfig();
         if (!cfg.enabled) return;
 
@@ -1497,6 +1881,177 @@ export class SurgeService {
       }
     }
     throw lastError || new Error('所有下载候选地址均尝试失败');
+  }
+
+  private static readonly YT_SCRIPT_SOURCES: Array<{
+    name: string;
+    url: string;
+    engine: string;
+    max_size: number;
+  }> = [
+    {
+      name: 'response.js',
+      url: 'https://raw.githubusercontent.com/gholts/surge/main/scripts/youtube/response.js',
+      engine: 'webview',
+      max_size: 8388608,
+    },
+    {
+      name: 'ump.js',
+      url: 'https://raw.githubusercontent.com/gholts/surge/main/scripts/youtube/ump.js',
+      engine: 'webview',
+      max_size: 8388608,
+    },
+    {
+      name: 'request.js',
+      url: 'https://raw.githubusercontent.com/gholts/surge/main/scripts/youtube/request.js',
+      engine: 'jsc',
+      max_size: 8388608,
+    },
+    {
+      name: 'key.js',
+      url: 'https://raw.githubusercontent.com/gholts/surge/main/scripts/youtube/key.js',
+      engine: 'jsc',
+      max_size: 8388608,
+    },
+  ];
+
+  /**
+   * 发布内置网页脚本的**内容哈希不可变副本**，返回文件名（如 youtube-web.010cebc8dc23.js）。
+   *
+   * 为什么必须这样（2026-11-07 事故）：
+   *  - `/scripts/*` 对稳定名返回 no-store，改文件 = 所有已安装旧模块立刻拿到新代码，
+   *    「旧模块可回滚」的假设被打破。
+   *  - 改成 `<name>.<sha12>.js` 后，server.ts 会返回 `immutable` 缓存头；
+   *    内容一变哈希就变，新模块引新文件，旧模块继续引旧文件，回滚才真正成立。
+   *
+   * 同一份内容重复调用只写一次（幂等）。只写 web/scripts/，不触碰任何已安装模块。
+   */
+  public async publishBuiltinWebScript(): Promise<string> {
+    try {
+      const srcPath = Path.join(Script.directory, 'web', 'scripts', YT_BUILTIN_WEB_SCRIPT);
+      const text = await FileManager.readAsString(srcPath);
+      const sha = Crypto.sha256(Data.fromRawString(text, 'utf-8')).toHexString();
+      const base = YT_BUILTIN_WEB_SCRIPT.replace(/\.js$/i, '');
+      const immutableName = `${base}.${sha.slice(0, 12)}.js`;
+      const destPath = Path.join(Script.directory, 'web', 'scripts', immutableName);
+      if (!(await FileManager.exists(destPath))) {
+        await FileManager.writeAsString(destPath, text);
+      }
+      return immutableName;
+    } catch (err) {
+      // 发布失败时退回稳定名（旧行为），绝不因此让模块编译失败
+      console.warn(`[publish] builtin web script fallback to stable name: ${err}`);
+      return YT_BUILTIN_WEB_SCRIPT;
+    }
+  }
+
+  /**
+   * 把原版 YouTube 脚本镜像到 web/scripts/yt，计算 SHA 并写入 script_registry。
+   * 只做镜像，不改变当前已安装模块的 script-path。
+   */
+  public async mirrorYouTubeScripts(force = false): Promise<Array<{
+    name: string;
+    sha256: string;
+    bytes: number;
+    local_path: string;
+    cached: boolean;
+  }>> {
+    const dir = Path.join(Script.directory, 'web', 'scripts', 'yt');
+    try {
+      await FileManager.createDirectory(dir, true);
+    } catch {}
+
+    const results: Array<{ name: string; sha256: string; bytes: number; local_path: string; cached: boolean }> = [];
+    for (const source of SurgeService.YT_SCRIPT_SOURCES) {
+      const existing = await this.db.getScriptRegistry(source.name);
+      const existingAbs = existing ? Path.join(Script.directory, existing.local_path) : '';
+      if (
+        !force &&
+        existing &&
+        existingAbs &&
+        (await FileManager.exists(existingAbs)) &&
+        Date.now() - existing.last_checked < 10 * 60 * 1000
+      ) {
+        results.push({
+          name: source.name,
+          sha256: existing.sha256,
+          bytes: existing.bytes,
+          local_path: existing.local_path,
+          cached: true,
+        });
+        continue;
+      }
+
+      const { text } = await this.fetchRemoteText(source.url);
+      const data = Data.fromRawString(text, 'utf-8');
+      const sha256 = Crypto.sha256(data).toHexString();
+      const base = source.name.replace(/\.js$/i, '');
+      const localPath = `web/scripts/yt/${base}.${sha256.slice(0, 12)}.js`;
+      const stablePath = `web/scripts/yt/${source.name}`;
+      await FileManager.writeAsString(Path.join(Script.directory, localPath), text);
+      await FileManager.writeAsString(Path.join(Script.directory, stablePath), text);
+
+      const entry = {
+        name: source.name,
+        source_url: source.url,
+        local_path: localPath,
+        sha256,
+        bytes: data.size,
+        engine: source.engine,
+        max_size: source.max_size,
+        enabled: true,
+        last_checked: Date.now(),
+      };
+      await this.db.upsertScriptRegistry(entry);
+      results.push({
+        name: source.name,
+        sha256,
+        bytes: data.size,
+        local_path: localPath,
+        cached: false,
+      });
+    }
+    return results;
+  }
+
+  /**
+   * 生成一个把 GitHub 脚本 URL 换成本地 /scripts/yt 的 Canary 模块。
+   * 只写文件，不安装、不切换；避免影响当前 Full。
+   */
+  public async generateLocalCanaryModule(baseUrl = 'http://127.0.0.1:9099'): Promise<{ path: string; content: string }> {
+    const fullPath = Path.join(Script.directory, 'web', 'hub-full.sgmodule');
+    let text = await FileManager.readAsString(fullPath);
+    const entries = await this.db.listScriptRegistry();
+    for (const entry of entries) {
+      if (!entry.enabled) continue;
+      const localUrl = `${baseUrl}/${entry.local_path.replace(/^web\//, '')}`;
+      text = text.split(entry.source_url).join(localUrl);
+    }
+    text = text.replace('#!name=LocalDNS Unified Hub Full', '#!name=LocalDNS Unified Hub LocalCanary');
+    text = text.replace(/^youtube\.enhance\.auto-hd.*$/gm, (line) =>
+      line.replace(/max-size=\d+/, 'max-size=1048576')
+    );
+    // 网页 JSON 通道：与已验证可播放的基线完全一致，重新生成时不得漂移。
+    // 规则来自 src/youtube-rules.ts；脚本用内容哈希不可变文件名，保证旧模块继续读旧内容。
+    {
+      const immutable = await this.publishBuiltinWebScript();
+      const rendered = renderBuiltinWebRule(baseUrl, immutable);
+      let replaced = false;
+      text = text
+        .split('\n')
+        .map((line) => {
+          if (isBuiltinWebRuleLine(line)) {
+            replaced = true;
+            return rendered;
+          }
+          return line;
+        })
+        .join('\n');
+      if (!replaced) text += '\n' + rendered + '\n';
+    }
+    const rel = 'web/hub-local-canary.sgmodule';
+    await FileManager.writeAsString(Path.join(Script.directory, rel), text);
+    return { path: rel, content: text };
   }
 
   /**
@@ -1863,6 +2418,14 @@ export class SurgeService {
       if (!line || line.startsWith('#') || line.startsWith(';')) continue;
 
       let comment = '';
+      // 行尾注释：先剔 # （规则集里最常见，如 "DOMAIN-SUFFIX,x # 广告域名"），
+      // 再剔 //；否则注释会被当成 pattern 的一部分写入数据库，规则永远匹配不到。
+      const hashIdx = line.indexOf('#');
+      if (hashIdx > 0) {
+        const afterHash = line.slice(hashIdx + 1).trim();
+        if (afterHash) comment = afterHash;
+        line = line.slice(0, hashIdx).trim();
+      }
       const slashMatch = line.match(/(^|[^:])\/\/(.*)$/);
       if (slashMatch && slashMatch.index !== undefined) {
         const cutAt = slashMatch.index + slashMatch[1].length;
@@ -2233,7 +2796,10 @@ export class SurgeService {
       'internet-test-url = http://connectivitycheck.platform.hicloud.com/generate_204',
       'proxy-test-url = http://cp.cloudflare.com/generate_204',
       'show-error-page-for-reject = true',
-      '# 拦截 QUIC (UDP 443)，强迫客户端走 TCP HTTP/2 以便解密去广告',
+      '# 拦截 QUIC (UDP 443)，强迫客户端走 TCP HTTP/2 以便 MITM 解密去广告。',
+      '# 注：QUIC 无法被 MITM 解密，因此这里的拦截是广告拦截的必要条件；',
+      '# 代价是走代理的媒体流必须走 TCP（多数节点不能中继 UDP），所以媒体域名（*.googlevideo.com）',
+      '# 正确做法是「不 MITM + 不跑媒体脚本」，而不是给 QUIC 开口——否则代理节点 UDP 中继缺失会直接断流。',
       'block-quic = true',
       '',
       '# --- HTTP API 控制通道（LocalDNS 与 Surge 实时联动与拓扑自愈核心） ---',
@@ -2272,7 +2838,8 @@ export class SurgeService {
     lines.push('AND,((PROTOCOL,UDP),(DEST-PORT,443)),REJECT-NO-DROP');
     lines.push('');
     lines.push('# LocalDNS 动态广告黑洞拦截集（最高优先级，必须置于规则最顶部）');
-    lines.push(`RULE-SET,http://${host}/rules/block.list,REJECT`);
+    lines.push('# 关键：必须带 no-resolve，避免为检查 IP-CIDR 规则而强行对媒体流域名做本地 DNS 解析（会导致命中国内上游的 GFW 污染假 IP）');
+    lines.push(`RULE-SET,http://${host}/rules/block.list,REJECT,no-resolve`);
     lines.push('');
     lines.push('# LocalDNS 运行环境与局域网保护（避免回环）');
     lines.push('IP-CIDR,127.0.0.0/8,DIRECT,no-resolve');

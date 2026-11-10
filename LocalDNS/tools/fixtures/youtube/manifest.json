@@ -1,0 +1,38 @@
+{
+ "player": {
+  "file": "player.captured.json",
+  "rawBytes": 11306,
+  "fixtureBytes": 2940,
+  "hasStreamingData": false,
+  "hasPlayabilityStatus": true,
+  "hasVideoDetails": true,
+  "hasAdKeys": false
+ },
+ "next": {
+  "file": "next.captured.json",
+  "rawBytes": 500717,
+  "fixtureBytes": 63533,
+  "hasStreamingData": false,
+  "hasPlayabilityStatus": false,
+  "hasVideoDetails": false,
+  "hasAdKeys": false
+ },
+ "browse": {
+  "file": "browse.captured.json",
+  "rawBytes": 58290,
+  "fixtureBytes": 14240,
+  "hasStreamingData": false,
+  "hasPlayabilityStatus": false,
+  "hasVideoDetails": false,
+  "hasAdKeys": false
+ },
+ "guide": {
+  "file": "guide.captured.json",
+  "rawBytes": 12620,
+  "fixtureBytes": 2184,
+  "hasStreamingData": false,
+  "hasPlayabilityStatus": false,
+  "hasVideoDetails": false,
+  "hasAdKeys": false
+ }
+}

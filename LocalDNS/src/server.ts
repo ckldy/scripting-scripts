@@ -10,6 +10,8 @@ import { IpRulesEngine } from './ip-rules';
 import { ClientRulesEngine } from './client-rules';
 import { LocalRecordsEngine } from './records';
 import { SurgeService } from './surge-service';
+import { SurgeDatabase } from './surge-db';
+import { metrics } from './metrics';
 import { handleSurgeApiRequest } from './surge-api';
 import { ProcessGuardian } from './guardian';
 import { TrafficManager } from './traffic';
@@ -351,10 +353,13 @@ export class LocalDnsServer {
           const fullPath = Path.join(webDir, 'scripts', sub);
           if ((await FileManager.exists(fullPath)) && !(await FileManager.isDirectory(fullPath))) {
             const file = FileEntity.openForReading(fullPath);
+            const versioned = /\.[0-9a-f]{12}\.js$/i.test(sub);
             return HttpResponse.raw(200, 'OK', {
               headers: {
                 'Content-Type': 'application/javascript; charset=utf-8',
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Cache-Control': versioned
+                  ? 'public, max-age=31536000, immutable'
+                  : 'no-cache, no-store, must-revalidate',
                 'Access-Control-Allow-Origin': '*',
               },
               body: file,
@@ -580,6 +585,88 @@ export class LocalDnsServer {
         adguard_rules: adCount,
         stats: detailedStats,
       });
+    }
+
+    // 优化开关与轻量运行指标（additive，不改变任何现有响应）
+    if (cleanPath === '/api/v1/optimization/flags') {
+      const db = SurgeDatabase.get();
+      if (method === 'GET') {
+        return jsonResponse({ success: true, flags: await db.listOptimizationFlags() });
+      }
+      if (method === 'POST') {
+        const body = parseJsonBody(req);
+        if (String(body?.['opt.rules_v2'] ?? '') === '1') {
+          const status = await db.getCanonicalRuleStatus();
+          if (!status.consistent) {
+            return jsonResponse(
+              { success: false, error: 'canonical shadow not consistent/dirty; rebuild first', status },
+              409
+            );
+          }
+        }
+        for (const [key, value] of Object.entries(body || {})) {
+          if (key.startsWith('opt.')) {
+            await db.setOptimizationFlag(key, String(value));
+          }
+        }
+        // hit_counter 等开关在 reload 时载入内存；不改变 DNS 匹配结果。
+        await SurgeService.get().reloadDnsBlockCache();
+        return jsonResponse({ success: true, flags: await db.listOptimizationFlags() });
+      }
+    }
+
+    if (cleanPath === '/api/v1/optimization/hub-reconcile' && method === 'POST') {
+      const body = parseJsonBody(req);
+      const result = await SurgeService.get().reconcileHubModules(body?.preferred);
+      return jsonResponse(result);
+    }
+
+    if (cleanPath === '/api/v1/canonical/rebuild' && method === 'POST') {
+      const db = SurgeDatabase.get();
+      const result = await db.rebuildCanonicalRules();
+      await SurgeService.get().reloadDnsBlockCache();
+      return jsonResponse(result);
+    }
+
+    if (cleanPath === '/api/v1/canonical/sync' && method === 'POST') {
+      const body = parseJsonBody(req);
+      const kind = body?.kind === 'module' ? 'module' : body?.kind === 'diversion_group' ? 'diversion_group' : null;
+      const ref = String(body?.ref || '').trim();
+      if (!kind || !ref) return jsonResponse({ ok: false, error: 'kind/ref required' }, 400);
+      const db = SurgeDatabase.get();
+      const result = await db.syncCanonicalSource(kind, ref);
+      await SurgeService.get().reloadDnsBlockCache();
+      return jsonResponse(result);
+    }
+
+    if (cleanPath === '/api/v1/canonical/runtime' && method === 'GET') {
+      return jsonResponse(SurgeService.get().getCanonicalRuntimeStatus());
+    }
+
+    if (cleanPath === '/api/v1/canonical/status' && method === 'GET') {
+      const db = SurgeDatabase.get();
+      const result = await db.getCanonicalRuleStatus();
+      return jsonResponse(result);
+    }
+
+    if (cleanPath === '/api/v1/metrics' && method === 'GET') {
+      const db = SurgeDatabase.get();
+      return jsonResponse({ ok: true, match: metrics.snapshot(), flags: await db.listOptimizationFlags() });
+    }
+
+    if (cleanPath === '/api/v1/scripts/registry' && method === 'GET') {
+      const db = SurgeDatabase.get();
+      return jsonResponse({ ok: true, scripts: await db.listScriptRegistry() });
+    }
+
+    if (cleanPath === '/api/v1/scripts/mirror' && method === 'POST') {
+      const scripts = await SurgeService.get().mirrorYouTubeScripts(true);
+      return jsonResponse({ ok: true, scripts });
+    }
+
+    if (cleanPath === '/api/v1/scripts/canary' && method === 'POST') {
+      const canary = await SurgeService.get().generateLocalCanaryModule();
+      return jsonResponse({ ok: true, path: canary.path, bytes: canary.content.length });
     }
 
     // FJMOS 分流刷新变化报告端点

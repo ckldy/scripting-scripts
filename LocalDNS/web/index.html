@@ -9,10 +9,10 @@
   <link rel="preload" href="assets/fonts/noto-serif-sc-ui.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/instrument-serif-numerals.woff2" as="font" type="font/woff2" crossorigin>
   <script src="/ui/config.js"></script>
-  <script type="module" crossorigin src="/ui/assets/app-C9ij6y6z.js"></script>
-  <link rel="stylesheet" crossorigin href="/ui/assets/index-qdjMEPt4.css">
-  <script src="/ui/assets/livepulse.js?v=20261103-v2" defer></script>
-  <script src="/ui/assets/surge-workbench.js?v=20261103-v2" defer></script>
+  <script type="module" crossorigin src="/ui/assets/app-DHEFTe3j.js"></script>
+  <link rel="stylesheet" crossorigin href="/ui/assets/index-V92FMUfL.css">
+  <script src="/ui/assets/livepulse.js?v=20261105-v2" defer></script>
+  <script src="/ui/assets/surge-workbench.js?v=20261106-v2" defer></script>
 </head>
 <body>
 
@@ -139,7 +139,7 @@
               <div class="bcp-group-title">纸张与色调</div>
 
               <div class="bcp-row">
-                <div class="bcp-row-head"><span>预设纸张色调</span><strong class="mono" id="val-claude-preset">经典羊皮纸</strong></div>
+                <div class="bcp-row-head"><span>预设纸张色调</span><strong id="val-claude-preset">经典羊皮纸</strong></div>
                 <div class="preset-swatches">
                   <button type="button" class="preset-btn active" data-claude-preset="parchment" aria-label="经典羊皮纸" title="经典羊皮纸 (Claude 默认)" style="background:radial-gradient(circle at 30% 35%, #C96442, #F5F2EA 72%)"></button>
                   <button type="button" class="preset-btn" data-claude-preset="terracotta" aria-label="暖陶宣纸" title="暖陶宣纸" style="background:radial-gradient(circle at 30% 35%, #D97757, #F2E8DC 72%)"></button>
@@ -164,7 +164,7 @@
               <div class="bcp-group-title">壁纸</div>
 
               <div class="bcp-row">
-                <div class="bcp-row-head"><span>预设光影主题</span><strong class="mono" id="val-preset">—</strong></div>
+                <div class="bcp-row-head"><span>预设光影主题</span><strong id="val-preset">—</strong></div>
                 <div class="preset-swatches">
                   <button type="button" class="preset-btn active" data-bg-preset="cosmos" aria-label="深空暖金" title="深空暖金 (图2默认)" style="background:radial-gradient(circle at 30% 35%, #c48a45, #090a0f 75%)"></button>
                   <button type="button" class="preset-btn" data-bg-preset="aurora" aria-label="极光深海" title="极光深海" style="background:radial-gradient(circle at 30% 35%, #2563eb, #090a0f 75%)"></button>
@@ -237,7 +237,7 @@
               </div>
 
               <div class="bcp-row">
-                <div class="bcp-row-head"><label for="select-brand-ver">版本标签</label><strong class="mono" id="val-brand-ver">跟随后端版本</strong></div>
+                <div class="bcp-row-head"><label for="select-brand-ver">版本标签</label><strong id="val-brand-ver">跟随后端版本</strong></div>
                 <select class="bcp-input bcp-select" id="select-brand-ver" aria-label="版本标签">
                   <option value="hidden">隐藏</option>
                   <option value="version" selected>跟随后端版本</option>
@@ -252,7 +252,7 @@
               <div class="font-setting"><label for="font-numeral">指标数字</label><select class="bcp-select" id="font-numeral"><option value="serif">Instrument Serif · 衬线</option><option value="sans">IBM Plex Sans · 无衬线</option><option value="mono">IBM Plex Mono · 等宽</option></select></div>
               <div class="font-setting"><label for="font-body">界面文字</label><select class="bcp-select" id="font-body"><option value="plex">IBM Plex Sans + Noto Sans SC</option><option value="noto">Noto Sans SC</option><option value="system">系统字体</option></select></div>
               <div class="bcp-row">
-                <div class="bcp-row-head"><span>自定义字体（可选）</span><strong class="mono" id="val-font-upload" role="status" aria-live="polite">未上传</strong></div>
+                <div class="bcp-row-head"><span>自定义字体（可选）</span><strong id="val-font-upload" role="status" aria-live="polite">未上传</strong></div>
                 <div class="bcp-inline">
                   <button type="button" class="glass-btn" id="btn-font-upload" disabled>选择本机字体…</button>
                   <input type="file" id="input-font-upload" accept=".ttf,.otf,.woff,.woff2" multiple hidden />
@@ -292,7 +292,7 @@
         </div>
       </aside>
 
-      <div style="display:none"><h1 id="page-title">运行概览</h1><p id="page-subtitle"></p></div>
+      <div style="display:none"><h1 id="page-title">概览</h1><p id="page-subtitle"></p></div>
       <main class="dashboard-12grid" id="page-content" tabindex="-1"></main>
     </div>
 
