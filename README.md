@@ -6,7 +6,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 
 | 脚本 | 版本 | 说明 | 安装链接 |
 |---|---|---|---|
-| LocalDNS（本地 DNS 服务） | 1.15.10 | 本地 DNS 与安全服务系统，v1.15.10 修复面板「缓存命中率」恒为 0%（读 raw 池改为读聚合指标）并按上游分组调优境外 DoH 超时（2.5s→6s，17% abort 归零），对齐 Surge TestFlight 436–444 特性；上游 FJMOS / UI 2026.11.07.2 打包版控制台（支持原生配置直读热载、落盘抓包会话审查、Tailscale/WireGuard 回环保护）+ 智能测速选最快 IP、DoT/TCP 上游、IP 治理、per-client、DNS64、LRU/持久化缓存；原 v1.6.0 彻底瘦身去伪存真，砍掉虚假 L7 代理与伪切片清洗，回归纯粹极致的 DNS 核心：RFC 1035/3596 二进制 DNS wire 编解码、开箱即用 18.5 万条 AdGuard 广告与隐私追踪域名拦截 (返回 0.0.0.0)、四级内存缓存 (TTL 动态衰减与过期自愈响应)、Happy Eyeballs 多上游并发竞速解析、对齐上游 FJGIR / UI 2026.10.21.2 清单工作台 (支持名单备份与 7 天流量时序)、提供安全 DoH 与合规 Apple 原生加密 DNS 描述文件（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
+| LocalDNS（本地 DNS 服务） | 1.15.17 | 本地 DNS 与安全服务系统，v1.15.17 修「Surge 联动未连接」状态条（未知/在线/离线三态 + 800ms 重试 + 30s 自愈，一次探测失败不再焊死）、v1.15.16 精确同步上游 UI 2026.11.08.4（FJN8C 发行线，API 端点 0 增 0 减，内核零改动）、v1.15.15 修 Surge 6 删 /v1/proxies 导致节点引导集失效（三级数据源回落）、v1.15.10 修复面板「缓存命中率」恒为 0%（读 raw 池改为读聚合指标）并按上游分组调优境外 DoH 超时（2.5s→6s，17% abort 归零），对齐 Surge TestFlight 436–444 特性；上游 FJMOS / UI 2026.11.07.2 打包版控制台（支持原生配置直读热载、落盘抓包会话审查、Tailscale/WireGuard 回环保护）+ 智能测速选最快 IP、DoT/TCP 上游、IP 治理、per-client、DNS64、LRU/持久化缓存；原 v1.6.0 彻底瘦身去伪存真，砍掉虚假 L7 代理与伪切片清洗，回归纯粹极致的 DNS 核心：RFC 1035/3596 二进制 DNS wire 编解码、开箱即用 18.5 万条 AdGuard 广告与隐私追踪域名拦截 (返回 0.0.0.0)、四级内存缓存 (TTL 动态衰减与过期自愈响应)、Happy Eyeballs 多上游并发竞速解析、对齐上游 FJGIR / UI 2026.10.21.2 清单工作台 (支持名单备份与 7 天流量时序)、提供安全 DoH 与合规 Apple 原生加密 DNS 描述文件（作者 vcncv，致敬 yyhoworks/LocalDNS 与 R 大） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FLocalDNS.zip%22%5D) |
 | 台风路径 | 2.3.1 | 实时台风路径、多机构预报与气象图层；主程序刷新后会同步重载用户小组件，大号组件地图缓存批处理仅重载一次 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F台风路径.zip%22%5D) |
 | 黃豆短劇 | 1.2.0 | 浏览、搜索与收藏黃豆短劇内容，支持播放历史、剧集播放、上下滑切集与进度条 | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2F黃豆短劇.zip%22%5D) |
 | NetRadio（网络收音机） | 1.0.1 | 全球 1000+ 公开网络电台（按 36 个国家/地区归类），黑胶唱机舞台、电平示波器、主题调色板与 iOS 原生后台/锁屏播控（基于 net-redio 移植，作者 vcncv） | [安装](https://www.scripting.fun/import_scripts/?urls=%5B%22https%3A%2F%2Fraw.githubusercontent.com%2Fckldy%2Fscripting-scripts%2Fmain%2Fdist%2FNetRadio.zip%22%5D) |
@@ -56,8 +56,11 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 
 
 ### 🛡️ LocalDNS (本地 DNS 服务与安全管理系统)
-- **版本**：`1.15.10` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
+- **版本**：`1.15.17` ｜ **作者**：`vcncv`（原案致敬 `yyhoworks/LocalDNS` 与 R 大）
 - **特性**：
+  - **v1.15.17 Surge 联动状态条不再被一次瞬时失败焊死**：顶部状态条改为三态（未知 = 琥珀「正在检测 Surge 联动…」、在线 = 绿、离线 = 红并就地在显原因摘要）；探测失败隔 800 ms 重试一次且 in-flight 去重；停在配置页时每 30 s 重探、只重绘状态条不重建工作台，不丢当前 tab；重绘后自动重绑「连通测试 / 一键同步」。仅改前端（`surge-workbench.js`），后端零改动。
+  - **v1.15.16 精确同步上游 UI 2026.11.08.4**：打包 SPA 换为 `app-BF6QW_hf.js` + `index-3nLTlqR7.css`；上游发行线代号 FJN01 → **FJN8C**（`releaseTag` 跟随上游，后端身份仍为本地 `FJMOS`），新旧 bundle 抽出的 `/api/v1`·`/api/v2` 端点集 **0 新增 / 0 消失**，28 个契约不变；同步工具 `tools/sync-upstream-ui.py` 去掉硬编码（tag 正则 + 徽标通配 + releaseTag 不强制前缀）；本地 7 处 Surge 补丁、livepulse 拓扑、工作台、AdHunter 入口全部保留。
+  - **v1.15.15 修 Surge 6 节点引导集失效**：Surge 6.100.0 删掉 `/v1/proxies`，`refreshProxyBootstrapHosts()` 改为三级数据源（`/v1/proxies` → `/v1/profiles/current?sensitive=1` 解 `[Proxy]` 段取 host → `/v1/policies` 策略名兜底），响应新增 `source` 字段，学到空集时保留原值；另支持 `POST /api/v1/surge/proxy-bootstrap` 手工补录。
   - **v1.15.10 缓存命中率与上游超时**：面板「缓存命中率」不再恒为 0%（`audit.getStats()` 改读 `CacheManager` 聚合指标，修复前 `/metrics` 真实命中 742/942=78.8% 而接口报 0）；境外 DoH 超时按分组（domestic 2.5s、foreign/ECS/proxy 6s），消除隧道内冷握手触发的 17% abort，并避免每次 abort 捨断 keep-alive；新增 `tools/diff-hub-module.py` 做模块正文过期判定。
   - **v1.8.0 同步上游 FJGIR / UI 2026.10.21.2**：前端升级为上游打包版 SPA 控制台（同款双皮肤），新增「审计控制 → 自定义日志目录」；后端版本号 FJGAC→FJGIR，新增 `/api/v1/audit/settings`；修复新 SPA「DNS 趋势」缺 `localdns_queries_total` 指标导致的空白；
   - **v1.6.0 彻底瘦身·去伪存真·回归纯粹 DNS 核心**：

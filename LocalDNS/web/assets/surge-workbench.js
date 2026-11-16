@@ -326,19 +326,27 @@
   // ==================== 顶部导航与状态条 ====================
 
   function renderHeaderStatus() {
-    var isOnline = cachedRuntime && cachedRuntime.online;
-    var rtt = cachedRuntime && cachedRuntime.rttMs ? cachedRuntime.rttMs + ' ms' : '--';
-    var mode = cachedRuntime && cachedRuntime.outbound ? cachedRuntime.outbound.toUpperCase() : 'UNKNOWN';
+    var known = !!cachedRuntime;
+    var isOnline = known && !!cachedRuntime.online;
+    var color = !known ? '#F59E0B' : (isOnline ? '#10B981' : '#EF4444');
+    var label = !known ? '正在检测 Surge 联动…' : (isOnline ? 'Surge 引擎已连通' : 'Surge 联动未连接');
+    var rtt = isOnline && cachedRuntime.rttMs ? cachedRuntime.rttMs + ' ms' : '--';
+    var mode = isOnline && cachedRuntime.outbound ? cachedRuntime.outbound.toUpperCase() : 'UNKNOWN';
+    var reason = '';
+    if (known && !isOnline) {
+      reason = String(cachedRuntime.hint || cachedRuntime.error || '').replace(/[<>"']/g, ' ').replace(/\s+/g, ' ').trim();
+    }
 
     return [
       '<div class="sw-status-bar" style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:rgba(255,255,255,0.03);border:1px solid rgba(148,163,184,0.18);border-radius:12px;margin-bottom:14px;flex-wrap:wrap;gap:10px">',
-      '  <div style="display:flex;align-items:center;gap:12px">',
+      '  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">',
       '    <div style="display:flex;align-items:center;gap:6px">',
-      '      <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + (isOnline ? '#10B981' : '#EF4444') + ';box-shadow:0 0 8px ' + (isOnline ? '#10B981' : '#EF4444') + '"></span>',
-      '      <strong style="font-size:13px">' + (isOnline ? 'Surge 引擎已连通' : 'Surge 联动未连接') + '</strong>',
+      '      <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + color + ';box-shadow:0 0 8px ' + color + '"></span>',
+      '      <strong style="font-size:13px">' + label + '</strong>',
       '    </div>',
       '    <span style="font-size:12px;opacity:0.75;padding:2px 8px;background:rgba(148,163,184,0.12);border-radius:6px">模式: ' + mode + '</span>',
       '    <span style="font-size:12px;opacity:0.75;padding:2px 8px;background:rgba(148,163,184,0.12);border-radius:6px">延迟: ' + rtt + '</span>',
+      (reason ? '    <span style="font-size:11px;color:#F87171;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + reason + '">' + (reason.length > 80 ? reason.slice(0, 80) + '…' : reason) + '</span>' : ''),
       '  </div>',
       '  <div style="display:flex;align-items:center;gap:8px">',
       '    <button type="button" class="button small" id="sw-btn-test-conn" style="background:rgba(59,130,246,0.15);color:#60A5FA;border-color:rgba(59,130,246,0.3)">🔌 连通测试</button>',
@@ -346,6 +354,79 @@
       '  </div>',
       '</div>'
     ].join('');
+  }
+
+  // 仅重绘状态条（不重建整个工作台），用于周期性联动探测结果回填
+  function paintStatusBar() {
+    var old = q('#sw-container .sw-status-bar');
+    if (!old) return;
+    var tmp = document.createElement('div');
+    tmp.innerHTML = renderHeaderStatus();
+    old.parentNode.replaceChild(tmp.firstElementChild, old);
+    bindHeaderButtons();
+  }
+
+  // 带重试的联动状态探测：上游（Surge HTTP API）短暂繁忙时不再直接判死
+  var runtimeInFlight = null;
+  var runtimeCheckedAt = 0;
+  function refreshRuntimeState() {
+    if (runtimeInFlight) return runtimeInFlight;
+    runtimeInFlight = (async function () {
+      var lastErr = '';
+      for (var i = 0; i < 2; i++) {
+        try {
+          var r = await fetch('/api/v1/surge/runtime', { cache: 'no-store' });
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          var d = await r.json();
+          if (d && typeof d === 'object') {
+            cachedRuntime = d;
+            runtimeCheckedAt = Date.now();
+            return cachedRuntime;
+          }
+          throw new Error('接口返回空');
+        } catch (e) {
+          lastErr = (e && e.message) || String(e);
+          await new Promise(function (res) { setTimeout(res, 800); });
+        }
+      }
+      cachedRuntime = { online: false, error: '联动接口请求失败: ' + lastErr };
+      runtimeCheckedAt = Date.now();
+      return cachedRuntime;
+    })().then(function (v) {
+      runtimeInFlight = null;
+      return v;
+    });
+    return runtimeInFlight;
+  }
+
+  function bindHeaderButtons() {
+    // 顶部测试连通性
+    var btnTestHeader = q('#sw-btn-test-conn');
+    if (btnTestHeader) {
+      btnTestHeader.onclick = function () {
+        activeTab = 'surge-settings';
+        updateView();
+        runConnectionTest();
+      };
+    }
+
+    // 顶部一键同步
+    var btnHeaderSync = q('#sw-btn-header-sync');
+    if (btnHeaderSync) {
+      btnHeaderSync.onclick = async function () {
+        btnHeaderSync.disabled = true;
+        btnHeaderSync.textContent = '同步中…';
+        try {
+          await fetch('/api/v1/surge/sync', { method: 'POST' });
+          toast('已向 Surge 下发同步指令');
+        } catch (e) {
+          toast('同步失败', e.message);
+        } finally {
+          btnHeaderSync.disabled = false;
+          btnHeaderSync.textContent = '🔄 一键同步';
+        }
+      };
+    }
   }
 
   function renderTabs() {
@@ -2190,6 +2271,9 @@
       var data = {};
       try { data = await res.json(); } catch (_) { data = { online: false, error: '接口异常 HTTP ' + res.status }; }
       cachedRuntime = data;
+      runtimeCheckedAt = Date.now();
+      paintStatusBar();
+      syncSurgeHeaderInfo();
 
       if (!data.online) {
         board.innerHTML = [
@@ -2302,33 +2386,8 @@
       };
     });
 
-    // 顶部测试连通性
-    var btnTestHeader = q('#sw-btn-test-conn');
-    if (btnTestHeader) {
-      btnTestHeader.onclick = function () {
-        activeTab = 'surge-settings';
-        updateView();
-        runConnectionTest();
-      };
-    }
-
-    // 顶部一键同步
-    var btnHeaderSync = q('#sw-btn-header-sync');
-    if (btnHeaderSync) {
-      btnHeaderSync.onclick = async function () {
-        btnHeaderSync.disabled = true;
-        btnHeaderSync.textContent = '同步中…';
-        try {
-          await fetch('/api/v1/surge/sync', { method: 'POST' });
-          toast('已向 Surge 下发同步指令');
-        } catch (e) {
-          toast('同步失败', e.message);
-        } finally {
-          btnHeaderSync.disabled = false;
-          btnHeaderSync.textContent = '🔄 一键同步';
-        }
-      };
-    }
+    // 顶部测试连通性 / 一键同步：状态条会被 paintStatusBar() 重绘，绑定统一由 bindHeaderButtons() 维护
+    bindHeaderButtons();
 
     // 一键安装 Hub 模块解析 URL
     function resolveHubUrl() {
@@ -3032,11 +3091,11 @@
       var pcRoot = q('.pc-root');
       if (pcRoot && (!q('#sw-container') || !workbenchInjected)) {
         workbenchInjected = true;
-        // 初始静默探测一次 Surge 状态用于展示顶部徽标
-        fetch('/api/v1/surge/runtime')
-          .then(function (r) { return r.json(); })
-          .then(function (d) { cachedRuntime = d; updateView(); syncSurgeHeaderInfo(); })
-          .catch(function () { updateView(); syncSurgeHeaderInfo(); });
+        // 初始静默探测一次 Surge 状态用于展示顶部徽标（带重试）
+        refreshRuntimeState().then(function () { updateView(); syncSurgeHeaderInfo(); });
+      } else if (pcRoot && q('#sw-container') && Date.now() - runtimeCheckedAt > 30000) {
+        // 长时间停在配置页时周期重探，避免一次探测失败就把状态条焊在「未连接」
+        refreshRuntimeState().then(function () { paintStatusBar(); syncSurgeHeaderInfo(); });
       }
     } else {
       workbenchInjected = false;

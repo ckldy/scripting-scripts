@@ -25,6 +25,20 @@ function parseJsonBody(req: HttpRequest): any {
   }
 }
 
+/** 从请求 Host 头推回环端口，默认 9099（本地 DoH / Web UI 主端口） */
+function requestPort(req: HttpRequest): number {
+  try {
+    const hdrs: any = (req as any).headers || {};
+    for (const k of Object.keys(hdrs)) {
+      if (k.toLowerCase() === 'host') {
+        const port = Number(String(hdrs[k]).split(':').pop());
+        if (port > 0) return port;
+      }
+    }
+  } catch {}
+  return 9099;
+}
+
 function jsonResponse(data: any, status = 200): HttpResponse {
   const jsonStr = JSON.stringify(data);
   const bodyData = Data.fromRawString(jsonStr, 'utf-8');
@@ -643,7 +657,31 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
   // 5.0.1 Hub 生效性自检（MITM 域名 + 脚本是否真的被 Surge 应用）
   if (path === '/api/v1/surge/hub-health' && method === 'GET') {
     const health = await service.checkHubHealth();
-    return jsonResponse(health);
+    const dns = await service.checkDohFailover(requestPort(req));
+    return jsonResponse({ ...health, dns });
+  }
+
+  // 5.0.1b DoH 链路自检 + 公共回退判定（小组件解析依赖面）
+  if (path === '/api/v1/surge/dns-failover' && method === 'GET') {
+    const dns = await service.checkDohFailover(requestPort(req));
+    return jsonResponse(dns);
+  }
+
+  // 5.0.1c 代理节点域名引导集：GET 看当前集；POST 重学（或 {"hosts":[...]} 手工补录）
+  if (path === '/api/v1/surge/proxy-bootstrap') {
+    if (method === 'GET') {
+      return jsonResponse({ success: true, hosts: Store.get().getSurgeProxyHosts() });
+    }
+    if (method === 'POST') {
+      // 可选：{"hosts":["node.example.com"]} 手工补录（名字里没带域名的节点用）
+      const body = parseJsonBody(req) || {};
+      const extra = Array.isArray(body.hosts) ? body.hosts : [];
+      if (extra.length > 0) {
+        await service.addProxyBootstrapHosts(extra);
+      }
+      const res = await service.refreshProxyBootstrapHosts();
+      return jsonResponse({ ...res, hosts: Store.get().getSurgeProxyHosts() });
+    }
   }
 
   // 5.0.2 Surge TF436 落盘抓包会话列表: /api/v1/surge/capture/sessions

@@ -6530,6 +6530,9 @@ function upgradeTarget(installed, release, options) {
   if (!current || !target) return { reason: "版本信息无效，请重新检查更新。" };
   const different = target.findIndex((value, index) => value !== current[index]);
   if ((options == null ? void 0 : options.unified) && options.mode !== "ui") {
+    if (release.backend === "FJN8C" && options.migrationReady === false) {
+      return { reason: "请先更新升级服务，以支持 FJN8C 配置迁移；仅更新 UI 不会同步此服务。" };
+    }
     if (!release.packages.includes("含核心完整包")) return { reason: "该发行版没有提供完整包。" };
     if (!release.backend || !/^fj[a-z][a-z0-9]+-ui-v\d{4}\.\d+\.\d+\.\d+$/i.test(release.tag)) return { reason: "发行版标签无效。" };
     if (different >= 0 && target[different] < current[different]) return { reason: "目标发行版早于当前 UI，请使用回退操作。" };
@@ -6547,6 +6550,11 @@ class UIUpdateClient {
   get unified() {
     var _a2;
     return ((_a2 = this.capabilities) == null ? void 0 : _a2.protocol) === "localdns-updater/v2";
+  }
+  get migrationReady() {
+    var _a2;
+    const migrations = (_a2 = this.capabilities) == null ? void 0 : _a2.configurationMigrations;
+    return Array.isArray(migrations) && migrations.includes("FJN8C");
   }
   get coreUpload() {
     var _a2;
@@ -6600,6 +6608,9 @@ class UIUpdateClient {
   }
   async upgrade(releaseTag, mode = "ui") {
     if (!this.unified && mode !== "ui") throw new Error("请先安装支持内核升级的服务。");
+    if (mode !== "ui" && /^fjn8c-ui-v/i.test(releaseTag) && !this.migrationReady) {
+      throw new Error("请先更新升级服务，以支持 FJN8C 配置迁移。");
+    }
     return this.validate(await this.request(this.path, { releaseTag, ...this.unified ? { mode } : {} }));
   }
   async rollback() {
@@ -6607,6 +6618,7 @@ class UIUpdateClient {
   }
   async uploadCore(file, progress) {
     if (!this.coreUpload) throw new Error("请先更新升级服务，以支持上传内核 ZIP。");
+    if (!this.migrationReady) throw new Error("上传内核前请先更新升级服务，以支持新内核配置迁移。");
     if (!/\.zip$/i.test(file.name) || !file.size || file.size > this.coreUpload.maxBytes) {
       throw new Error(`请选择原作者内核 ZIP 文件，大小不超过 ${Math.floor(this.coreUpload.maxBytes / 1048576)} MB。`);
     }
@@ -7017,12 +7029,48 @@ function initialize$b() {
       });
     });
   }
-  function upstreams(rows, groups2) {
-    const total = rows.reduce((n, r) => n + Number(r.m.q || 0), 0);
-    return `<div class="workspace-upstream-groups">${groups2.map((group) => {
-      const items = rows.filter((r) => r.g === group), q = items.reduce((n, r) => n + Number(r.m.q || 0), 0);
-      return `<section class="glass-card workspace-upstream-group"><header class="gc-head"><div><h2 class="gc-title">${esc2(ctx.groupName(group))}</h2><span class="workspace-subline">${items.filter((r) => r.u.enabled !== false).length} 个启用节点</span></div><span class="workspace-upstream-total">${number(q)} 次 · ${percent(q, total)}</span></header><div class="table-wrap"><table class="workspace-upstream-table"><thead><tr><th>启用</th><th>节点 / 协议 / 地址</th><th>请求数</th><th>平均响应</th><th>采纳率</th><th>错误</th><th>成功率</th><th>操作</th></tr></thead><tbody>${items.map(({ g, u, i, m }) => `<tr data-group="${esc2(g)}" data-index="${i}"><td><label class="switch"><input class="up-toggle" type="checkbox" aria-label="启用 ${esc2(u.tag)}" ${u.enabled !== false ? "checked" : ""}><span class="switch-track"><span class="switch-thumb"></span></span></label></td><td><strong>${esc2(u.tag)}</strong> ${badge(u.protocol)}<span class="workspace-subline mono">${esc2(u.addr || u.server_addr || "—")}</span></td><td>${number(m.q)}<span class="workspace-subline">${percent(m.q, total)}</span></td><td>${m.latencySamples > 0 ? ctx.ms(m.latency) : "—"}</td><td>${percent(m.win, m.q)}</td><td>${m.err ? `<button type="button" class="up-error-detail-trigger" data-group="${esc2(g)}" data-index="${i}" aria-label="查看 ${esc2(u.tag)} 错误详情">${number(m.err)}</button>` : "0"}</td><td>${m.q > 0 && m.success !== null ? ctx.pct(m.success) : "—"}</td><td><div class="workspace-actions"><button type="button" class="button small up-edit">编辑</button><button type="button" class="button small danger up-delete">删除</button></div></td></tr>`).join("") || '<tr><td colspan="8" class="table-empty">暂无上游节点</td></tr>'}</tbody></table></div></section>`;
-    }).join("")}</div><details class="workspace-note"><summary>统计口径</summary><p>份额按节点请求总数计算，并发可能计入多个节点。采纳率 = 采纳数 / 节点请求数；成功率与采纳率分别统计。无样本时显示“—”。</p></details>`;
+  function upstreams(rows, groups2, providers = false) {
+    const total = rows.reduce((sum, row) => sum + Number(row.m.q || 0), 0);
+    const rowHtml = ({ g, u, i, m }) => `<tr data-group="${esc2(g)}" data-index="${i}">
+      <td><label class="switch">
+        <input class="up-toggle" type="checkbox" aria-label="启用 ${esc2(u.tag)}" ${u.enabled !== false ? "checked" : ""}>
+        <span class="switch-track"><span class="switch-thumb"></span></span>
+      </label></td>
+      <td><strong>${esc2(u.tag)}</strong> ${badge(u.protocol)}
+        ${providers && g !== "proxy" ? `<span class="workspace-subline">服务商：${esc2(u.provider || "未标注")}</span>` : ""}
+        <span class="workspace-subline mono">${esc2(u.addr || u.server_addr || "—")}</span>
+      </td>
+      <td>${number(m.q)}<span class="workspace-subline">${percent(m.q, total)}</span></td>
+      <td>${m.latencySamples > 0 ? ctx.ms(m.latency) : "—"}</td>
+      <td>${percent(m.win, m.q)}</td>
+      <td>${m.err ? `<button type="button" class="up-error-detail-trigger" data-group="${esc2(g)}"
+        data-index="${i}" aria-label="查看 ${esc2(u.tag)} 错误详情">${number(m.err)}</button>` : "0"}</td>
+      <td>${m.q > 0 && m.success !== null ? ctx.pct(m.success) : "—"}</td>
+      <td><div class="workspace-actions">
+        <button type="button" class="button small up-edit">编辑</button>
+        <button type="button" class="button small danger up-delete">删除</button>
+      </div></td>
+    </tr>`;
+    const sections = groups2.map((group) => {
+      const items = rows.filter((row) => row.g === group);
+      const queries = items.reduce((sum, row) => sum + Number(row.m.q || 0), 0);
+      return `<section class="glass-card workspace-upstream-group">
+        <header class="gc-head"><div><h2 class="gc-title">${esc2(ctx.groupName(group))}</h2>
+          <span class="workspace-subline">${items.filter((row) => row.u.enabled !== false).length} 个启用节点</span>
+        </div><span class="workspace-upstream-total">${number(queries)} 次 · ${percent(queries, total)}</span></header>
+        <div class="table-wrap"><table class="workspace-upstream-table"><thead><tr>
+          <th>启用</th><th>节点 / 协议 / 地址</th><th>请求数</th><th>平均响应</th>
+          <th>采纳率</th><th>错误</th><th>成功率</th><th>操作</th>
+        </tr></thead><tbody>
+          ${items.map(rowHtml).join("") || '<tr><td colspan="8" class="table-empty">暂无上游节点</td></tr>'}
+        </tbody></table></div>
+      </section>`;
+    });
+    return `<div class="workspace-upstream-groups">${sections.join("")}</div>
+      <details class="workspace-note"><summary>统计口径</summary>
+        <p>份额按节点请求总数计算，并发可能计入多个节点。采纳率 = 采纳数 / 节点请求数；
+          成功率与采纳率分别统计。无样本时显示“—”。</p>
+      </details>`;
   }
   const purpose = (r) => ["custom_cn", "geosite_cn", "geoip_cn"].includes(r.tag) ? "国内解析" : "海外解析";
   function diversionRow(r, format) {
@@ -7356,6 +7404,9 @@ function confirmDialog({ title = "请确认", message = "", confirmText = "确�
 function createUIUpdatePanel(container) {
   const modes = ["ui", "core", "full"], names = { ui: "UI", core: "内核", full: "UI + 内核" };
   setHTML(container, `<h3>在线升级</h3><p class="version-note" data-connection>正在连接服务器升级入口…</p>
+    <p class="version-note" role="status" data-updater-warning hidden>
+      先更新升级服务：仅更新 UI 不会同步此服务。请解压本版 Update.zip，按安装说明重新安装，再准备内核升级。
+    </p>
     <div class="version-upgrade-choices">${modes.map((mode) => `<div class="version-upgrade-row" data-mode="${mode}"><div><h4>${names[mode]}<span class="version-pill" data-pill hidden></span></h4><p class="version-note" data-target></p><p class="version-note" data-reason></p>${mode === "core" ? '<p class="version-note" data-core-name role="status">尚未选择文件</p>' : ""}</div><div class="version-upgrade-controls">${mode === "core" ? '<label class="button version-file-label" data-core-picker><span data-core-picker-text>选择内核 ZIP</span><input type="file" accept=".zip,application/zip" aria-label="选择原作者内核 ZIP" data-core-file disabled></label>' : ""}<button class="button" type="button" data-start="${mode}" disabled>${mode === "core" ? "上传并准备更新" : "升级" + names[mode]}</button></div></div>`).join("")}</div>
     <div class="version-update-progress" hidden><progress aria-label="升级正在进行"></progress></div>
     <p class="version-update-result" role="status" aria-live="polite" hidden></p>
@@ -7379,7 +7430,12 @@ function createUIUpdatePanel(container) {
   const running = () => ["queued", "running", "awaiting_backup", "rolling_back"].includes(task.state);
   const currentUI = () => installed ? { ...installed, uiVersion: task.installedVersion || installed.uiVersion, backendVersion: task.installedBackend || installed.backendVersion } : installed;
   const describe = (failure) => failure instanceof Error && (failure.name === "TypeError" || /Failed to fetch|NetworkError/.test(failure.message)) ? "连接失败，请重试。" : failure instanceof Error ? failure.message : "连接失败，请重试。";
-  const target = (mode) => upgradeTarget(currentUI(), latest, { mode, unified: Boolean(client == null ? void 0 : client.unified) });
+  const target = (mode) => upgradeTarget(currentUI(), latest, {
+    mode,
+    unified: Boolean(client == null ? void 0 : client.unified),
+    migrationReady: client == null ? void 0 : client.migrationReady
+  });
+  const uploadReady = () => Boolean((client == null ? void 0 : client.coreUpload) && client.migrationReady);
   function accept(value) {
     if (task.jobId !== value.jobId) {
       verifiedHash = "";
@@ -7391,29 +7447,31 @@ function createUIUpdatePanel(container) {
     document.dispatchEvent(new CustomEvent("localdns-update-status", { detail: value }));
   }
   function paint() {
-    var _a2, _b2, _c2, _d, _e;
+    var _a2, _b2, _c2, _d, _e, _f;
     const sameCore = Boolean(latest == null ? void 0 : latest.backend) && (latest == null ? void 0 : latest.backend) === ((_b2 = (_a2 = currentUI()) == null ? void 0 : _a2.backendVersion) == null ? void 0 : _b2.toUpperCase());
     const idle = available && !busy && !running() && !uncertain;
     let primaryMode = "";
     if (idle) {
-      if (selectedCore && (client == null ? void 0 : client.coreUpload)) primaryMode = "core";
+      if (selectedCore && uploadReady()) primaryMode = "core";
       else if ((client == null ? void 0 : client.unified) && !sameCore && target("full").tag) primaryMode = "full";
       else if (target("ui").tag) primaryMode = "ui";
     }
     for (const mode of modes) {
       const row = get(`[data-mode="${mode}"]`), start = row.querySelector("[data-start]");
-      const eligibility = target(mode), supported = mode === "core" ? Boolean(client == null ? void 0 : client.coreUpload) : mode === "ui" || (client == null ? void 0 : client.unified);
+      const eligibility = target(mode), supported = mode === "core" ? uploadReady() : mode === "ui" || (client == null ? void 0 : client.unified);
       const fullReinstall = mode === "full" && sameCore && Boolean(eligibility.tag);
-      const busyRow = running() && task.mode === mode;
-      row.hidden = mode === "ui" && Boolean(latest) && eligibility.reason === "暂无比当前 UI 更新的正式版。" && !running();
+      const activeRow = running() && task.mode === mode;
+      const awaitingRow = activeRow && task.state === "awaiting_backup";
+      const busyRow = activeRow && !awaitingRow;
+      row.hidden = task.state === "awaiting_backup" && task.mode !== mode || mode === "ui" && Boolean(latest) && eligibility.reason === "暂无比当前 UI 更新的正式版。" && !running();
       start.disabled = !available || !supported || (mode === "core" ? !selectedCore : !eligibility.tag) || busy || running() || uncertain;
       start.classList.toggle("primary", mode !== "core" && primaryMode === mode);
       start.classList.toggle("busy", busyRow);
       if (busyRow) start.setAttribute("aria-busy", "true");
       else start.removeAttribute("aria-busy");
-      start.textContent = mode === "core" && uploading ? "正在上传…" : busyRow ? "更新中…" : busy && available ? "提交中…" : mode === "core" ? "上传并准备更新" : mode === "full" && fullReinstall ? "重装UI + 内核" : "升级" + names[mode];
+      start.textContent = mode === "core" && uploading ? "正在上传…" : awaitingRow ? "等待备份确认" : busyRow ? "更新中…" : busy && available ? "提交中…" : mode === "core" ? "上传并准备更新" : mode === "full" && fullReinstall ? "重装UI + 内核" : "升级" + names[mode];
       const pill = row.querySelector("[data-pill]");
-      const pillText = busyRow ? "进行中" : mode === "core" ? selectedCore ? "已选择 ZIP" : "" : mode === "full" ? fullReinstall ? "内核已是最新" : eligibility.tag ? "完整包可用" : "" : eligibility.tag ? "有新版本" : "";
+      const pillText = awaitingRow ? "等待确认" : busyRow ? "进行中" : mode === "core" ? selectedCore ? "已选择 ZIP" : "" : mode === "full" ? fullReinstall ? "内核已是最新" : eligibility.tag ? "完整包可用" : "" : eligibility.tag ? "有新版本" : "";
       pill.textContent = pillText;
       pill.hidden = !pillText;
       pill.dataset.tone = busyRow ? "live" : "update";
@@ -7422,23 +7480,47 @@ function createUIUpdatePanel(container) {
         row.querySelector("[data-core-picker-text]").textContent = selectedCore ? "更换内核 ZIP" : "选择内核 ZIP";
       }
       row.querySelector("[data-target]").textContent = mode === "ui" ? `${((_c2 = currentUI()) == null ? void 0 : _c2.uiVersion) || "—"} → ${(latest == null ? void 0 : latest.version) || "待检查"}` : mode === "core" ? `当前内核：${((_d = currentUI()) == null ? void 0 : _d.backendVersion) || "—"}${running() && task.source === "upload" && task.targetBackend ? " → " + task.targetBackend : ""}` : latest ? `${latest.version} / ${latest.backend}` : "检查更新后显示目标版本";
-      const reasonText = !available ? busy ? "正在确认服务器支持的升级功能…" : notEnabled ? "请先在服务器安装或更新独立升级服务，仅替换 UI 文件不会启用此功能。" : "连接升级服务后才能操作，请重试连接。" : !supported ? "请先更新升级服务，以支持" + (mode === "core" ? "上传内核 ZIP。" : "内核升级。") : mode === "core" ? `先选择原作者的内核 ZIP，再上传；自动选择 ${client.coreUpload.architecture}，保留当前 UI 和设置。下载并校验备份后才会切换，DNS 会短暂重启。` : fullReinstall ? "内核已是最新，重装覆盖相同版本；先下载备份，切换时 DNS 会短暂重启。" : eligibility.reason;
+      let reasonText;
+      if (available && awaitingRow) {
+        reasonText = verifiedHash && verifiedHash === ((_e = task.backup) == null ? void 0 : _e.sha256) ? "本机备份校验通过，请在下方确认继续。" : task.backupDownloaded ? "备份已下载，请在下方选择本机备份校验。" : "请先在下方下载完整备份，再选择下载文件校验；确认前不会切换内核。";
+      } else if (!available) {
+        reasonText = busy ? "正在确认服务器支持的升级功能…" : notEnabled ? "请先在服务器安装或更新独立升级服务，仅替换 UI 文件不会启用此功能。" : "连接升级服务后才能操作，请重试连接。";
+      } else if (!supported) {
+        reasonText = "请先更新升级服务，以支持" + (mode === "core" ? "上传内核 ZIP。" : "内核升级。");
+      } else if (mode === "core") {
+        reasonText = `先选择原作者的内核 ZIP，再上传；自动选择 ${client.coreUpload.architecture}，保留当前 UI 和设置。下载并校验备份后才会切换，DNS 会短暂重启。`;
+      } else {
+        reasonText = fullReinstall ? "内核已是最新，重装覆盖相同版本；先下载备份，切换时 DNS 会短暂重启。" : eligibility.reason;
+      }
       const reason = row.querySelector("[data-reason]");
       reason.id = "version-reason-" + mode;
       reason.textContent = reasonText;
       start.setAttribute("aria-describedby", reason.id);
     }
-    coreFile.disabled = !available || !(client == null ? void 0 : client.coreUpload) || busy || running() || uncertain;
+    coreFile.disabled = !available || !uploadReady() || busy || running() || uncertain;
     coreFile.setAttribute("aria-describedby", "version-reason-core");
-    get("[data-core-name]").textContent = selectedCore ? `${selectedCore.name} · ${(selectedCore.size / 1048576).toFixed(1)} MB` : "尚未选择文件";
+    const uploaded = running() && task.source === "upload" && task.targetBackend;
+    get("[data-core-name]").textContent = selectedCore ? `${selectedCore.name} · ${(selectedCore.size / 1048576).toFixed(1)} MB` : uploaded ? `${task.targetBackend} 内核已上传，无需重新选择文件。` : "尚未选择文件";
     rollback.hidden = !available || !task.canRollback;
     rollback.disabled = busy || running() || uncertain;
     rollback.textContent = task.rollbackKind === "full" ? "恢复上一整套版本" : "恢复上一版 UI";
     refresh.hidden = task.state !== "succeeded" || task.installedVersion === (installed == null ? void 0 : installed.uiVersion);
     retry.disabled = busy || reading;
     retry.textContent = available ? "刷新连接与状态" : "重试连接";
-    get("[data-help]").hidden = available && Boolean(client == null ? void 0 : client.coreUpload);
-    get("[data-connection]").textContent = available ? (client == null ? void 0 : client.coreUpload) ? "已连接。UI 使用 GitHub 发行版，内核可上传 ZIP；上传完成后，关闭弹窗任务仍会继续。" : (client == null ? void 0 : client.unified) ? "已连接。当前服务支持 UI 与整套升级；更新升级服务后可上传内核 ZIP。" : "已连接旧版升级服务，目前支持 UI 单独升级。" : busy ? "正在连接服务器升级入口…" : notEnabled ? "当前地址没有网页升级接口。请按安装说明启用独立升级服务，已有服务请核对 uiUpdaterBase 地址。" : "升级服务连接失败，请重试。";
+    const needsUpdater = available && Boolean(client == null ? void 0 : client.unified) && !(client == null ? void 0 : client.migrationReady);
+    get("[data-updater-warning]").hidden = !needsUpdater || running();
+    get("[data-help]").hidden = available && uploadReady();
+    let connectionText;
+    if (!available) {
+      connectionText = busy ? "正在连接服务器升级入口…" : notEnabled ? "当前地址没有网页升级接口。请按安装说明启用独立升级服务，已有服务请核对 uiUpdaterBase 地址。" : "升级服务连接失败，请重试。";
+    } else if (needsUpdater) {
+      connectionText = running() ? "已连接。已有任务可按原流程继续；任务结束后请更新升级服务。" : "已连接。升级服务需要更新；可先更新 UI，内核准备暂不可用。";
+    } else if (uploadReady()) {
+      connectionText = "已连接。UI 使用 GitHub 发行版，内核可上传 ZIP；上传完成后，关闭弹窗任务仍会继续。";
+    } else {
+      connectionText = "已连接旧版升级服务，目前支持 UI 单独升级。";
+    }
+    get("[data-connection]").textContent = connectionText;
     get(".version-update-progress").hidden = !uploading && !running() && !(busy && available) || task.state === "awaiting_backup";
     get(".version-update-result").hidden = !uploading && !task.message;
     get(".version-update-result").textContent = uploading ? uploadMessage : task.message || "";
@@ -7447,7 +7529,7 @@ function createUIUpdatePanel(container) {
     get("[data-backup-hash]").textContent = task.backup ? "SHA-256：" + task.backup.sha256 : "";
     get("[data-backup-result]").textContent = backupResult;
     download.disabled = file.disabled = cancel.disabled = busy || uncertain;
-    proceed.disabled = busy || uncertain || !verifiedHash || verifiedHash !== ((_e = task.backup) == null ? void 0 : _e.sha256) || !task.backupDownloaded;
+    proceed.disabled = busy || uncertain || !verifiedHash || verifiedHash !== ((_f = task.backup) == null ? void 0 : _f.sha256) || !task.backupDownloaded;
     proceed.textContent = task.action === "rollback" ? "校验通过，继续恢复" : "校验通过，继续升级";
     get("[data-error]").hidden = !error;
     get("[data-error]").textContent = error;
@@ -8314,7 +8396,7 @@ function normalizeResponse(path, value) {
     if (endpoint === "/api/v1/upstream/config") {
       for (const group of Object.values(data)) array(group, "上游配置").forEach((item) => {
         const upstream = record(item, "上游");
-        for (const key of ["tag", "addr", "server_addr", "protocol", "dial_addr", "socks5"]) {
+        for (const key of ["tag", "addr", "server_addr", "protocol", "dial_addr", "socks5", "provider"]) {
           if (upstream[key] !== void 0 && typeof upstream[key] !== "string") throw new ApiError(`上游 ${key} 类型无效。`, 0, item, "contract");
         }
         if (upstream.enabled !== void 0 && typeof upstream.enabled !== "boolean") throw new ApiError("上游启用状态类型无效。", 0, item, "contract");
@@ -8354,7 +8436,7 @@ const switches = {
   switch12: { key: "client_policy", value: "listed_direct" }
 };
 const groups = "custom_cn|custom_non_cn|geoip_cn|geoip_non_cn|geosite_cn|geosite_non_cn";
-function features(value) {
+function parseFeatures(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new ApiError("功能开关返回格式无效。", 0, value, "contract");
   }
@@ -8366,6 +8448,9 @@ function features(value) {
   }
   if (!["normal", "listed_proxy_only", "listed_direct"].includes(String(data.client_policy))) {
     throw new ApiError("客户端策略无法识别。", 0, value, "contract");
+  }
+  if ("prefetch" in data && typeof data.prefetch !== "boolean") {
+    throw new ApiError("缓存预取开关类型无效。", 0, value, "contract");
   }
   return data;
 }
@@ -8383,7 +8468,7 @@ class BackendClient {
     if (!this.family) {
       this.family = this.http.request("/api/v1/features").then((value) => {
         if (typeof value === "string" && /^\s*(?:<!doctype html|<html)/i.test(value)) return "legacy";
-        features(value);
+        parseFeatures(value);
         return "fjgli";
       }).catch((error) => {
         if (error instanceof ApiError && [404, 405, 501].includes(error.status)) return "legacy";
@@ -8403,7 +8488,7 @@ class BackendClient {
     if (!field) throw new Error("内核不支持此功能开关。");
     if (action === "show") {
       return this.http.request("/api/v1/features", options).then((value2) => {
-        const data = features(value2);
+        const data = parseFeatures(value2);
         return (field.value ? data[field.key] === field.value : data[field.key] === true) ? "A" : "B";
       });
     }
@@ -8411,7 +8496,7 @@ class BackendClient {
     if (!["A", "B"].includes(String(value))) throw new Error("功能开关值无效。");
     if (!field.value) return this.json("/api/v1/features", options, "PUT", { [field.key]: value === "A" });
     const operation = this.policyQueue.then(async () => {
-      const current = features(await this.http.request("/api/v1/features", { ...options, method: "GET", body: void 0 }));
+      const current = parseFeatures(await this.http.request("/api/v1/features", { ...options, method: "GET", body: void 0 }));
       if (value === "B" && current.client_policy !== field.value) return current;
       return this.json("/api/v1/features", options, "PUT", { client_policy: value === "A" ? field.value : "normal" });
     });
@@ -9210,15 +9295,30 @@ function taskBody(status, config) {
     <dl class="task-history"><div><dt>上次运行</dt><dd>${esc$1(fmtDate(lastRun))}</dd></div><div><dt>上次处理域名</dt><dd>${finite(status.last_run_domain_count) ? num(status.last_run_domain_count) + " 条" : "—"}</dd></div></dl>`;
 }
 function groupedFeatures(profiles, status) {
-  const groups2 = [["请求与过滤", profiles.slice(0, 4)], ["缓存策略", profiles.slice(4, 6)], ["客户端分流", profiles.slice(6)]];
-  return `<div class="management-feature-groups">${groups2.map(([name, items], index) => {
-    const on = items.filter((p) => status[p.tag] === "A").length, unknown = items.filter((p) => !["A", "B"].includes(status[p.tag])).length;
-    return `<section class="management-feature-group"><div class="feature-group-heading"><h3>${name}</h3><span>${on} / ${items.length} 开启${unknown ? ` · ${unknown} 项未知` : ""}</span></div><div class="management-feature-items">${items.map((p) => {
-      const known = ["A", "B"].includes(status[p.tag]);
-      const description = known ? (status[p.tag] === "A" ? p.on : p.off) || p.desc : p.desc;
-      return `<div class="feature-card management-feature-card"><div><h3>${esc$1(p.name)}</h3><p>${esc$1(description)}</p>${!known ? '<span class="feature-read-error">读取失败</span>' : ""}</div><div class="feature-footer"><label class="switch"><input data-switch="${p.tag}" aria-label="${esc$1(p.name)}" type="checkbox" ${status[p.tag] === "A" ? "checked" : ""} ${known ? "" : "disabled"}><span class="switch-track"><span class="switch-thumb"></span></span></label></div></div>`;
-    }).join("")}</div>${index === 2 ? '<p class="management-feature-note">FakeIP 与 RealIP 互斥启用</p>' : ""}</section>`;
-  }).join("")}</div>`;
+  const groups2 = [["filter", "请求与过滤"], ["cache", "缓存策略"], ["client", "客户端分流"]];
+  const sections = groups2.map(([key, name]) => {
+    const items = profiles.filter((profile) => profile.group === key);
+    const on = items.filter((profile) => status[profile.tag] === "A").length;
+    const unknown = items.filter((profile) => !["A", "B"].includes(status[profile.tag])).length;
+    const controls = items.map((profile) => {
+      const known = ["A", "B"].includes(status[profile.tag]);
+      const description = known ? (status[profile.tag] === "A" ? profile.on : profile.off) || profile.desc : profile.desc;
+      return `<div class="feature-card management-feature-card"><div>
+        <h3>${esc$1(profile.name)}</h3><p>${esc$1(description)}</p>
+        ${!known ? '<span class="feature-read-error">读取失败</span>' : ""}
+      </div><div class="feature-footer"><label class="switch">
+        <input data-switch="${profile.tag}" aria-label="${esc$1(profile.name)}" type="checkbox"
+          ${status[profile.tag] === "A" ? "checked" : ""} ${known ? "" : "disabled"}>
+        <span class="switch-track"><span class="switch-thumb"></span></span>
+      </label></div></div>`;
+    });
+    return `<section class="management-feature-group"><div class="feature-group-heading">
+      <h3>${name}</h3><span>${on} / ${items.length} 开启${unknown ? ` · ${unknown} 项未知` : ""}</span>
+    </div><div class="management-feature-items">${controls.join("")}</div>
+      ${key === "client" ? '<p class="management-feature-note">FakeIP 与 RealIP 互斥启用</p>' : ""}
+    </section>`;
+  });
+  return `<div class="management-feature-groups">${sections.join("")}</div>`;
 }
 function featureSummary(profiles, status) {
   const on = profiles.filter((p) => status[p.tag] === "A").length;
@@ -9233,15 +9333,118 @@ function cacheTable(caches, cacheName2) {
   return `<table class="management-cache-table"><thead><tr>${["缓存池", "请求总数", "条目数", "命中率", "过期命中", "操作"].map((label) => `<th scope="col">${label}</th>`).join("")}</tr></thead><tbody>${rows || '<tr><td colspan="6">暂无缓存数据</td></tr>'}</tbody></table>`;
 }
 const switchProfiles = [
-  { tag: "switch1", name: "请求屏蔽", desc: "控制屏蔽名单、PCDN 与无结果请求", on: "屏蔽名单、PCDN 与无结果请求", off: "关闭请求屏蔽，正常解析请求" },
-  { tag: "switch5", name: "类型屏蔽", desc: "控制特殊 DNS 记录类型", on: "屏蔽所有域名的 HTTPS、SVCB、SOA、PTR", off: "仍屏蔽 FakeIP 域名的 HTTPS、SVCB" },
-  { tag: "switch7", name: "广告屏蔽", desc: "控制 AdGuard 广告规则", on: "使用 AdGuard 在线规则拦截广告", off: "不使用 AdGuard 广告规则" },
-  { tag: "switch6", name: "IPv6 屏蔽", desc: "控制 AAAA 请求", on: "屏蔽全部 AAAA 请求，仅返回 IPv4", off: "正常解析 AAAA 请求" },
-  { tag: "switch13", name: "核心缓存", desc: "控制最终解析结果的缓存", on: "缓存最终解析结果", off: "每次请求均经过分流解析" },
-  { tag: "switch4", name: "过期缓存", desc: "控制过期缓存的响应方式", on: "先返回保留的旧结果，后台刷新", off: "缓存过期后等待上游的新结果" },
-  { tag: "switch2", name: "指定 Client FakeIP", desc: "控制客户端名单之外的分流", on: "客户端名单之外的设备全部直连", off: "不限制名单之外设备的代理解析" },
-  { tag: "switch12", name: "指定 Client RealIP", desc: "控制客户端名单之内的分流", on: "客户端名单之内的设备全部直连", off: "不强制名单之内的设备直连" }
+  {
+    tag: "switch1",
+    key: "request_blocking",
+    group: "filter",
+    name: "请求屏蔽",
+    desc: "控制屏蔽名单、PCDN 与无结果请求",
+    on: "屏蔽名单、PCDN 与无结果请求",
+    off: "关闭请求屏蔽，正常解析请求"
+  },
+  {
+    tag: "switch5",
+    key: "block_special_qtypes",
+    group: "filter",
+    name: "类型屏蔽",
+    desc: "控制特殊 DNS 记录类型",
+    on: "屏蔽所有域名的 HTTPS、SVCB、SOA、PTR",
+    off: "仍屏蔽 FakeIP 域名的 HTTPS、SVCB"
+  },
+  {
+    tag: "switch7",
+    key: "adguard",
+    group: "filter",
+    name: "广告屏蔽",
+    desc: "控制 AdGuard 广告规则",
+    on: "使用 AdGuard 在线规则拦截广告",
+    off: "不使用 AdGuard 广告规则"
+  },
+  {
+    tag: "switch6",
+    key: "block_aaaa",
+    group: "filter",
+    name: "IPv6 屏蔽",
+    desc: "控制 AAAA 请求",
+    on: "屏蔽全部 AAAA 请求，仅返回 IPv4",
+    off: "正常解析 AAAA 请求"
+  },
+  {
+    tag: "switch13",
+    key: "full_cache",
+    group: "cache",
+    name: "核心缓存",
+    desc: "控制最终解析结果的缓存",
+    on: "缓存最终解析结果",
+    off: "每次请求均经过分流解析"
+  },
+  {
+    tag: "switch4",
+    key: "route_cache",
+    group: "cache",
+    name: "过期缓存",
+    desc: "控制过期缓存的响应方式",
+    on: "先返回保留的旧结果，后台刷新",
+    off: "缓存过期后等待上游的新结果"
+  },
+  {
+    tag: "prefetch",
+    key: "prefetch",
+    group: "cache",
+    optional: true,
+    name: "缓存预取",
+    desc: "控制内核的缓存预取",
+    on: "允许内核执行缓存预取",
+    off: "停止预取，保留正常缓存读写"
+  },
+  {
+    tag: "switch2",
+    key: "client_policy",
+    value: "listed_proxy_only",
+    group: "client",
+    name: "指定 Client FakeIP",
+    desc: "控制客户端名单之外的分流",
+    on: "客户端名单之外的设备全部直连",
+    off: "不限制名单之外设备的代理解析"
+  },
+  {
+    tag: "switch12",
+    key: "client_policy",
+    value: "listed_direct",
+    group: "client",
+    name: "指定 Client RealIP",
+    desc: "控制客户端名单之内的分流",
+    on: "客户端名单之内的设备全部直连",
+    off: "不强制名单之内的设备直连"
+  }
 ];
+async function readFeatureSwitches(read) {
+  try {
+    const raw = await read("/api/v1/features");
+    if (typeof raw === "string" && /^\s*(?:<!doctype html|<html)/i.test(raw)) return readLegacy(read);
+    const data = parseFeatures(raw);
+    const profiles = switchProfiles.filter((profile) => !profile.optional || profile.key in data);
+    const status = Object.fromEntries(profiles.map((profile) => [
+      profile.tag,
+      (profile.value ? data[profile.key] === profile.value : data[profile.key] === true) ? "A" : "B"
+    ]));
+    return { profiles, status };
+  } catch (error) {
+    if (error instanceof ApiError && [404, 405, 501].includes(error.status)) return readLegacy(read);
+    return { profiles: switchProfiles, status: {} };
+  }
+}
+async function readLegacy(read) {
+  const profiles = switchProfiles.filter((profile) => !profile.optional);
+  const states = await Promise.all(profiles.map(async (profile) => {
+    try {
+      return String(await read(`/plugins/${profile.tag}/show`)).trim();
+    } catch {
+      return "error";
+    }
+  }));
+  return { profiles, status: Object.fromEntries(profiles.map((profile, index) => [profile.tag, states[index]])) };
+}
 let requested = null;
 function requestProxyPane(pane) {
   requested = pane === "config" ? "config" : "traffic";
@@ -9702,7 +9905,7 @@ async function renderManagement(container, context) {
   const renderScope = context.scope, page2 = container;
   const renderSeq = state.renderSeq;
   const isCurrent = () => state.route === "management" && state.renderSeq === renderSeq;
-  const tags = switchProfiles.map((x) => x.tag);
+  let activeProfiles = switchProfiles.filter((profile) => !profile.optional);
   const skeletonBlock = (height = 150) => `<div class="skeleton" style="height:${height}px;border-radius:12px"></div>`;
   setHTML(page2, `
     <div class="view-title-row">
@@ -9752,7 +9955,10 @@ async function renderManagement(container, context) {
   proxyPanelService == null ? void 0 : proxyPanelService.sync();
   paintGithubSlot();
   const serviceBadge = page2.querySelector(".service-card-badge");
-  const switchPromise = Promise.all(tags.map((t) => safe(() => api.request(`/plugins/${t}/show`), "error"))).then((results) => Object.fromEntries(tags.map((t, i) => [t, String(results[i]).trim()])));
+  const switchPromise = readFeatureSwitches((path) => api.request(path)).then((result) => {
+    activeProfiles = result.profiles;
+    return result.status;
+  });
   const metricsPromise = api.metrics();
   const cacheSettingsPromise = safeResult(() => readCacheSettings((path) => api.request(path)));
   metricsPromise.then(() => {
@@ -9766,31 +9972,37 @@ async function renderManagement(container, context) {
   const countsPromise = safeResult(() => api.request("/plugins/requery/stats/source_file_counts"));
   switchPromise.then((status) => {
     if (!isCurrent()) return;
-    const featureHtml = groupedFeatures(switchProfiles, status);
+    const featureHtml = groupedFeatures(activeProfiles, status);
     const featureSlot = $("#management-feature-slot");
-    if (featureSlot) setHTML(featureSlot, card("功能设置", featureHtml, { iconName: "features", subtitle: "按用途分组管理", actions: featureSummary(switchProfiles, status), className: "management-feature-panel" }));
-    $$("[data-switch]").forEach((x) => x.onchange = async () => {
-      const tag = x.dataset.switch, val = x.checked ? "A" : "B";
+    if (featureSlot) setHTML(featureSlot, card("功能设置", featureHtml, {
+      iconName: "features",
+      subtitle: "按用途分组管理",
+      actions: featureSummary(activeProfiles, status),
+      className: "management-feature-panel"
+    }));
+    $$("[data-switch]", page2).forEach((input) => input.onchange = async () => {
+      const tag = input.dataset.switch, value = input.checked ? "A" : "B";
       let rollbackNeeded = false;
-      $$("[data-switch]", page2).forEach((input) => input.disabled = true);
+      $$("[data-switch]", page2).forEach((control) => control.disabled = true);
       try {
-        await api.json(`/plugins/${tag}/post`, "POST", { value: val });
-        if (x.checked && (tag === "switch2" || tag === "switch12")) {
+        if (tag === "prefetch") await api.json("/api/v1/features", "PUT", { prefetch: input.checked });
+        else await api.json(`/plugins/${tag}/post`, "POST", { value });
+        if (input.checked && (tag === "switch2" || tag === "switch12")) {
           rollbackNeeded = true;
           const other = tag === "switch2" ? "switch12" : "switch2";
           await api.json(`/plugins/${other}/post`, "POST", { value: "B" });
         }
-        toast("功能状态已保存");
-        renderRoute(true);
-      } catch (e) {
+        if (isCurrent()) toast("功能状态已保存");
+      } catch (error) {
         if (rollbackNeeded) {
           try {
-            await api.json(`/plugins/${tag}/post`, "POST", { value: val === "A" ? "B" : "A" });
+            await api.json(`/plugins/${tag}/post`, "POST", { value: value === "A" ? "B" : "A" });
           } catch {
           }
         }
-        toast("切换失败", "error", e.message);
-        renderRoute(true);
+        if (isCurrent()) toast("切换失败", "error", error.message);
+      } finally {
+        if (isCurrent()) renderRoute(true);
       }
     });
   });
@@ -12211,6 +12423,7 @@ const logsRoute = { mount(container, context) {
   return renderLogs(container, context);
 } };
 async function readUpstreams(scope) {
+  var _a2;
   const [configResult, tagsResult] = await scope.guard(Promise.all([
     safeResult(() => api.request("/api/v1/upstream/config")),
     safeResult(() => api.request("/api/v1/upstream/tags"))
@@ -12218,10 +12431,11 @@ async function readUpstreams(scope) {
   if (!configResult.ok) throw configResult.error;
   if (!tagsResult.ok) throw tagsResult.error;
   const config = configResult.data, tags = tagsResult.data;
-  const [metricsResult, ecsResult] = await Promise.all([
+  const [metricsResult, ecsResult, statusResult] = await scope.guard(Promise.all([
     safeResult(() => api.metrics()),
-    safeResult(() => api.request("/api/v1/upstream/ecs"))
-  ]);
+    safeResult(() => api.request("/api/v1/upstream/ecs")),
+    safeResult(() => api.request("/api/v1/status"))
+  ]));
   const ecs = ecsResult.ok ? ecsResult.data : null;
   const groups2 = Array.isArray(tags) ? tags : Object.keys(config);
   const metrics = parseProm(metricsResult.ok ? metricsResult.data : ""), rows = [];
@@ -12229,18 +12443,51 @@ async function readUpstreams(scope) {
     rows.push({ g: group, u: upstream, i: index, m: upstreamMetrics(metrics, group, upstream.tag) });
   }));
   rows.sort((a, b) => Number(b.u.enabled !== false) - Number(a.u.enabled !== false));
-  return { config, ecs: typeof (ecs == null ? void 0 : ecs.ecs) === "string" ? ecs.ecs : "", groups: groups2, rows, degraded: { metrics: !metricsResult.ok, ecs: !ecsResult.ok } };
+  const configuredProviders = rows.some((row) => typeof row.u.provider === "string");
+  const version = statusResult.ok && typeof ((_a2 = statusResult.data) == null ? void 0 : _a2.version) === "string" ? statusResult.data.version : null;
+  const providers = configuredProviders || (version === null ? null : version === "FJN8C");
+  return {
+    config,
+    ecs: typeof (ecs == null ? void 0 : ecs.ecs) === "string" ? ecs.ecs : "",
+    groups: groups2,
+    rows,
+    providers,
+    degraded: { metrics: !metricsResult.ok, ecs: !ecsResult.ok, providers: providers === null }
+  };
 }
 function writeUpstreamGroup(group, candidate, ecs) {
   const body2 = { plugin_tag: group, upstreams: candidate || [] };
   if (group === "foreign_ecs" && typeof ecs === "string") body2.ecs = ecs;
   return api.json("/api/v1/upstream/config", "POST", body2);
 }
+const domestic = ["电信", "联通", "移动", "广电", "阿里", "腾讯", "百度", "114"];
+const foreign = ["Cloudflare", "Google", "Quad9", "OpenDNS"];
+function providerOptions(group) {
+  if (group === "domestic") return domestic;
+  if (group === "foreign" || group === "foreign_ecs") return foreign;
+  return [];
+}
+function withProvider(node, group, value, supported) {
+  if (!supported || group === "proxy") return node;
+  const provider = value.trim();
+  if (!provider) throw new Error("请选择或填写服务商；同一服务商请使用相同名称。");
+  return { ...node, provider };
+}
 async function renderUpstreams(container, context) {
+  var _a2;
   const renderScope = context.scope, page2 = container;
-  const { config, ecs, groups: groups2, rows, degraded } = await readUpstreams(renderScope);
-  const model = { config, ecs, groups: groups2 };
-  setHTML(page2, `<div class="view-title-row"><div><h1>解析</h1></div><div class="workspace-actions"><button type="button" class="glass-btn primary" id="up-add">添加上游节点</button></div></div><div class="col-12">${workspaceService.upstreams(rows, groups2)}</div>`);
+  const { config, ecs, groups: groups2, rows, providers, degraded } = await readUpstreams(renderScope);
+  const model = { config, ecs, groups: groups2, providers };
+  setHTML(page2, `<div class="view-title-row"><div><h1>解析</h1></div><div class="workspace-actions">
+      <button type="button" class="glass-btn primary" id="up-add">
+        添加上游节点
+      </button></div></div><div class="col-12">${workspaceService.upstreams(rows, groups2, providers === true)}</div>`);
+  if (degraded.providers) {
+    const note = document.createElement("p");
+    note.className = "form-note";
+    note.textContent = "服务商设置暂不可用，请刷新后重试；其他上游设置仍可编辑。";
+    (_a2 = page2.querySelector(".view-title-row")) == null ? void 0 : _a2.after(note);
+  }
   if ((degraded == null ? void 0 : degraded.metrics) || (degraded == null ? void 0 : degraded.ecs)) {
     const note = document.createElement("p");
     note.className = "form-note";
@@ -12302,30 +12549,64 @@ async function renderUpstreams(container, context) {
     const u = edit ? model.config[group][idx] : { tag: "", protocol: "udp", addr: "", enabled: true };
     const hasSocks = (g) => g === "foreign" || g === "foreign_ecs";
     const fieldsHtml = (g, v) => {
-      const f = (id, label, value, extra = "") => `<div class="field"><label>${label}</label><input id="${id}" ${extra} value="${esc$1(value)}"></div>`;
+      const f = (id, label, value, extra = "", hint = "") => `<div class="field">
+        <label for="${id}">${label}</label><input id="${id}" ${extra} value="${esc$1(value)}">
+        ${hint ? `<p class="form-note">${esc$1(hint)}</p>` : ""}</div>`;
       return `<div class="field"><label>名称</label><input id="u-tag" value="${esc$1(v.tag)}" required></div>
       <div class="field"><label>协议</label><select id="u-protocol">${["udp", "tcp", "tls", "https"].map((x) => `<option ${x === v.protocol ? "selected" : ""}>${x}</option>`).join("")}</select></div>
       ${f("u-addr", "服务器地址", v.addr, 'required placeholder="223.5.5.5:53 或 https://.../dns-query"')}
+      ${model.providers === true && g !== "proxy" ? `
+        ${f(
+        "u-provider",
+        "服务商",
+        v.provider,
+        'list="u-provider-options" autocomplete="off" required',
+        "同一服务商请使用相同名称，支持自定义名称。"
+      )}
+        <datalist id="u-provider-options">
+          ${providerOptions(g).map((name) => `<option value="${esc$1(name)}"></option>`).join("")}
+        </datalist>` : ""}
       ${f("u-dial", "拨号地址", v.dial, 'placeholder="可选"')}
       ${hasSocks(g) ? f("u-socks", "SOCKS5", v.socks, 'placeholder="可选"') : ""}
       ${g === "foreign_ecs" ? f("u-ecs", "ECS", v.ecs, 'placeholder="一个 IPv4 或 IPv6，可留空；IPv4 默认 /24，IPv6 默认 /56"') : ""}
       ${f("u-timeout", "查询超时（ms）", v.timeout, 'type="number" min="0"')}`;
     };
-    let cachedEcs = null;
+    let cachedEcs = null, cachedProvider = u.provider || "";
     const readForm = () => {
-      const ecsField = $("#u-ecs");
+      var _a3;
+      const ecsField = $("#u-ecs"), providerField = $("#u-provider");
       if (ecsField) cachedEcs = ecsField.value;
-      return { tag: $("#u-tag").value, protocol: $("#u-protocol").value, addr: $("#u-addr").value, dial: $("#u-dial").value, socks: $("#u-socks") ? $("#u-socks").value : "", ecs: ecsField ? ecsField.value : (cachedEcs ?? model.ecs) || "", timeout: $("#u-timeout").value };
+      if (providerField) cachedProvider = providerField.value;
+      return {
+        tag: $("#u-tag").value,
+        protocol: $("#u-protocol").value,
+        addr: $("#u-addr").value,
+        dial: $("#u-dial").value,
+        socks: ((_a3 = $("#u-socks")) == null ? void 0 : _a3.value) || "",
+        provider: cachedProvider,
+        ecs: ecsField ? ecsField.value : (cachedEcs ?? model.ecs) || "",
+        timeout: $("#u-timeout").value
+      };
     };
-    const initial = { tag: u.tag || "", protocol: u.protocol || "udp", addr: u.addr || u.server_addr || "", dial: u.dial_addr || "", socks: u.socks5 || "", ecs: model.ecs || "", timeout: u.upstream_query_timeout || 0 };
+    const initial = {
+      tag: u.tag || "",
+      protocol: u.protocol || "udp",
+      addr: u.addr || u.server_addr || "",
+      dial: u.dial_addr || "",
+      socks: u.socks5 || "",
+      provider: u.provider || "",
+      ecs: model.ecs || "",
+      timeout: u.upstream_query_timeout || 0
+    };
     modalOpen(edit ? "编辑上游 DNS" : "添加上游 DNS", "保存后立即生效", `<div class="grid grid-2">
       <div class="field"><label>所属组</label><select id="u-group" ${edit ? "disabled" : ""}>${groups3.map((g) => `<option value="${esc$1(g)}" ${g === group ? "selected" : ""}>${esc$1(groupName(g))}</option>`).join("")}</select></div>
       <span id="u-fields" style="display:contents">${fieldsHtml(group, initial)}</span>
     </div>`, async () => {
       const g = $("#u-group").value;
       const v = readForm();
-      const item = Object.assign({}, u, { tag: v.tag.trim(), protocol: v.protocol, enabled: u.enabled !== false });
-      if (!item.tag) throw new Error("名称不能为空");
+      const node = { ...u, tag: v.tag.trim(), protocol: v.protocol, enabled: u.enabled !== false };
+      if (!node.tag) throw new Error("名称不能为空");
+      const item = withProvider(node, g, v.provider, model.providers === true);
       item.addr = v.addr.trim();
       item.dial_addr = v.dial.trim();
       if (hasSocks(g)) item.socks5 = v.socks.trim();

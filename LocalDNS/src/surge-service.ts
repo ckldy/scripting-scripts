@@ -11,6 +11,7 @@
 import { Path, Script } from 'scripting';
 import { SurgeDatabase, type AppModule, type DnsRule, type HttpRule, type GeneralSetting, type ModuleArgumentItem } from './surge-db';
 import { isOverbroadRejectRule } from './rule-guard';
+import { Store } from './store';
 import {
   renderBuiltinWebRule,
   YT_BUILTIN_WEB_SCRIPT,
@@ -57,6 +58,94 @@ function isValidSurgeMitmHost(host: string): boolean {
   if (!h.includes('.')) return false;
   if (h.endsWith('.') || h.startsWith('.')) return false;
   return true;
+}
+
+/**
+ * MITM 收敛（2026-11-12）
+ *
+ * 背景：聚合模块会把各模块声明的 [MITM] 全量搬进 Hub，其中大量域名（新闻站、CDN 通配）
+ * 没有任何脚本或重写在用——它们只带来整站 TLS 解密开销和额外证书暴露面，首包延迟被放大，
+ * 而小组件这类“冷启动 + 短预算”的消费者最先受影响。
+ *
+ * 策略：只为“真的有 http-request/http-response 脚本、Rewrite、Map Local 引用”的域名
+ * 开启解密，其余直接丢弃。判定用保守的域名核心词（SLD）边界匹配，宁可多留不可错杀。
+ */
+
+/** 公共二级后缀：用于从域名里剥出业务核心词 */
+const MITM_PUBLIC_SECOND_LEVEL = new Set(['co', 'com', 'net', 'org', 'gov', 'edu', 'ac', 'or', 'ne', 'go', 'gob', 'mil', 'int']);
+
+/** 无论脚本怎么写都必须保留的域名（YouTube 链路硬依赖） */
+export const MITM_ALWAYS_REQUIRED: string[] = [
+  'www.youtube.com',
+  'm.youtube.com',
+  's.youtube.com',
+  'youtubei.googleapis.com',
+  'imasdk.googleapis.com',
+];
+
+/** 取域名的业务核心词：www.baidu.com → baidu，dmm.co.jp → dmm，*.cloudfront.net → cloudfront */
+export function mitmCoreLabel(host: string): string {
+  const parts = host
+    .replace(/^[-*]+\.?/, '')
+    .toLowerCase()
+    .split('.')
+    .filter(Boolean);
+  let i = parts.length - 1;
+  if (i >= 0) i--; // 跳过末级 TLD
+  if (i >= 0 && MITM_PUBLIC_SECOND_LEVEL.has(parts[i])) i--;
+  return i >= 0 ? parts[i] : '';
+}
+
+/** 构造脚本/重写/Map Local 的引用正文，用于判定某个 MITM 域是否真有人用 */
+export function buildMitmReferenceHaystack(rules: HttpRule[]): string {
+  const parts: string[] = [];
+  for (const r of rules) {
+    parts.push(r.pattern || '');
+    if (r.target) parts.push(r.target);
+    if (r.argument) parts.push(r.argument);
+  }
+  // 去掉正则转义反斜杠，让 www\.baidu\.com 变成 www.baidu.com 可直接子串命中
+  return parts.join('\n').split('\\').join('').toLowerCase();
+}
+
+/** 判断某个 MITM 域是否被规则正文引用（保守：命中核心词边界也算“有人用”） */
+export function isMitmHostReferenced(host: string, haystack: string): boolean {
+  const bare = host.replace(/^[-*]+\.?/, '').toLowerCase();
+  if (!bare || !haystack) return false;
+  if (haystack.includes(bare)) return true;
+  const core = mitmCoreLabel(host);
+  if (core.length < 2) return false;
+  const escaped = core.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (new RegExp(`(^|[^a-z0-9-])${escaped}([^a-z0-9-]|$)`).test(haystack)) return true;
+  // 脚本里常见的通配写法：nivod\d、555dy\w{0,3}、xxx1~5。
+  // 把域名核心词的尾部数字 / xN 去掉再匹配一次，避免把“真有脚本”的站点错杀。
+  const stem = core.replace(/x?[0-9]+$/, '');
+  if (stem.length >= 3 && stem !== core && haystack.includes(stem)) return true;
+  return false;
+}
+
+/**
+ * 对聚合 MITM 集合做收敛：返回保留集与被丢弃清单。
+ */
+export function narrowMitmHosts(
+  hosts: Iterable<string>,
+  haystack: string
+): { kept: string[]; dropped: string[] } {
+  const always = new Set(MITM_ALWAYS_REQUIRED);
+  const kept: string[] = [];
+  const dropped: string[] = [];
+  for (const raw of hosts) {
+    const h = String(raw || '').trim();
+    if (!h) continue;
+    const bare = h.replace(/^[-*]+\.?/, '').toLowerCase();
+    if (always.has(bare) || bare.endsWith('.youtube.com') || bare.endsWith('googlevideo.com')) {
+      kept.push(h);
+      continue;
+    }
+    if (isMitmHostReferenced(h, haystack)) kept.push(h);
+    else dropped.push(h);
+  }
+  return { kept, dropped };
 }
 
 export function escapeRegExp(string: string): string {
@@ -278,6 +367,8 @@ export class SurgeService {
   private pendingHits = new Map<number, { count: number; last: number }>();
   private hitFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private syncTimer: any = null;
+  // 节点引导集更新回调（由 server 注入 DiversionEngine.reloadLocalRules）
+  private proxyHostsListener: (() => void) | null = null;
 
   public static get(): SurgeService {
     if (!SurgeService.instance) {
@@ -925,6 +1016,17 @@ export class SurgeService {
     // 剔除可能存在的根域名 youtube.com，防止与全量 TLS 握手产生不必要的解密开销
     mitmSet.delete('youtube.com');
 
+    // 2026-11-12 MITM 收敛：只为「真的有脚本/重写引用」的域名开启解密。
+    // 目的：削掉无主解密（新闻站、CDN 通配）带来的首包延迟与证书暴露面，
+    // 小组件这类冷启动 + 短预算的消费端对这部分开销最敏感。
+    const mitmRefHaystack = buildMitmReferenceHaystack(httpRules);
+    const narrowedMitm = narrowMitmHosts(mitmSet, mitmRefHaystack);
+    if (narrowedMitm.dropped.length > 0) {
+      console.log(
+        `[compile] MITM 收敛：保留 ${narrowedMitm.kept.length} 个，跳过 ${narrowedMitm.dropped.length} 个无脚本引用的解密域`
+      );
+    }
+
     // 2026-11-10 恢复：删掉 *.googlevideo.com 会让 youtube.enhance.init / ump / auto-hd
     //   三个脚本彻底失去附着点（它们的作用域就是 *.googlevideo.com），客户端广告与
     //   播放参数处理全部失效。当日实测：googlevideo 请求日志里不再出现
@@ -985,7 +1087,7 @@ export class SurgeService {
     // 关键修复：Surge 模块的 [MITM] 区段中，同名键 hostname 只能出现一次！
     // 若写多行 hostname = %APPEND%，Surge INI 解析器会用后一行直接覆盖前一行，导致前面行的域名被全部抹杀！
     // 因此必须去重并统一合并为单行输出，且将含有脚本与重写的核心域名优先置顶
-    const validMitmHosts = Array.from(mitmSet).filter(isValidSurgeMitmHost);
+    const validMitmHosts = narrowedMitm.kept.filter(isValidSurgeMitmHost);
     if (validMitmHosts.length > 0) {
       sections.push('[MITM]');
       // 核心业务域名优先置顶
@@ -1326,6 +1428,148 @@ export class SurgeService {
     return res.ok;
   }
 
+  /** 注册「节点引导集」更新回调（server 里注入 DiversionEngine 刷新） */
+  public setProxyHostsListener(fn: () => void): void {
+    this.proxyHostsListener = fn;
+  }
+
+  /** 单个主机名是否可用作「节点服务器域名」（过滤 IP / 保留域 / 非法串） */
+  private isNodeHostname(raw: string): boolean {
+    if (!raw) return false;
+    if (/^[0-9.]+$/.test(raw) || raw.includes(':')) return false;
+    if (raw === 'localhost' || raw.endsWith('.local') || raw.endsWith('.lan')) return false;
+    if (raw.startsWith('127.') || raw.startsWith('0.')) return false;
+    return /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(raw);
+  }
+
+  /** 从 profile 文本的 [Proxy] 段抽取节点服务器主机名（type, host, port, ... 的第 2 项） */
+  private extractProxyHostsFromProfile(text: string): string[] {
+    const found = new Set<string>();
+    let inProxy = false;
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      if (line.startsWith('[')) {
+        inProxy = line.toLowerCase() === '[proxy]';
+        continue;
+      }
+      if (!inProxy || line.startsWith('#') || line.startsWith('//')) continue;
+      const eq = line.indexOf('=');
+      if (eq < 0) continue;
+      const parts = line.slice(eq + 1).split(',');
+      if (parts.length < 2) continue;
+      const host = parts[1].trim().toLowerCase().replace(/^"|"$/g, '');
+      if (this.isNodeHostname(host)) found.add(host);
+    }
+    return Array.from(found);
+  }
+
+  /**
+   * 学习所有代理节点的服务器域名，写入「节点引导集」。
+   * 这些域名必须能在隧道建立之前就用国内 DNS 解析出来，
+   * 否则「要连节点 → 先解析节点域名 → 解析要经隧道 → 隧道要连节点」会互相卡死。
+   *
+   * 数据源：
+   *  - Surge 5 /v1/proxies：直接给每个策略的 host/server/address（最优）；
+   *  - Surge 6（实测 6.100.0）删了 /v1/proxies（404 unknown path），/v1/policies 只回策略名，
+   *    因此退化为「从策略名里抽主机名」（如「德国-fk.vcncv.com」→ fk.vcncv.com）。
+   */
+  public async refreshProxyBootstrapHosts(): Promise<{
+    ok: boolean;
+    hosts: string[];
+    source?: string;
+    error?: string;
+  }> {
+    const hosts = new Set<string>();
+    let source = '';
+
+    const detailed = await this.callSurgeApi('/v1/proxies');
+    if (detailed.ok && detailed.data && typeof detailed.data === 'object') {
+      const proxies: Record<string, any> =
+        detailed.data.proxies && typeof detailed.data.proxies === 'object'
+          ? detailed.data.proxies
+          : detailed.data;
+      for (const info of Object.values<any>(proxies)) {
+        const raw = String(info?.host ?? info?.server ?? info?.address ?? '')
+          .trim()
+          .toLowerCase();
+        if (this.isNodeHostname(raw)) hosts.add(raw);
+      }
+      if (hosts.size > 0) source = 'proxies';
+    }
+
+    if (hosts.size === 0) {
+      // Surge 6 只暴露敏感字段全遮的 [Proxy]，必须 sensitive=1 才能看到真实主机名。
+      // 这里只抽取第 2 个字段（host），其它字段（含密码）读完即丢，不落盘不打日志。
+      const profileRes = await this.callSurgeApi('/v1/profiles/current?sensitive=1');
+      const profileText = (profileRes.data as any)?.profile;
+      if (profileRes.ok && typeof profileText === 'string') {
+        for (const h of this.extractProxyHostsFromProfile(profileText)) hosts.add(h);
+        if (hosts.size > 0) source = 'profile';
+      }
+    }
+
+    if (hosts.size === 0) {
+      const listed = await this.callSurgeApi('/v1/policies');
+      if (!listed.ok) {
+        return {
+          ok: false,
+          hosts: Store.get().getSurgeProxyHosts(),
+          error: listed.error || `HTTP ${listed.status}`,
+        };
+      }
+      const names: string[] = [];
+      const collect = (v: any) => {
+        if (typeof v === 'string') names.push(v);
+        else if (Array.isArray(v)) v.forEach(collect);
+        else if (v && typeof v === 'object') Object.keys(v).forEach((k) => names.push(k));
+      };
+      collect((listed.data as any)?.proxies);
+      for (const name of names) {
+        const matches = String(name)
+          .toLowerCase()
+          .match(/(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,24}/g);
+        if (!matches) continue;
+        for (const m of matches) if (this.isNodeHostname(m)) hosts.add(m);
+      }
+      source = 'policies-names';
+    }
+
+    const list = Array.from(hosts).sort();
+    // 一条都没学到时保留原值，防止接口变更/引擎未启动把引导集清空
+    if (list.length === 0) {
+      return { ok: true, hosts: Store.get().getSurgeProxyHosts(), source: source || 'empty' };
+    }
+
+    const prev = Store.get().getSurgeProxyHosts();
+    const changed = prev.length !== list.length || prev.some((h, i) => h !== list[i]);
+    if (changed) {
+      Store.get().setSurgeProxyHosts(list);
+      try {
+        this.proxyHostsListener?.();
+      } catch {}
+      // 学到新节点域名后顺手冲一下 Surge 的 DNS 缓存，避免它抱着旧的 SERVFAIL 不放
+      await this.callSurgeApi('/v1/dns/flush', 'POST', {});
+    }
+    return { ok: true, hosts: list, source };
+  }
+
+  /** 手工补录节点域名（名字里没带域名的节点用），与学习结果取并集后落盘 */
+  public async addProxyBootstrapHosts(extra: string[]): Promise<{ ok: boolean; hosts: string[] }> {
+    const merged = new Set(Store.get().getSurgeProxyHosts());
+    for (const item of extra) {
+      const raw = String(item ?? '').trim().toLowerCase();
+      if (this.isNodeHostname(raw)) merged.add(raw);
+    }
+    const list = Array.from(merged).sort();
+    Store.get().setSurgeProxyHosts(list);
+    try {
+      this.proxyHostsListener?.();
+    } catch {}
+    await this.callSurgeApi('/v1/dns/flush', 'POST', {});
+    return { ok: true, hosts: list };
+  }
+
   public async getPolicyGroups(): Promise<SurgePolicyGroupItem[]> {
     const res = await this.callSurgeApi('/v1/policy_groups');
     if (!res.ok || !res.data) return [];
@@ -1406,6 +1650,181 @@ export class SurgeService {
    * 典型故障：Surge MITM 引擎卡死（模块开关/热重载都救不回来），只有重启 Surge 才恢复。
    * 该自检用于把“徽章在、功能没了”这种隐性故障显性化。
    */
+  /**
+   * 构造最小 DoH 探针查询（example.com A）的 base64url GET 路径。
+   * 不走二进制 POST，避免不同 fetch 实现对 Uint8Array body 的差异。
+   */
+  private buildDohProbePath(): string {
+    const labels = ['example', 'com'];
+    const bytes: number[] = [0x4c, 0x44, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    for (const l of labels) {
+      bytes.push(l.length);
+      for (let i = 0; i < l.length; i++) bytes.push(l.charCodeAt(i));
+    }
+    bytes.push(0x00, 0x00, 0x01, 0x00, 0x01);
+    const table = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    let out = '';
+    for (let i = 0; i < bytes.length; i += 3) {
+      const b0 = bytes[i];
+      const b1 = i + 1 < bytes.length ? bytes[i + 1] : undefined;
+      const b2 = i + 2 < bytes.length ? bytes[i + 2] : undefined;
+      out += table[b0 >> 2];
+      out += table[((b0 & 3) << 4) | ((b1 || 0) >> 4)];
+      if (b1 === undefined) break;
+      out += table[((b1 & 15) << 2) | ((b2 || 0) >> 6)];
+      if (b2 === undefined) break;
+      out += table[b2 & 63];
+    }
+    return `/dns-query?dns=${out}`;
+  }
+
+  /** 本地 DoH 活体探测：HTTP 200 且返回 DNS 报文才算可用 */
+  private async probeLocalDoh(
+    port: number,
+    timeoutMs = 2500
+  ): Promise<{ ok: boolean; latencyMs: number; status?: number; error?: string }> {
+    const t0 = Date.now();
+    const url = `http://127.0.0.1:${port}${this.buildDohProbePath()}`;
+    try {
+      const res: any = await Promise.race([
+        fetch(url, { timeout: timeoutMs } as any),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('probe timeout')), timeoutMs)),
+      ]);
+      // DoH 成功时回包是二进制 DNS 报文，尝试纯文本解码会抛 “Failed to decode data to utf-8”。
+      // 因此以 HTTP 200 作为“服务在活且能应答查询”的判据，体积只作为附加信号。
+      let size = 0;
+      try {
+        if (typeof res.bytes === 'function') size = (await res.bytes()).length;
+      } catch {}
+      if (!size) {
+        try {
+          size = (await res.text()).length;
+        } catch {
+          // 二进制回包按预期走这里，不算失败
+        }
+      }
+      return {
+        ok: res.status === 200,
+        latencyMs: Date.now() - t0,
+        status: res.status,
+      };
+    } catch (e: any) {
+      return { ok: false, latencyMs: Date.now() - t0, error: e?.message || String(e) };
+    }
+  }
+
+  /**
+   * DoH 链路自检 + 回退判定（2026-11-12）
+   *
+   * 为什么需要：一旦全机 DNS 只指向 127.0.0.1:9443，Scripting 进程被 iOS 回收时，
+   * 所有「新发起」的解析会直接失败。小组件在独立扩展进程里冷启动、预算只有几十秒，
+   * 是这条链路上第一个倒下的消费端（App 有长连接与系统缓存垫底，所以感觉不到）。
+   *
+   * 这里回答三个问题：
+   *  1) 本地 DoH 现在到底通不通（真发一次查询，不看端口占位）
+   *  2) Surge 生效配置是否把 DNS 挂在本地、有没有留公共回退
+   *  3) 结论 + 可复制的修复片段
+   */
+  public async checkDohFailover(port = 9099): Promise<{
+    ok: boolean;
+    localDoh: { ok: boolean; latencyMs: number; status?: number; error?: string };
+    profile: {
+      reachable: boolean;
+      dependsOnLocal: boolean;
+      hasPublicFallback: boolean;
+      dohServers: string[];
+      dnsServers: string[];
+    };
+    verdict: 'healthy' | 'local_doh_down' | 'no_public_fallback' | 'surge_api_offline';
+    advice: string;
+    snippet: string;
+  }> {
+    const localDoh = await this.probeLocalDoh(port);
+
+    const res = await this.callSurgeApi('/v1/profiles/current?sensitive=0');
+    const profileText: string = typeof res.data?.profile === 'string' ? res.data.profile : '';
+    const collect = (key: string): string[] => {
+      const out: string[] = [];
+      for (const line of profileText.split('\n')) {
+        const t = line.trim();
+        if (!t.toLowerCase().startsWith(`${key} =`)) continue;
+        const val = t.slice(t.indexOf('=') + 1).trim();
+        for (const item of val.split(',')) {
+          const s = item.trim();
+          if (s) out.push(s);
+        }
+      }
+      return out;
+    };
+    const dohServers = [...collect('doh-server'), ...collect('encrypted-dns-server')];
+    const dnsServers = collect('dns-server');
+    // 用配置里实际存在的键名生成建议片段，避免用户粘贴无效键
+    const dohKey = collect('doh-server').length ? 'doh-server' : 'encrypted-dns-server';
+    const snippet = [
+      '[General]',
+      `${dohKey} = https://127.0.0.1:9443/dns-query`,
+      '# 回退链：本地 DoH 不可达时由 dns-server 兜底，避免脚本被回收后全机解析全灭',
+      'dns-server = 223.5.5.5, 119.29.29.29',
+    ].join('\n');
+    const isLocal = (s: string) => /(^|\/\/)(127\.0\.0\.1|localhost)[:\/]/i.test(s);
+    const dependsOnLocal = dohServers.some(isLocal);
+    const hasPublicFallback =
+      dnsServers.some((s) => !isLocal(s)) || dohServers.some((s) => !isLocal(s));
+    const profile = {
+      reachable: !!profileText,
+      dependsOnLocal,
+      hasPublicFallback,
+      dohServers,
+      dnsServers,
+    };
+
+    if (!res.ok || !profileText) {
+      return {
+        ok: localDoh.ok,
+        localDoh,
+        profile,
+        verdict: 'surge_api_offline',
+        advice: localDoh.ok
+          ? 'Surge HTTP API 不可达，无法判断生效配置的 DNS 回退链；本地 DoH 本身是通的。'
+          : 'Surge HTTP API 不可达，且本地 DoH 探测失败：此时全机解析依赖 LocalDNS 进程，小组件会白屏。请先把 LocalDNS 拉回前台（scripting://run/LocalDNS）。',
+        snippet,
+      };
+    }
+
+    if (!localDoh.ok) {
+      return {
+        ok: false,
+        localDoh,
+        profile,
+        verdict: 'local_doh_down',
+        advice: `本地 DoH 探测失败（${localDoh.error || `HTTP ${localDoh.status}`}）：若 Surge/Surge 模块仍把 DNS 指向 127.0.0.1，所有新解析都会失败，小组件首当其冲。先恢复 LocalDNS 进程，再确认 dns-server 留有公共回退。`,
+        snippet,
+      };
+    }
+
+    if (dependsOnLocal && !hasPublicFallback) {
+      return {
+        ok: false,
+        localDoh,
+        profile,
+        verdict: 'no_public_fallback',
+        advice: '生效配置把 DNS 全量交给 127.0.0.1，却没有公共回退：LocalDNS 进程一旦被系统回收，全机（含所有小组件）立刻解析失败。请补上 dns-server 回退链。',
+        snippet,
+      };
+    }
+
+    return {
+      ok: true,
+      localDoh,
+      profile,
+      verdict: 'healthy',
+      advice: dependsOnLocal
+        ? '本地 DoH 正常，且生效配置留有公共 DNS 回退；LocalDNS 掉线时解析会自动落到公共上游。'
+        : '当前生效配置未把 DNS 挂到本地（不依赖 LocalDNS 进程），小组件不受脚本存活性影响。',
+      snippet,
+    };
+  }
+
   /**
    * 采集 Surge 引擎级告警。
    * 这类故障不改 /v1/profiles/current 的文本，却会让「配置看起来全对、实际全不生效」：
@@ -1811,6 +2230,9 @@ export class SurgeService {
         await this.reloadDnsBlockCache();
         const cfg = await this.db.getSurgeConfig();
         if (!cfg.enabled) return;
+
+        // 同步时顺带刷新「节点域名引导集」：机场换域名后不至于再把节点域名送进隧道
+        await this.refreshProxyBootstrapHosts().catch(() => {});
 
         let okCount = 0;
         if (cfg.sync_ruleset) {
@@ -2782,9 +3204,11 @@ export class SurgeService {
       '',
       '[General]',
       '# --- LocalDNS 专属智能解析与基础接管 ---',
+      '# 加密 DNS：主用 LocalDNS 本地 DoH（需安装并信任 LocalDNS Root CA）',
+      'encrypted-dns-server = https://127.0.0.1:9443/dns-query',
+      '# 回退链（2026-11-12）：LocalDNS 进程被系统回收时 doh-server 不可达，Surge 自动落回',
+      '# dns-server 的公共上游，避免全机解析全灭；小组件是这条链路上最先倒下的消费端。',
       'dns-server = 223.5.5.5, 119.29.29.29',
-      '# 加密 DNS：将全机 DNS 交由 LocalDNS（需安装并信任 LocalDNS Root CA）',
-      'doh-server = https://127.0.0.1:9443/dns-query',
       'read-etc-hosts = true',
       'loglevel = notify',
       'bypass-tun = 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12',

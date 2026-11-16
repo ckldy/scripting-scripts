@@ -157,6 +157,22 @@ export class LocalDnsServer {
       console.warn('[LocalDNS] Failed to trigger SurgeService init:', e);
     }
 
+    // 节点域名引导集：从 Surge /v1/proxies 学习代理服务器的域名，
+    // 让它们永远走国内解析，避开「隧道 ↔ 节点域名解析」互为前提的死锁。
+    // Surge 未启动时沿用上次持久化的结果，所以启动即可用。
+    try {
+      SurgeService.get().setProxyHostsListener(() => {
+        try { DiversionEngine.get().reloadLocalRules(); } catch {}
+      });
+      SurgeService.get().refreshProxyBootstrapHosts().catch(() => {});
+      // 60s 一次：Surge 刚启动、节点还在连接时，尽快学会节点域名（本地 GET，开销可忽略）
+      setInterval(() => {
+        SurgeService.get().refreshProxyBootstrapHosts().catch(() => {});
+      }, 60 * 1000);
+    } catch (e) {
+      console.warn('[LocalDNS] proxy bootstrap init failed:', e);
+    }
+
     // 2. Start HTTPS DoH Server (default 9443, with TLS P12 for Surge and RFC 8484 HTTPS clients)
     this.isHttpsActive = false;
     if (FileManager.existsSync(p12Path)) {
@@ -685,6 +701,8 @@ export class LocalDnsServer {
         const group = body.group || body.plugin_tag;
         if (group && Array.isArray(body.upstreams)) {
           store.setUpstreamGroup(group, body.upstreams);
+          // 上游变更后重算「解析器自身上游豁免集」，否则新加的主机名上游仍可能被模块拦掉
+          try { DiversionEngine.get().reloadLocalRules(); } catch {}
         }
         if (body.ecs !== undefined) {
           store.setUpstreamEcs(body.ecs);

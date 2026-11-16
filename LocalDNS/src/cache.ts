@@ -36,7 +36,7 @@ export class CachePool {
     domain: string,
     qtype: number,
     allowExpired = false,
-    replyTtl = 5
+    replyTtl = 60
   ): { packet: DnsPacket; rawBytes: Uint8Array; isLazy: boolean } | null {
     this.queries++;
     const k = this.key(domain, qtype);
@@ -231,7 +231,7 @@ export class CacheManager {
     return total;
   }
 
-  get(poolTag: string, domain: string, qtype: number, allowExpired = false, replyTtl = 5) {
+  get(poolTag: string, domain: string, qtype: number, allowExpired = false, replyTtl = 60) {
     const pool = this.getPool(poolTag) || this.mainCache;
     return pool.get(domain, qtype, allowExpired, replyTtl);
   }
@@ -246,7 +246,7 @@ export class CacheManager {
     domain: string,
     qtype: number,
     allowExpired = false,
-    replyTtl = 5
+    replyTtl = 60
   ) {
     this.aggQueries++;
     let result = this.get(primaryTag, domain, qtype, allowExpired, replyTtl);

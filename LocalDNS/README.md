@@ -1,10 +1,61 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.15.10 (Build 20261111)`  
+> **当前版本**：`v1.15.17 (Build 20261116)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.11.07.2` / 内核 `FJMOS`）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.11.08.4` / 内核 `FJMOS`）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地高性能 DNS 服务与安全管理系统。
+
+### v1.15.17 Surge 联动状态条不再因一次瞬时探测失败而焊死成「未连接」
+- **现象**：代理 → 配置管理顶部状态条显示「Surge 联动未连接」，但 `GET /api/v1/surge/runtime` 实际返回 `online:true`（rtt 2–5 ms），刷新页面又变绿。
+- **真因**：`surge-workbench.js` 只在工作台首次注入时抓一次 `/api/v1/surge/runtime`；后端那条链路要串行跑 `/v1/outbound`（3 s 超时）→ `/v1/modules`（~110 KB）→ `/v1/policy_groups`，Surge 正忙或刚刷规则时一次失败就返回 `online:false`，前端没有任何重试，红色状态就一直留到下次整页刷新。
+- **修法（仅前端，后端零改动）**：① 三态显示——未知 = 琥珀「正在检测 Surge 联动…」、在线 = 绿、离线 = 红并**就地显示原因摘要**（手机上没有 hover）；② 探测失败隔 800 ms 再试一次，in-flight 去重；③ 停在配置页时每 30 s 重探一次，只重绘状态条（`paintStatusBar()`），不重建工作台、不丢当前 tab；④ 状态条重绘后自动重绑「连通测试 / 一键同步」。
+- **验收**：真机浏览器注入 fetch 故障 → 状态条变红并显示「联动接口请求失败: 模拟网络中断」，恢复后自动转绿；6 个 tab 逐个点选正常，头部为「Surge 引擎已连通」、模式 RULE、延迟 2 ms、活跃模块 13 个。
+- **顺带确认**：`/ui/#/proxy-config` 冷启动（直接刷新该 hash）时配置面板停在「请稍候。」、`.pc-root` 不生成，点一下「配置管理」即恢复——**用 11.07.2 旧 bundle 复现结果完全一致**，属上游既有行为，不是换包引入。
+- **脚本版本串**：`surge-workbench.js?v=20261116-v1`（`index.html` 与同步脚本常量同步更新）。
+
+### v1.15.16 精确同步上游 UI 2026.11.08.4（FJN8C 发行线，内核零改动）
+- **精确替换打包 SPA**：`app-BF6QW_hf.js`（883 KB）+ `index-3nLTlqR7.css`（760 KB），旧 `app-DHEFTe3j.js` / `index-V92FMUfL.css` 已移除；`editor-A1rycQg2.js` 上游仍逐字节未变（`84ec8b8f…`），本地 Surge 区段校验原样保留。
+- **发行线换名不换契约**：上游 tag 前缀由 `fjn01-ui-v` 改为 **`fjn8c-ui-v`**，`version.json` 的 `releaseTag` 现跟随上游 `fjn8c-ui-v2026.11.08.4`，`backendVersion` 仍是本地 `FJMOS`。核对新旧 bundle 抽出的 `/api/v1` · `/api/v2` 端点集合：**0 新增 / 0 消失**，28 个既有契约行为不变，`FJMOS` TS 后端无需改动。
+- **同步工具去硬编码**：`tools/sync-upstream-ui.py` 的 tag 判断改为正则（任意 `<线>-ui-v<版本>` 都接受），品牌徽标锚点从写死 `FJN01` 改为 `FJN[0-9A-Z]+` 通配再替换成 `FJMOS`，`releaseTag` 不再强制拼 `fjn01-` 前缀——下次上游再换代号（下一个是 FJN8C 之后）不必改脚本。
+- **上游本版实际改动**（不影响 iOS 移植）：升级服务 `ui-updater` 1.4.2 改为优先走 GitHub 官方附件 API 下载（`browser_download_url` 作为回退），修「在线升级永远卡在下载」；UI 侧新增「等待备份确认」态（停转圈、收起其他升级选项、已上传内核不再显示「尚未选择文件」）。iOS 移植不走 `ui-updater`，仅前端状态变化。
+- **完整性校验**：安装包用发行版 `SHA256SUMS.txt` 校验通过（`b8c50e03b41452af…`，8,761,795 B），收尾自检（7 处 app 补丁特征串、editor Surge 校验、`index.html` 三处定制、`app-*`/`index-*` 唯一性、editor 存在）全绿。
+- **本地定制零丢失**：7 处 Surge 补丁逐条命中（锚点各命中 1 次）、`livepulse.js`、`surge-workbench.js`、AdHunter 入口、`data-backend-version="FJMOS"`、同源 `proxyConfigBase` 全部保留。真机浏览器复核：品牌 `FJMOS`、AdHunter 链接、livepulse 拓扑（6 列 + 闭环层 + 控件）、工作台 6 个 tab / 7 个模块正常加载、代理页文案与 `Surge · CONF` 首选项在位。
+- **验收**：`test-ui-contract.ts` **34/34**；`test-suite.ts` **152/154**，2 项失败（`Direct RULE-SET exports active direct rules`、`Rules text exported for online editor`）是**数据状态**问题而非 UI 回归——生产库里 `direct` / `proxy` 分流组已是 0 条（`2026-11-07` 备份里分别是 4 / 6628 条），失败点在测试写入任何规则**之前**的首次读取，详见下方「已知问题」。
+
+### v1.15.15 修节点引导集在 Surge 6 上完全失效（我自己上一版的 bug）
+- **现象**：`GET /api/v1/surge/proxy-bootstrap` 恒为 `{"success":true,"hosts":[]}`，`POST` 返回 `{"ok":false,"error":"HTTP 404"}`。
+- **真因**：Surge **6.100.0 删除了 `/v1/proxies`**（`{"error":"unknown path"}` / 404），改成 `/v1/policies`。而 `/v1/policies` **只返回策略名**（`{"proxies":["德国-fk.vcncv.com",...],"policy-groups":[...]}`）；顺便把 `v1/policies/<name>`、`/v1/policies/detail`、`/v1/profiles`、`/v1/policy-groups`、`/v1/config` 全试了，**均不存在**，HTTP API 已不再对外暴露任何 host/port 详情（只有 MCP 的 `get_profile_section` 才有）。
+- **上版为何没发现**：v1.15.13 用「假 Surge 服务器」自测时，是按 v5 文档造的 `/v1/proxies` 响应，所以自测通过、真机 404。**假服务器的测试只能证明客户端逻辑，不能证明接口契约**。
+- **修法**：`refreshProxyBootstrapHosts()` 改为**三级数据源**：① `/v1/proxies`（Surge 5，直接给 host/server/address 详情）；② **`/v1/profiles/current?sensitive=1` 解 `[Proxy]` 段，取每行 `type, host, port` 的第 2 个字段**（准确；`sensitive=0` 会把 host 抹成 `masked`，必须用 1；只抽 host，其余字段含密码读完即丢，不落盘不打日志）；③ `/v1/policies` 策略名抽主机名（`德国-fk.vcncv.com` → `fk.vcncv.com`）兜底。响应新增 `source` 字段（`proxies` / `profile` / `policies-names`）；学到空集时**保留原值**不回写，避免接口变动把引导集冲成空。另加 `POST /api/v1/surge/proxy-bootstrap {"hosts":[...]}` 手工补录（名字里不带域名的节点用）。
+- **验收**：真机 Surge 6.100.0 上 `refresh={"ok":true,"hosts":["fk.vcncv.com"],"source":"profile"}`，落盘后分流 `fk.vcncv.com → {group:domestic, domainSet:proxy_bootstrap}`，对照 `stun.sgponte.com`/`example.org` 仍为 `default_foreign`、`dns.google` 仍为 `upstream_bootstrap`。
+
+### v1.15.14 修上游自伤：解析器自己的 DoH 被自己的规则打死
+- **现象**：面板「上游 DNS 健康」长期停在 4/7，`google_doh` 总是异常。即使隧道回来也不恢复。
+- **真因**：`google_doh` 的上游地址是主机名 `https://dns.google/dns-query`，而 `dns.google` 被模块脱水规则拦成黑洞：`GET /api/resolve?name=dns.google` → `{"addresses":["0.0.0.0"],"blocked":true,"domain_set":"surge_module_block"}`。`resolver.ts` 里虽然早就把 `dns.google` 写进了 `BOOTSTRAP_HOSTS` 静态表，但分流拦截（3.2）排在 bootstrap（5）之前，根本走不到。
+- **修法**：`DiversionEngine` 从 `Store.getUpstreamConfig()` 自动收集四个分组里所有上游的 DoH 主机名（IP 上游跳过），再补上 `dns.google` / `cloudflare-dns.com` / `one.one.one.one` / `dns.quad9.net` / `dns.alidns.com` / `doh.pub` / `dot.pub`，在 `match()` 第 **1.2 步**（重写之后、模块拦截之前）直接判 `{group:'domestic', domainSet:'upstream_bootstrap'}`。上游配置变更（`POST /api/v1/upstream/config`）后自动重算。
+- **顺带排除的误报**：`cloudflare_ip` / `google_doh` 在隧道下线时必然全 abort（实测直连 `https://1.1.1.1/dns-query` 6s 超时），`dnspod_doh` 的偶发 abort 是并发竞速撞 2500ms 国内超时（实测 `doh.pub` 本身 `200 / 0.24s`）——这两类不是故障，无需改代码。
+- **预期**：隧道在线时 7/7；隧道下线时 5/7（只差两个境外 DoH）。
+
+### v1.15.13 修「启动后 Surge 节点连不上」：代理节点域名引导集
+- **现象**：启动 LocalDNS 后，Surge 里德国节点连接失败；同时所有境外域名在 LocalDNS 里 6 秒超时后 `SERVFAIL`（`raw.githubusercontent.com`、`api.twitter.com`、`ip-api.com` 等）。
+- **真因（DNS 死锁）**：`default_foreign` 兑底把所有不在 CN 名单里的域名都推给境外 DoH，而境外 DoH 必须经隔道；隔道要连节点，节点域名又要先解析——而 Surge 的 DNS 已全量指向 `127.0.0.1`，于是「连节点 → 解析节点域名 → 走隔道 → 连节点」互为前提。`resolver.ts` 又硬性规定「境外无可用节点时宁可 SERVFAIL 也不 fallback domestic」，所以没有自救路径。实测：`GET /api/resolve?name=stun.sgponte.com` 返回 `SERVFAIL`（`domain_set=default_foreign`），而同一域名用阿里 DoH 查得 `194.156.162.145` / `38.175.109.142`。
+- **修法**：新增「代理节点域名引导集」`proxy_bootstrap`——启动时（及每 60s、及每次同步）从 Surge `GET /v1/proxies` 学习所有节点的服务器域名，持久化到 Storage，在 `DiversionEngine.match()` 里排在灰名单之前直接判定为 `domestic`。Surge 未启动时沿用上次结果，不会因重启丢失。IP 节点、IPv6、`localhost`/`.local`/非法主机名自动跳过。
+- **新增接口**：`GET /api/v1/surge/proxy-bootstrap` 查看当前集；`POST` 立即重学。
+- **验收**：假 Surge 服务（端口 6166 本地模拟 `/v1/proxies`）跑真实调用路径，输出 `{"ok":true,"hosts":["de-01.sgponte.com","hk.sgponte.com"]}`——IP 节点 `82.39.212.190` 与 `router.local` 被正确跳过；分类探针：`stun.sgponte.com` / `a.node1.sgponte.com` → `{group:"domestic",domainSet:"proxy_bootstrap"}`，`example.org` 仍为 `default_foreign`。
+
+### v1.15.12 修复界面版本号假回退（显示 1.14.1，清单其实已是 1.15.x）
+- **现象**：App 导航标题与「版本与开源致敬」显示 `v1.14.1 (Build 20261102)`，而磁盘上 `script.json` 已是 `1.15.11`。
+- **真因**：`APP_VERSION` 用 `FileManager.readAsStringSync(${Script.directory}/script.json)` 取版本，`try{}catch{}` 静默吞掉失败后落到写死的保底常量 `'v1.14.1'`（从 v1.14.1 那次提交起就没再抬过）。实测该读取在当前运行时确实会失败：探针显示 `exists=true`、`isiCloudFileDownloaded=true`，但 `readAsStringSync` 抛「本次脚本运行没有该权限」；只有显式 `downloadFileFromiCloud()` 之后才读得动。
+- **修法**：版本优先读宿主解析的清单 `Script.metadata.version`（无文件 IO，独立探针项目实测 `9.9.9` 原样返回）；文件读取降为兜底；最终兜底改为**不含版号的 `v?`** 并在控制台 `console.warn` 一行，永不再写死陈旧版本。
+- **旁证**：同一探针里 `cert/ca.crt` 这类 `readAsStringSync` 调用同样被拒——`generateAppleDnsProfile()` 的 CA 嵌入也有静默失败风险，本次不动（不扩大范围），仅记录。
+
+### v1.15.11 修「小组件白屏」根因三件套：TTL 抬底 + MITM 收敛 + DoH 失效自检
+- **过期缓存回包 TTL 5s → 60s**：`serveExpiredTtl` 分支只借用 `replyTtl`，5 秒的 TTL 会让消费端（尤其是几十秒预算、每次冷解析的小组件扩展进程）刚拿到地址就又要重查，DNS 一拥而上反而拖慢首屏。现默认 `replyTtl: 60`（`store.ts` 默认值 + `cache.ts` 三处默认参数同步），运行中可用 `POST /api/v1/cache/config {"replyTtl":60}` 热调。实测 `GET /api/resolve?name=www.baidu.com&type=1` 由固定 `ttl:5` 变为 `ttl:110`（真实上游 TTL 透传）。
+- **聚合模块 MITM 域名收敛 462 → 390**：新增 `narrowMitmHosts()`——只有被 HTTP 规则 / 脚本 / 重写正文真正引用过的域名才开解密，`www.youtube.com`、`m.youtube.com`、`s.youtube.com`、`youtubei.googleapis.com`、`imasdk.googleapis.com` 恒保留。匹配分三层：精确子串 → 核心词边界正则 → 去尾部 `x?[0-9]+` 的 stem 兜底（不兜这一层会误杀用 `nivod\d`、`555dy\w{0,3}` 写法的脚本站点，首版就因此误丢 84 个域名）。实测丢弃的 69 个域名（`*.cnn.com`、`*.bloomberg.com`、`www.nytimes.com`、`www.reddit.com`、stackoverflow 等）均无对应脚本，属纯解密开销。
+- **新增 DoH 失效自检 `GET /api/v1/surge/dns-failover`**：本地探测 `127.0.0.1:<端口>/dns-query`，再读 Surge `/v1/profiles/current` 判断「是否把 DNS 全量交给 127.0.0.1」与「是否留了公共回退」，四态输出 `healthy` / `local_doh_down` / `no_public_fallback` / `surge_api_offline`，并附可直接粘贴的 `[General]` 片段（键名跟随配置实际存在的那一个：`encrypted-dns-server` 或 `doh-server`）。同一结果也并入 `/api/v1/surge/hub-health` 的 `dns` 字段。
+- **探针踩坑**：DoH 成功回包是二进制 DNS 报文，用 `res.text()` 判定会抛 `Failed to decode data to utf-8` 并在服务健康时误报 `local_doh_down`；改为以 HTTP 200 为判据、体积仅作附加信号。
+- **生成配置与 UI 片段改用官方键名** `encrypted-dns-server`（旧 `doh-server` 同义），并强制带上 `dns-server = 223.5.5.5, 119.29.29.29` 回退链。本机实测：生效配置里只有 `encrypted-dns-server = https://127.0.0.1:9443/dns-query`、`dns-server` 缺失 —— 这正是「Scripting 进程被回收 ⇒ 全机解析全灭 ⇒ 小组件最先白屏」的现场证据。
 
 ### v1.15.10 修复缓存命中率恒为 0% + 境外 DoH 超时按分组调优
 - **面板「缓存命中率」恒为 0%（真 bug）**：`audit.getStats()` 读的是 raw `mainCache` 池计数，而 main 池是 write-through 回退池、自身只看得见未命中，真实命中数在 `CacheManager` 的逻辑查询聚合量里。改为读 `getPoolMetrics()` 中 `cache_main`（聚合口径）。
@@ -179,6 +230,16 @@
 
 ---
 
+## 已知问题
+
+### 分流组「孤儿规则清理」会连带删掉手工粘贴的规则（待确认修复）
+- **现象**：生产库 `direct`（国内直连）与 `proxy`（节点代理）两个分流组变成 **0 条规则**，`/rules/direct.list` 只剩模块头。`test-suite.ts` 两条断言（`Direct RULE-SET exports active direct rules`、`Rules text exported for online editor`）因此长期不过，与 UI 无关。
+- **时间线证据**：`backup/20261107/surge_link.db` 里 `direct` 4 条（1 条有来源绑定）、`proxy` 6628 条（全部绑定到同一个远程规则集）；现行库里两者均为 0，且 `rule_source_bindings` 与现存规则数等量（53751 ≈ 53751），即「无绑定的规则已不存在」。
+- **机制**：`surge-service.ts` 刷新全部订阅时，**阶段 3** 执行 `DELETE FROM diversion_rules WHERE id NOT IN (SELECT rule_id FROM rule_source_bindings) AND is_auto_learned = 0`——把「已不在任何订阅／模块来源里的手工规则」整批删除。当某个远程规则集被移除（或将 `proxy` 组规则切换回手写）时，原属它的整组规则连同手工补充都会在下次刷新时无提示消失。
+- **待办**：① 是否把阶段 3 限定为「仅清理该来源自己曾经绑定过的规则」或加确认闸门；② 是否从 `20261107` 备份恢复 `proxy` 的 6628 条与 `direct` 的 4 条（需用户确认，因为中间 `block` 组已发生变化，不能整库回滚）。
+
+---
+
 ## 鸣谢与致敬
 
 | 开发者 | 负责内容 |
@@ -205,7 +266,7 @@
   - 遵循 iOS 14+ 官方标准的 `com.apple.dnsSettings.managed` 配置文件规范；
   - 内嵌 `com.apple.security.root` 安全载荷一并下发 `LocalDNS Root CA`，实现“证书信任 + 内核级 DoH”一次性顺畅安装；
   - 由苹果操作系统内核直接驱动本地 9443 DoH 服务，后台零额外耗电、免开任何代理工具，全局阻断 18.5 万条广告。
-- **Surge 专属安全 DoH 接管**：`doh-server = https://127.0.0.1:9443/dns-query`，满足 Surge 对 TLS 的强校验。
+- **Surge 专属安全 DoH 接管**：`encrypted-dns-server = https://127.0.0.1:9443/dns-query`（旧版 `doh-server` 同义），满足 Surge 对 TLS 的强校验；**必须同时保留 `dns-server` 公共回退链**（见下方方案 2），否则 Scripting 进程被系统回收时全机解析全灭。
 - **Shadowrocket 免证书全局接管**：支持明文 HTTP DoH `http://127.0.0.1:9099/dns-query`，小火箭 DNS 覆写秒级生效。
 - **电脑 / 局域网设备接入**：局域网设备可将安全 DNS 指向当前手机 IP，打造家庭级 DNS 防火墙。
 - **Scripting 原生全局 VPN 隧道**：深度调用 Scripting 系统级 `VPN` API，在原生仪表盘提供一键启闭与状态实时联动。
@@ -237,9 +298,14 @@
 2. 点击「复制 Surge DoH 配置」，粘贴至 Surge 配置文件的 `[General]` 节点：
    ```ini
    [General]
-   doh-server = https://127.0.0.1:9443/dns-query
+   encrypted-dns-server = https://127.0.0.1:9443/dns-query
+   # 回退链：本地 DoH 不可达时由 dns-server 兜底
+   dns-server = 223.5.5.5, 119.29.29.29
    skip-proxy = 127.0.0.1, localhost, *.local, 192.168.0.0/16
    ```
+   > ⚠️ 回退链不是可选项。DoH 服务跑在 Scripting 进程里，进程被 iOS 回收时 127.0.0.1:9443 直接拒连；
+   > 没有 `dns-server` 兜底就变成「全机解析全灭」，而 Scripting 小组件（独立扩展进程、几十秒预算、每次冷解析）
+   > 会第一个白屏。只想避免这个副作用：不要安装方案 1 的描述文件。
 3. 开启 Surge，全设备 DNS 查询瞬间由本地 18.5 万条 AdGuard 广告规则直接黑洞化！
 
 ### 方案 3：Shadowrocket (小火箭 · 免证书全局接管)

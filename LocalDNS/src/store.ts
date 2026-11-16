@@ -31,9 +31,12 @@ export class Store {
   private interfaceSettings: Record<string, { value: any; revision: number }> = {};
   private ruleBackups: Record<string, Array<{ id: string; time: number; bytes: number; tag: string; content: string }>> = {};
   private speedConfig: SpeedConfig = { enabled: true, mode: 'tcp:443,tcp:80', responseMode: 'fastest-ip', maxReplyIpNum: 0, timeoutMs: 800, dualstackSelection: false };
-  private cacheConfig: CacheConfig = { size: 20000, persist: true, prefetch: true, serveExpiredTtl: 86400, replyTtl: 5, rrTtlMin: 0, rrTtlMax: 0, negativeTtl: 60 };
+  private cacheConfig: CacheConfig = { size: 20000, persist: true, prefetch: true, serveExpiredTtl: 86400, replyTtl: 60, rrTtlMin: 0, rrTtlMax: 0, negativeTtl: 60 };
   private dns64Config: Dns64Config = { enabled: false, prefix: '64:ff9b::/96' };
   private namedSets: NamedSets = { domainSets: {}, ipSets: {} };
+  // Surge 代理节点的服务器域名（从 /v1/proxies 学习）：必须国内直连解析，
+  // 否则「隧道要连节点 → 节点域名要解析 → 解析要经隧道」互为前提，节点永远连不上
+  private surgeProxyHosts: string[] = [];
 
   private constructor() {
     this.upstreamConfig = this.loadOrDefault('localdns_upstreams', {
@@ -158,6 +161,7 @@ export class Store {
     this.cacheConfig = this.loadOrDefault('localdns_cache_config', this.cacheConfig);
     this.dns64Config = this.loadOrDefault('localdns_dns64_config', this.dns64Config);
     this.namedSets = this.loadOrDefault('localdns_named_sets', this.namedSets);
+    this.surgeProxyHosts = this.loadOrDefault<string[]>('localdns_surge_proxy_hosts', []);
 
     // Auto-healing: Ensure primary AdGuard filter source and switch7 are enabled so ad blocking works out of the box!
     let sourcesChanged = false;
@@ -447,5 +451,15 @@ export class Store {
     this.namedSets = { ...this.namedSets, ...patch };
     this.persist('localdns_named_sets', this.namedSets);
     return this.namedSets;
+  }
+
+  // 代理节点域名引导集（Surge /v1/proxies 学习结果）
+  getSurgeProxyHosts(): string[] {
+    return this.surgeProxyHosts.slice();
+  }
+
+  setSurgeProxyHosts(hosts: string[]): void {
+    this.surgeProxyHosts = hosts.slice();
+    this.persist('localdns_surge_proxy_hosts', this.surgeProxyHosts);
   }
 }

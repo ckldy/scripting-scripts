@@ -3,7 +3,7 @@
 
 用法：
   python3 tools/sync-upstream-ui.py latest                  # 自动取 GitHub 最新发行版
-  python3 tools/sync-upstream-ui.py fjn01-ui-v2026.11.07.2   # 直接按 tag 下载
+  python3 tools/sync-upstream-ui.py fjn8c-ui-v2026.11.08.4   # 直接按 tag 下载
   python3 tools/sync-upstream-ui.py <upstream-ui-dir>        # 已解包的 ui/ 目录
 
 做的事：
@@ -18,6 +18,7 @@ import datetime
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import urllib.request
@@ -29,7 +30,7 @@ APP_GROUP = "/var/mobile/Containers/Shared/AppGroup/8C8228F0-EECE-4A41-A8A8-3339
 SPEC = os.path.join(APP_GROUP, "patch_spec.json")
 
 LIVEPULSE = '  <script src="/ui/assets/livepulse.js?v=20261105-v2" defer></script>\n' \
-            '  <script src="/ui/assets/surge-workbench.js?v=20261106-v2" defer></script>\n'
+            '  <script src="/ui/assets/surge-workbench.js?v=20261116-v1" defer></script>\n'
 ADHUNTER = (
     '          <a href="/ui/ad-hunter.html" target="_blank" class="version-button" style="text-decoration:none;'
     'display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:rgba(59,130,246,0.15);'
@@ -39,8 +40,10 @@ ADHUNTER = (
     '          </a>\n'
 )
 DOCK_ANCHOR = '        <div class="top-actions-dock">\n'
-BRAND_OLD = 'data-backend-version="FJN01">FJN01<'
+# 上游内核代号会随发行线变（FJN01 → FJN8C …），徽标锚点按模式匹配，不再写死某一代号
+BRAND_RE = re.compile(r'data-backend-version="FJN[0-9A-Z]+">FJN[0-9A-Z]+<')
 BRAND_NEW = 'data-backend-version="FJMOS">FJMOS<'
+TAG_RE = re.compile(r"^[a-z0-9]+-ui-v\d{4}\.\d{2}\.\d{2}(\.\d+)?$")
 
 
 def sha(path):
@@ -127,7 +130,7 @@ def main():
     up = sys.argv[1]
     if up in ("latest", "--latest"):
         up = resolve_latest()
-    if up.startswith(("fjn01-ui-v", "fjmos-ui-v", "ui-v")):
+    if TAG_RE.match(up) or up.startswith("ui-v"):
         up = fetch_release(up)
     up_assets = os.path.join(up, "assets")
     new_app = one(up_assets, "app-", ".js")
@@ -208,7 +211,8 @@ def main():
     # ---- 4. version.json ----
     ver = json.loads(read(os.path.join(up, "version.json")))
     ver["backendVersion"] = "FJMOS"
-    ver["releaseTag"] = "fjn01-ui-v%s" % ver["uiVersion"]
+    # releaseTag 跟随上游发行线（fjn01- / fjn8c- …），不再硬编码前缀
+    ver.setdefault("releaseTag", "ui-v%s" % ver["uiVersion"])
     write(os.path.join(WEB, "version.json"), json.dumps(ver, ensure_ascii=False, indent=2) + "\n")
 
     # ---- 5. index.html ----
@@ -220,9 +224,9 @@ def main():
     if html.count(DOCK_ANCHOR) != 1:
         raise SystemExit("index.html 中未能唯一定位 top-actions-dock")
     html = html.replace(DOCK_ANCHOR, DOCK_ANCHOR + ADHUNTER)
-    if html.count(BRAND_OLD) != 1:
-        raise SystemExit("index.html 中未能定位品牌版本徽标")
-    html = html.replace(BRAND_OLD, BRAND_NEW)
+    if len(BRAND_RE.findall(html)) != 1:
+        raise SystemExit("index.html 中未能唯一匹配品牌版本徽标（%d 处）" % len(BRAND_RE.findall(html)))
+    html = BRAND_RE.sub(BRAND_NEW, html)
     write(os.path.join(WEB, "index.html"), html)
 
     # ---- 6. 收尾自检：任何一项不符都不算同步成功 ----

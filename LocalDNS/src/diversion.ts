@@ -53,6 +53,11 @@ export class DiversionEngine {
   private static instance: DiversionEngine;
 
   private whitelist = new Set<string>();
+  // Surge 节点服务器域名：隧道引导面，必须走国内解析（见 SurgeService.refreshProxyBootstrapHosts）
+  private surgeProxyHosts = new Set<string>();
+  // 解析器自己的上游端点（DoH 主机名）：任何拦截规则都不允许把它们打掉，
+  // 否则像 google_doh（https://dns.google/dns-query）会因为 dns.google 被模块拦成 0.0.0.0 而永久死号
+  private upstreamHosts = new Set<string>();
   private blocklist = new Set<string>();
   private greylist = new Set<string>();
   private forceRealip = new Set<string>();
@@ -82,6 +87,30 @@ export class DiversionEngine {
     const store = Store.get();
 
     this.whitelist = this.parseList(store.getRule('whitelist'));
+    this.surgeProxyHosts = new Set(
+      store.getSurgeProxyHosts()
+        .map((h) => String(h || '').trim().toLowerCase().replace(/^\.+/, ''))
+        .filter((h) => h.length > 0),
+    );
+
+    // 收集所有已配置上游的主机名（IP 上游不需要），再加常见公共 DoH 兑底
+    this.upstreamHosts.clear();
+    const upstreamCfg: any = store.getUpstreamConfig();
+    for (const group of ['domestic', 'foreign', 'foreign_ecs', 'proxy']) {
+      const list = Array.isArray(upstreamCfg?.[group]) ? upstreamCfg[group] : [];
+      for (const node of list) {
+        const raw = String(node?.addr || '').trim().toLowerCase();
+        if (!raw) continue;
+        let host = raw.replace(/^[a-z0-9]+:\/\//i, '').split('/')[0];
+        host = host.replace(/:\d+$/, '');
+        if (!host) continue;
+        if (/^[0-9.]+$/.test(host) || host.includes(':')) continue;
+        this.upstreamHosts.add(host);
+      }
+    }
+    for (const h of ['dns.google', 'cloudflare-dns.com', 'one.one.one.one', 'dns.quad9.net', 'dns.alidns.com', 'doh.pub', 'dot.pub']) {
+      this.upstreamHosts.add(h);
+    }
     this.blocklist = this.parseList(store.getRule('blocklist'));
     this.greylist = this.parseList(store.getRule('greylist'));
     this.forceRealip = this.parseList(store.getRule('force_realip'));
@@ -181,6 +210,11 @@ export class DiversionEngine {
       return { group: 'foreign', domainSet: 'playback_allow' };
     }
 
+    // 1.2 解析器自身上游：先于一切模块/广告拦截，保证自己的 DoH 永远能解析
+    if (this.matchSet(d, this.upstreamHosts)) {
+      return { group: 'domestic', domainSet: 'upstream_bootstrap' };
+    }
+
     // 1.5 检查活跃 App 模块的脱水 DNS 拦截库 (高优先级)
     const moduleBlocked = SurgeService.get().isDomainBlocked(d, opts?.skipHit === true);
     if (moduleBlocked.blocked) {
@@ -200,6 +234,12 @@ export class DiversionEngine {
     // 4. Local Whitelist (Checked after ad blocking)
     if (this.matchSet(d, this.whitelist)) {
       return { group: 'domestic', domainSet: 'whitelist' };
+    }
+
+    // 4.5 Surge 节点服务器域名：必须在隧道起来之前就能用国内 DNS 解析出来，
+    // 否则「要连节点→先解析节点域名→解析要经隧道→隧道要连节点」会互相卡死
+    if (this.matchSet(d, this.surgeProxyHosts)) {
+      return { group: 'domestic', domainSet: 'proxy_bootstrap' };
     }
 
     // 5. Local Greylist (Force foreign)
@@ -286,6 +326,7 @@ export class DiversionEngine {
     const store = Store.get();
     const counts: Record<string, number> = {
       whitelist: this.whitelist.size,
+      proxy_bootstrap: this.surgeProxyHosts.size,
       blocklist: this.blocklist.size,
       greylist: this.greylist.size,
       force_realip: this.forceRealip.size,

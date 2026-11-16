@@ -3,13 +3,13 @@ import { LocalDnsServer } from '../src/server';
 import { Store } from '../src/store';
 
 /**
- * 上游 SPA（FJN01 / UI 2026.11.07.2）契约校验。
+ * 上游 SPA（FJN8C / UI 2026.11.08.4）契约校验。
  * 重点覆盖 UI normalizeResponse 对 GET 响应的严格类型校验、
  * upstream/config 的 group 字段兼容、/api/v1/features 的 legacy 探测、
  * 独立缓存开关 (switch13/switch4) 与 国外 IP 段 (foreign_ip / foreign_cidrs)。
  */
 async function main() {
-  console.log('=== [LocalDNS] UI Contract Verification (FJN01 / UI 2026.11.07.2) ===');
+  console.log('=== [LocalDNS] UI Contract Verification (FJN8C / UI 2026.11.08.4) ===');
   let passed = 0;
   let failed = 0;
   const assert = (cond: boolean, desc: string) => {

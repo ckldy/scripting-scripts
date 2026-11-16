@@ -42,16 +42,23 @@ declare namespace Safari {
   function openURL(url: string): Promise<void>;
 }
 
-// 版本号唯一真源：直接读 script.json，避免清单与界面常量漂移（曾出现清单 1.14.1、界面仍显示 1.12.0）
+// 版本号唯一真源：宿主解析的 script.json 清单（Script.metadata，无文件 IO）
+// 曾有坑：直接 readAsStringSync(script.json) 在本次脚本运行无文件权限时会抛错，被 catch 吞掉后
+// 一直落到写死的旧版本号（界面显示 1.14.1，清单其实已是 1.15.x）。
 const APP_VERSION = (() => {
+  const metaVersion = (Script.metadata as { version?: string } | undefined)?.version;
+  if (typeof metaVersion === 'string' && metaVersion.trim()) return `v${metaVersion.trim()}`;
   try {
     const raw = FileManager.readAsStringSync(`${Script.directory}/script.json`);
     const v = JSON.parse(raw)?.version;
     if (typeof v === 'string' && v) return `v${v}`;
-  } catch {}
-  return 'v1.14.1';
+  } catch (e) {
+    console.warn('[LocalDNS] 读取 script.json 失败，版本号显示为 v?：', String(e));
+  }
+  // 兜底不再写死任何版本号，避免再次出现「清单 1.15.x / 界面 1.14.x」的假版本
+  return 'v?';
 })();
-const APP_BUILD = '20261102';
+const APP_BUILD = '20261116';
 const APP_AUTHOR = 'vcncv';
 const UPSTREAM_REPO = 'https://github.com/yyhoworks/LocalDNS';
 
@@ -239,10 +246,10 @@ function LocalDnsApp() {
   };
 
   const copySurgeDohConfig = async () => {
-    const snippet = `[General]\ndoh-server = https://127.0.0.1:9443/dns-query\nskip-proxy = 127.0.0.1, localhost, *.local, 192.168.0.0/16\n\n[Rule]\nIP-CIDR,223.5.5.5/32,DIRECT,no-resolve\nIP-CIDR,119.29.29.29/32,DIRECT,no-resolve`;
+    const snippet = `[General]\nencrypted-dns-server = https://127.0.0.1:9443/dns-query\n# 回退链：本地 DoH 不可达时落到公共上游，避免 LocalDNS 被系统回收后全机解析全灭\ndns-server = 223.5.5.5, 119.29.29.29\nskip-proxy = 127.0.0.1, localhost, *.local, 192.168.0.0/16\n\n[Rule]\nIP-CIDR,223.5.5.5/32,DIRECT,no-resolve\nIP-CIDR,119.29.29.29/32,DIRECT,no-resolve`;
     if (typeof Pasteboard !== 'undefined' && Pasteboard.setString) {
       await Pasteboard.setString(snippet);
-      setStatusMessage(`已复制 Surge 专属 DoH 配置：doh-server = https://127.0.0.1:9443/dns-query！`);
+      setStatusMessage(`已复制 Surge 专属 DoH 配置：encrypted-dns-server = https://127.0.0.1:9443/dns-query！`);
     }
   };
 
