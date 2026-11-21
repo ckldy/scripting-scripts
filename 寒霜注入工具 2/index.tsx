@@ -1861,7 +1861,7 @@ export default function MainView() {
           <HStack>
             <Text foregroundStyle="secondaryLabel">版本号</Text>
             <Spacer />
-            <Text>v1.0.0</Text>
+            <Text>v1.2.1</Text>
           </HStack>
           <HStack>
             <Text foregroundStyle="secondaryLabel">作者</Text>
