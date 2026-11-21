@@ -1,0 +1,32 @@
+{
+  "remoteResource" : null,
+  "description" : "本地提示词注入与网关代理工具（Scripting 版）：内置完整 WebUI、人物卡管理、提示词库与寒霜预设模板。",
+  "iconImage" : null,
+  "localizedNames" : {
+    "zh" : "寒霜注入工具",
+    "en" : "Hanshuang Inject Tool"
+  },
+  "intentInputTypes" : [
+
+  ],
+  "author" : null,
+  "color" : "rgba(37, 99, 235, 1)",
+  "contributors" : [
+
+  ],
+  "name" : "寒霜注入工具 2",
+  "runInApp" : true,
+  "permissions" : [
+    "fileSystem",
+    "scriptingAgent",
+    "location"
+  ],
+  "icon" : "wand.and.stars",
+  "entry" : "index.tsx",
+  "version" : "1.2.0",
+  "remoteDefinitionId" : null,
+  "localizedDescriptions" : {
+    "en" : "Prompt and Gateway Injection Tool with full WebUI, prompt cards and templates.",
+    "zh" : "本地提示词注入与网关代理工具（Scripting 版）：内置完整 WebUI、人物卡管理、提示词库与寒霜预设模板。"
+  }
+}
