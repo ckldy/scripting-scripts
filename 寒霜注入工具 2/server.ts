@@ -686,7 +686,7 @@ export function stripToolMarkup(input: string): string {
   // 4. 残留孤立标签清洗
   s = s.replace(/<\s*\/?\s*[｜|]{1,2}[^>]*>/gi, "");
   s = s.replace(/[｜|]{1,2}\s*(?:DSML|calls|invoke|parameter|call_end|invoke_end)[｜|]*/gi, "");
-  s = s.replace(/<\s*\/?\s*(?:tool_calls|function_calls|tool_call|function_call|tool_invoke|invoke|parameter|antml:\w+)\b[^>]*>/gi, "");
+  s = s.replace(/<\s*\/?\s*(?:tool_?(?:tool_)?\s?calls?|function_calls|tool_call|function_call|tool_invoke|invoke|parameter|antml:\w+)\b[^>]*>/gi, "");
   s = s.replace(/<\s*call:[A-Za-z0-9_:-]+\b[^>]*\/?>/gi, "");
   s = s.replace(/<\s*\/\s*>/g, "");
 
@@ -897,10 +897,12 @@ export function withReasoningDiscipline(systemPrompt: string): string {
 
 /** 任何可能开启工具调用块的标记（大小写不敏感，允许 < 与标签名之间存在空白） */
 const TOOL_MARKUP_START_RE =
-  /<\s*\/?\s*(?:tool_?\s?calls?|function_?\s?calls?|tool_invoke|invoke|tool_use|tool_result|tool_response|parameters?|antml:)|[｜|]{1,2}\s*(?:DSML|calls|call_end|invoke|invoke_end|parameter)|\[\s*调用工具|<\s*[｜|]|\{\s*"(?:tool_calls|tool_call|function_call)"\s*:|to=functions\./i;
+  /<\s*\/?\s*(?:tool_?(?:tool_)?\s?calls?|function_?\s?calls?|tool_invoke|invoke|tool_use|tool_result|tool_response|parameters?|antml:)|[｜|]{1,2}\s*(?:DSML|calls|call_end|invoke|invoke_end|parameter)|\[\s*调用工具|<\s*[｜|]|\{\s*"(?:tool_calls|tool_call|function_call)"\s*:|to=functions\./i;
 
 /** 工具标签名：只扣住仍在成形的标签名，不误伤正常正文里的 < / [ / { */
 const TOOL_TAG_NAMES = [
+  "tool_tool_calls",
+  "tool_tool_call",
   "tool_calls",
   "tool_call",
   "function_calls",
@@ -1022,6 +1024,9 @@ export class StreamToolFilter {
     const maxLen = Math.min(n - this.pushedLength, 32);
     for (let len = maxLen; len >= 1; len--) {
       const suffix = text.slice(n - len);
+      // 0) 只有 < 或 </ 或 <+空白：标签名还没成形，先扣住等下一块
+      //    （不加这条：逐字符推送时 n-pushedLength 只有 1，裸 < 会被当场推出）
+      if (/^<\s*\/?\s*$/.test(suffix)) return len;
       // 1) <tag / </tag 的标签名仍在成形（含仅有 < 或 </）
       const tag = /^<\s*\/?\s*([a-z_:][a-z_: ]*)$/i.exec(suffix);
       if (tag) {
@@ -1122,7 +1127,7 @@ export class StreamToolFilter {
 
 /** 文本里是否包含工具调用痕迹（用于区分“空回复”和“工具通道不支持”） */
 export function looksLikeToolCall(input: string): boolean {
-  return /[｜|]{2}\s*DSML|antml:invoke|<\s*function_call\b|<\s*tool_invoke\b|\[调用工具\s+[A-Za-z_]|"name"\s*:\s*"[A-Za-z_][\w.:-]*"[^}]*"arguments"/i.test(
+  return /[｜|]{2}\s*DSML|antml:invoke|<\s*function_call\b|<\s*tool_invoke\b|<\s*tool_?(?:tool_)?\s?calls?\b|\[调用工具\s+[A-Za-z_]|"name"\s*:\s*"[A-Za-z_][\w.:-]*"[^}]*"arguments"/i.test(
     input || ""
   );
 }
@@ -1429,7 +1434,7 @@ export function parseToolCalls(
       }));
   };
 
-  const wrap = /<\s*tool_calls\s*>([\s\S]*?)<\s*\/\s*tool_calls\s*>/i.exec(src);
+  const wrap = /<\s*tool_?(?:tool_)?\s?calls?\s*>([\s\S]*?)<\s*\/\s*tool_?(?:tool_)?\s?calls?\s*>/i.exec(src);
   const fence = wrap ? null : /```(?:json)?\s*([\s\S]*?)```/i.exec(src);
   const chunk = wrap ? wrap[1] : fence ? fence[1] : null;
   if (chunk) {
