@@ -3,7 +3,7 @@
 > 本地提示词注入与网关代理工具（Scripting 版）
 
 - **作者**: vcncv
-- **版本**: v1.2.3
+- **版本**: v1.2.4
 - **环境**: iOS / iPadOS Scripting App
 
 ---

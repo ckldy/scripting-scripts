@@ -683,8 +683,12 @@ export function stripToolMarkup(input: string): string {
   s = s.replace(/<invoke\b[\s\S]*?<\/\s*invoke\s*>/gi, "");
   s = s.replace(/<antml:invoke\b[\s\S]*?<\/\s*antml:invoke\s*>/gi, "");
 
-  // 3. 块级清洗：中文降级标记
-  s = s.replace(/\[调用工具\s+[A-Za-z_][\w.:-]*\s+参数\s*\{[\s\S]*?\}\]/g, "");
+  // 3. 块级清洗：中文降级标记 ([调用工具 / <调用工具)
+  s = s.replace(
+    /[<\[【＜]\s*调用工具\s+[A-Za-z_][\w.:-]*\s+(?:参数|arguments|args)\s*=?\s*\{[\s\S]*?\}(?:\s*[\/>\]】＞]|\s*<\/\s*调用工具\s*>)?/gi,
+    ""
+  );
+  s = s.replace(/<\/\s*调用工具\s*>/gi, "");
 
   // 4. 残留孤立标签清洗
   s = s.replace(/<\s*\/?\s*[｜|]{1,2}[^>]*>/gi, "");
@@ -900,7 +904,7 @@ export function withReasoningDiscipline(systemPrompt: string): string {
 
 /** 任何可能开启工具调用块的标记（大小写不敏感，允许 < 与标签名之间存在空白） */
 const TOOL_MARKUP_START_RE =
-  /<\s*\/?\s*(?:tool_?(?:tool_)?\s?calls?|function_?\s?calls?|tool_invoke|invoke|tool_use|tool_result|tool_response|parameters?|antml:)|[｜|]{1,2}\s*(?:DSML|calls|call_end|invoke|invoke_end|parameter)|\[\s*调用工具|<\s*[｜|]|\{\s*"(?:tool_calls|tool_call|function_call)"\s*:|to=functions\./i;
+  /<\s*\/?\s*(?:tool_?(?:tool_)?\s?calls?|function_?\s?calls?|tool_invoke|invoke|tool_use|tool_result|tool_response|parameters?|antml:)|[｜|]{1,2}\s*(?:DSML|calls|call_end|invoke|invoke_end|parameter)|[<\[【＜]\s*\/?\s*调用工具|<\s*[｜|]|\{\s*"(?:tool_calls|tool_call|function_call)"\s*:|to=functions\./i;
 
 /** 工具标签名：只扣住仍在成形的标签名，不误伤正常正文里的 < / [ / { */
 const TOOL_TAG_NAMES = [
@@ -939,6 +943,9 @@ const TOOL_MARKUP_PREFIXES = [
   "｜invoke_end",
   "｜parameter",
   "[调用工具",
+  "<调用工具",
+  "【调用工具",
+  "＜调用工具",
 ];
 
 /**
@@ -1130,7 +1137,7 @@ export class StreamToolFilter {
 
 /** 文本里是否包含工具调用痕迹（用于区分“空回复”和“工具通道不支持”） */
 export function looksLikeToolCall(input: string): boolean {
-  return /[｜|]{2}\s*DSML|antml:invoke|<\s*function_call\b|<\s*tool_invoke\b|<\s*tool_?(?:tool_)?\s?calls?\b|\[调用工具\s+[A-Za-z_]|"name"\s*:\s*"[A-Za-z_][\w.:-]*"[^}]*"arguments"/i.test(
+  return /[｜|]{2}\s*DSML|antml:invoke|<\s*function_call\b|<\s*tool_invoke\b|<\s*tool_?(?:tool_)?\s?calls?\b|[<\[【＜]\s*\/?\s*调用工具|"name"\s*:\s*"[A-Za-z_][\w.:-]*"[^}]*"arguments"/i.test(
     input || ""
   );
 }
@@ -1455,8 +1462,8 @@ export function parseToolCalls(
     } catch {}
   }
 
-  // E) 降级格式：[调用工具 shell 参数 {...}]
-  const tagRe = /\[调用工具\s+([A-Za-z_][\w.:-]*)\s+参数\s*\{/g;
+  // E) 降级格式：[调用工具 / <调用工具 shell 参数={...}]
+  const tagRe = /[<\[【＜]\s*调用工具\s+([A-Za-z_][\w.:-]*)\s+(?:参数|arguments|args)\s*=?\s*\{/gi;
   let tm: RegExpExecArray | null;
   while ((tm = tagRe.exec(src)) !== null) {
     const startBrace = tm.index + tm[0].length - 1;
@@ -1494,7 +1501,9 @@ export function parseToolCalls(
     if (depth !== 0) break;
     calls.push({ name: tm[1], arguments: src.slice(startBrace, j) });
     let end = j;
-    if (src[end] === "]") end++;
+    while (end < src.length && /[\s>\]】＞\/]/.test(src[end])) end++;
+    const closeTag = /^<\/\s*调用工具\s*>/i.exec(src.slice(end));
+    if (closeTag) end += closeTag[0].length;
     spans.push([tm.index, end]);
     tagRe.lastIndex = end;
   }

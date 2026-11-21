@@ -146,7 +146,7 @@ Scripting (iOS) 小脚本合集。每个脚本独立目录、独立打包，互�
 - **App 直链**：`scripting://import_scripts?urls=https://raw.githubusercontent.com/ckldy/scripting-scripts/main/dist/台风路径.zip`
 
 ### 🎬 黃豆短劇
-- **版本**：`1.2.3`
+- **版本**：`1.2.4`
 - **特性**：
   - 优质热门短剧浏览、快速检索与追剧收藏夹；
   - 支持播放历史记忆、上下滑切集手势与进度条随心拖拽。
