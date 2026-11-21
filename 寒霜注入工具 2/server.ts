@@ -668,10 +668,13 @@ export function stripToolMarkup(input: string): string {
   if (!input) return "";
   let s = input;
 
+  // 先做一次标记归一化，把各类带空格、DSML 的变体压平
+  s = normalizeToolMarkup(s);
+
   // 1. 块级清洗：DSML 全块 (支持 <｜｜DSML｜｜ ... </｜｜DSML｜｜ ...> 或 |DSML|...|DSML|call_end|)
   s = s.replace(/(?:<\s*\/?\s*)?[｜|]{1,2}\s*DSML\b[\s\S]*?(?:<\s*\/\s*[｜|]{1,2}\s*DSML\b[^>]*>|[｜|]{1,2}\s*(?:call_end|calls_end|invoke_end)\b[｜|]*(?:\s*>)?)/gi, "");
 
-  // 2. 块级清洗：标准 XML 与函数调用标签
+  // 2. 块级清洗：标准 XML 与函数调用标签（全量覆盖 tool_calls / tool_call / function_call 等单复数与空格）
   s = s.replace(/<tool_(?:tool_)?calls\b[\s\S]*?<\/\s*tool_(?:tool_)?calls\s*>/gi, "");
   s = s.replace(/<function_calls\b[\s\S]*?<\/\s*function_calls\s*>/gi, "");
   s = s.replace(/<tool_invoke\b[\s\S]*?<\/\s*tool_invoke\s*>/gi, "");
@@ -686,7 +689,7 @@ export function stripToolMarkup(input: string): string {
   // 4. 残留孤立标签清洗
   s = s.replace(/<\s*\/?\s*[｜|]{1,2}[^>]*>/gi, "");
   s = s.replace(/[｜|]{1,2}\s*(?:DSML|calls|invoke|parameter|call_end|invoke_end)[｜|]*/gi, "");
-  s = s.replace(/<\s*\/?\s*(?:tool_?(?:tool_)?\s?calls?|function_calls|tool_call|function_call|tool_invoke|invoke|parameter|antml:\w+)\b[^>]*>/gi, "");
+  s = s.replace(/<\s*\/?\s*(?:tool_?(?:tool_)?\s?calls?|function_?\s?calls?|tool_?\s?call|function_?\s?call|tool_invoke|invoke|parameter|antml:\w+)\b[^>]*>/gi, "");
   s = s.replace(/<\s*call:[A-Za-z0-9_:-]+\b[^>]*\/?>/gi, "");
   s = s.replace(/<\s*\/\s*>/g, "");
 
@@ -1188,13 +1191,15 @@ export function normalizeToolMarkup(text: string): string {
       /(?:<\s*)?[｜|]{1,2}\s*DSML\s*[｜|]{1,2}\s*parameter\s+name=["']?([^"'｜|>\s]+)["']?[^>\n]*>?/gi,
       '<parameter name="$1">'
     )
-    // function_call / function_calls 标签
-    .replace(/<\s*tool\s+calls\s*>/gi, "<tool_tool_calls>")
-    .replace(/<\s*\/\s*tool\s+calls\s*>/gi, "</tool_tool_calls>")
-    .replace(/<\s*function_calls\s*>/gi, "<tool_tool_calls>")
-    .replace(/<\s*\/\s*function_calls\s*>/gi, "</tool_tool_calls>")
-    .replace(/<\s*function_call\b/gi, "<tool_call")
-    .replace(/<\s*\/\s*function_call\s*>/gi, "</tool_call>")
+    // tool_calls / tool_call / function_call / function_calls 标签支持空格及单复数
+    .replace(/<\s*tool[_\s]+calls\s*>/gi, "<tool_tool_calls>")
+    .replace(/<\s*\/\s*tool[_\s]+calls\s*>/gi, "</tool_tool_calls>")
+    .replace(/<\s*function[_\s]+calls\s*>/gi, "<tool_tool_calls>")
+    .replace(/<\s*\/\s*function[_\s]+calls\s*>/gi, "</tool_tool_calls>")
+    .replace(/<\s*tool[_\s]+call\b/gi, "<tool_call")
+    .replace(/<\s*\/\s*tool[_\s]+call\s*>/gi, "</tool_call>")
+    .replace(/<\s*function[_\s]+call\b/gi, "<tool_call")
+    .replace(/<\s*\/\s*function[_\s]+call\s*>/gi, "</tool_call>")
     // antml: 标签（注意保留闭合斜杠）
     .replace(/<\s*(\/?)\s*antml:?/gi, "<$1")
     // call:tool_name{...} 语法 (Gemini / 特殊模型)
