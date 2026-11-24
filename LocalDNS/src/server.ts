@@ -832,31 +832,47 @@ export class LocalDnsServer {
         else if (!/^\d+$/.test(v)) type = qtypeName === 'A' || qtypeName === 'AAAA' ? 'CNAME' : qtypeName;
         return { type, data: v, value: v, ttl: null };
       };
-      const mapLog = (log: any) => ({
-        // New UI fields
-        query_name: log.domain,
-        query_type: log.query_type,
-        query_class: 'IN',
-        client_ip: log.client,
-        client_alias: log.client_alias,
-        response_code: log.response_code,
-        query_time: new Date((log.timestamp || 0) * 1000).toISOString(),
-        answers: Array.isArray(log.answers)
-          ? log.answers.map((a: string) => mapAnswer(a, log.query_type))
-          : [],
-        cache: typeof log.upstream_tag === 'string' && log.upstream_tag.startsWith('cache'),
-        upstream_attempt: log.upstream_tag,
-        // Preserve legacy fields for the native page / older clients
-        id: log.id,
-        time: log.time,
-        timestamp: log.timestamp,
-        domain: log.domain,
-        client: log.client,
-        domain_set: log.domain_set,
-        duration_ms: log.duration_ms,
-        upstream_tag: log.upstream_tag,
-        trace_id: log.trace_id,
-      });
+      const mapOrigin = (value: any) => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+        const out: Record<string, string> = {};
+        for (const key of ['domain_set', 'upstream_attempt', 'learning']) {
+          const raw = value[key];
+          if (typeof raw === 'string' && raw.trim()) out[key] = raw.trim().slice(0, 200);
+        }
+        return Object.keys(out).length ? out : undefined;
+      };
+      const mapLog = (log: any) => {
+        const isCache = typeof log.cache === 'boolean'
+          ? log.cache
+          : (typeof log.upstream_tag === 'string' && log.upstream_tag.startsWith('cache'));
+        return {
+          // New UI fields
+          query_name: log.domain,
+          query_type: log.query_type,
+          query_class: 'IN',
+          client_ip: log.client,
+          client_alias: log.client_alias,
+          response_code: log.response_code,
+          query_time: new Date((log.timestamp || 0) * 1000).toISOString(),
+          answers: Array.isArray(log.answers)
+            ? log.answers.map((a: string) => mapAnswer(a, log.query_type))
+            : [],
+          cache: isCache,
+          // 缓存来源（上游 UI 2026.11.21.1）：仅缓存命中且真正记录了来源时下发，不推测
+          origin: isCache ? mapOrigin(log.origin) : undefined,
+          upstream_attempt: log.upstream_tag,
+          // Preserve legacy fields for the native page / older clients
+          id: log.id,
+          time: log.time,
+          timestamp: log.timestamp,
+          domain: log.domain,
+          client: log.client,
+          domain_set: log.domain_set,
+          duration_ms: log.duration_ms,
+          upstream_tag: log.upstream_tag,
+          trace_id: log.trace_id,
+        };
+      };
 
       return jsonResponse({
         logs: logsResult.logs.map(mapLog),

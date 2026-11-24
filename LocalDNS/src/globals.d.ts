@@ -40,6 +40,12 @@ declare namespace Storage {
   function getData(key: string, options?: { shared?: boolean }): Data | null;
   function setData(key: string, data: Data, options?: { shared?: boolean }): void;
 }
+declare namespace Dialog {
+  function alert(options: { message: string; title?: string; buttonLabel?: string }): Promise<void>;
+  function confirm(options: { message: string; title?: string; cancelLabel?: string; confirmLabel?: string }): Promise<boolean>;
+  function prompt(options: any): Promise<string | null>;
+  function actionSheet(options: any): Promise<number | null>;
+}
 declare namespace Script {
   const directory: string;
   const env: string;

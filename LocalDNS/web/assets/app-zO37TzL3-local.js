@@ -5410,6 +5410,16 @@ const overviewInsightsService = (() => {
     domestic_negative: "国内无结果",
     domestic: "问国内",
     direct_ip: "直连 IP 段",
+    probing: "直连检测中",
+    probe_direct: "可直连",
+    probe_proxy: "直连不通",
+    probe_v6_blocked: "IPv6 直连不通",
+    probe_unverified: "直连未确认",
+    renewed: "过期重解析",
+    renew_late: "重解析完成前返回旧应答",
+    domestic_wait: "等待国内应答超时",
+    abroad_first: "国外先应答",
+    abroad_wait: "国外应答待复核",
     foreign_cn: "国外返回国内地址",
     use_foreign_cn: "采用国外返回的国内地址",
     unknown: "列表外",
@@ -5505,10 +5515,28 @@ function initialize$d() {
   const missing = (value) => value === null || value === void 0 || value === "";
   const elapsed = (value) => missing(value) || !Number.isFinite(Number(value)) ? "未记录" : Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 3 }) + " ms";
   const facts = (rows) => '<dl class="query-path-facts">' + rows.map(([key, value]) => `<div><dt>${esc2(key)}</dt><dd>${esc2(missing(value) ? "未记录" : value)}</dd></div>`).join("") + "</dl>";
+  function cacheOriginFacts(record2) {
+    const origin = record2.origin;
+    if (record2.cache !== true || !origin || typeof origin !== "object" || Array.isArray(origin)) return [];
+    const fields = [["原始分流", origin.domain_set], ["原始上游尝试", origin.upstream_attempt], ["原始学习记录", origin.learning]];
+    return fields.filter(([, value]) => typeof value === "string" && value.trim()).map(([key, value]) => [
+      key,
+      key === "原始分流" ? overviewInsightsService.label(value) : value
+    ]);
+  }
   function model(record2, aliases = {}) {
     const answers = Array.isArray(record2.answers) ? record2.answers : [];
     const steps = [{ name: "请求来源", result: aliases[record2.client_ip] || record2.client_ip || "未记录", facts: [["客户端", record2.client_ip], ["查询名称", record2.query_name], ["类型 / 类别", [record2.query_type, record2.query_class].filter(Boolean).join(" / ")]], note: "本条日志记录的查询问题与来源。" }];
-    if (typeof record2.cache === "boolean") steps.push({ name: "缓存记录", result: record2.cache ? "缓存命中" : "未标记命中", facts: [["缓存标记", String(record2.cache)], ["最终分流", record2.domain_set]], note: record2.cache ? "此请求标记为缓存命中；命中前的其他执行步骤未记录。" : "cache=false 仅表示未标记缓存命中，不据此推断检查顺序。" });
+    if (typeof record2.cache === "boolean") {
+      const origin = cacheOriginFacts(record2);
+      const note = !record2.cache ? "cache=false 仅表示未标记缓存命中，不据此推断检查顺序。" : origin.length ? "原始字段来自缓存条目，不代表本次查询访问了上游。" : "此请求标记为缓存命中；未记录缓存来源。";
+      steps.push({
+        name: "缓存记录",
+        result: record2.cache ? "缓存命中" : "未标记命中",
+        note,
+        facts: [["缓存标记", String(record2.cache)], ["最终分流", record2.domain_set], ...origin]
+      });
+    }
     if (record2.domain_set) steps.push({ name: "分流结果", result: overviewInsightsService.label(record2.domain_set), facts: [["最终分流", overviewInsightsService.label(record2.domain_set)], ["分流代码", record2.domain_set], ["学习记录", record2.learning], ["上游尝试", record2.upstream_attempt]], note: "最终分类与日志原文；未将分类推断为具体规则条目或上游节点。" });
     steps.push({ name: "返回应答", result: record2.response_code || "未记录", facts: [["响应码", record2.response_code], ["应答条数", answers.length], ["请求总耗时", elapsed(record2.duration_ms)]], note: "请求总耗时按接口原值显示，阶段耗时没有单独记录。" });
     const cached = record2.cache === true && record2.domain_set === "cache_main";
@@ -6518,6 +6546,10 @@ const sha512_224 = /* @__PURE__ */ createHasher(
   () => new _SHA512_224(),
   /* @__PURE__ */ oidNist(5)
 );
+const migrationKernels = ["FJN8C", "FJO02"];
+function lacksMigration(backend2, migrations = []) {
+  return migrationKernels.includes(backend2) && !migrations.includes(backend2);
+}
 function parts(value) {
   var _a2;
   return (_a2 = /^(\d{4}\.\d+\.\d+\.\d+)(?:-local[\w.-]*)?$/.exec(value)) == null ? void 0 : _a2[1].split(".").map(Number);
@@ -6530,8 +6562,8 @@ function upgradeTarget(installed, release, options) {
   if (!current || !target) return { reason: "版本信息无效，请重新检查更新。" };
   const different = target.findIndex((value, index) => value !== current[index]);
   if ((options == null ? void 0 : options.unified) && options.mode !== "ui") {
-    if (release.backend === "FJN8C" && options.migrationReady === false) {
-      return { reason: "请先更新升级服务，以支持 FJN8C 配置迁移；仅更新 UI 不会同步此服务。" };
+    if (lacksMigration(release.backend, options.configurationMigrations)) {
+      return { reason: `请先更新升级服务，以支持 ${release.backend} 配置迁移；仅更新 UI 不会同步此服务。` };
     }
     if (!release.packages.includes("含核心完整包")) return { reason: "该发行版没有提供完整包。" };
     if (!release.backend || !/^fj[a-z][a-z0-9]+-ui-v\d{4}\.\d+\.\d+\.\d+$/i.test(release.tag)) return { reason: "发行版标签无效。" };
@@ -6551,10 +6583,13 @@ class UIUpdateClient {
     var _a2;
     return ((_a2 = this.capabilities) == null ? void 0 : _a2.protocol) === "localdns-updater/v2";
   }
-  get migrationReady() {
+  get configurationMigrations() {
     var _a2;
     const migrations = (_a2 = this.capabilities) == null ? void 0 : _a2.configurationMigrations;
-    return Array.isArray(migrations) && migrations.includes("FJN8C");
+    return Array.isArray(migrations) ? migrations : [];
+  }
+  get migrationReady() {
+    return migrationKernels.every((backend2) => !lacksMigration(backend2, this.configurationMigrations));
   }
   get coreUpload() {
     var _a2;
@@ -6608,8 +6643,9 @@ class UIUpdateClient {
   }
   async upgrade(releaseTag, mode = "ui") {
     if (!this.unified && mode !== "ui") throw new Error("请先安装支持内核升级的服务。");
-    if (mode !== "ui" && /^fjn8c-ui-v/i.test(releaseTag) && !this.migrationReady) {
-      throw new Error("请先更新升级服务，以支持 FJN8C 配置迁移。");
+    const backend2 = releaseTag.toUpperCase().split("-UI-V")[0];
+    if (mode !== "ui" && lacksMigration(backend2, this.configurationMigrations)) {
+      throw new Error(`请先更新升级服务，以支持 ${backend2} 配置迁移。`);
     }
     return this.validate(await this.request(this.path, { releaseTag, ...this.unified ? { mode } : {} }));
   }
@@ -7031,7 +7067,10 @@ function initialize$b() {
   }
   function upstreams(rows, groups2, providers = false) {
     const total = rows.reduce((sum, row) => sum + Number(row.m.q || 0), 0);
-    const rowHtml = ({ g, u, i, m }) => `<tr data-group="${esc2(g)}" data-index="${i}">
+    const rowHtml = ({ g, u, i, m }) => {
+      const outcome = m.round ?? m;
+      const scope = m.round ? "当前轮次" : "累计";
+      return `<tr data-group="${esc2(g)}" data-index="${i}">
       <td><label class="switch">
         <input class="up-toggle" type="checkbox" aria-label="启用 ${esc2(u.tag)}" ${u.enabled !== false ? "checked" : ""}>
         <span class="switch-track"><span class="switch-thumb"></span></span>
@@ -7043,14 +7082,15 @@ function initialize$b() {
       <td>${number(m.q)}<span class="workspace-subline">${percent(m.q, total)}</span></td>
       <td>${m.latencySamples > 0 ? ctx.ms(m.latency) : "—"}</td>
       <td>${percent(m.win, m.q)}</td>
-      <td>${m.err ? `<button type="button" class="up-error-detail-trigger" data-group="${esc2(g)}"
-        data-index="${i}" aria-label="查看 ${esc2(u.tag)} 错误详情">${number(m.err)}</button>` : "0"}</td>
-      <td>${m.q > 0 && m.success !== null ? ctx.pct(m.success) : "—"}</td>
+      <td title="${scope}错误">${outcome.err ? `<button type="button" class="up-error-detail-trigger" data-group="${esc2(g)}"
+        data-index="${i}" aria-label="查看 ${esc2(u.tag)} ${scope}错误详情">${number(outcome.err)}</button>` : "0"}</td>
+      <td title="${scope}成功率">${(m.round || m.q > 0) && outcome.success !== null ? ctx.pct(outcome.success) : "—"}</td>
       <td><div class="workspace-actions">
         <button type="button" class="button small up-edit">编辑</button>
         <button type="button" class="button small danger up-delete">删除</button>
       </div></td>
     </tr>`;
+    };
     const sections = groups2.map((group) => {
       const items = rows.filter((row) => row.g === group);
       const queries = items.reduce((sum, row) => sum + Number(row.m.q || 0), 0);
@@ -7069,7 +7109,8 @@ function initialize$b() {
     return `<div class="workspace-upstream-groups">${sections.join("")}</div>
       <details class="workspace-note"><summary>统计口径</summary>
         <p>份额按节点请求总数计算，并发可能计入多个节点。采纳率 = 采纳数 / 节点请求数；
-          成功率与采纳率分别统计。无样本时显示“—”。</p>
+          ${rows.some((row) => row.m.round) ? "错误和成功率优先使用当前轮次数据，缺少轮次数据时使用累计值。" : "成功率与采纳率分别统计。"}
+          无样本时显示“—”。</p>
       </details>`;
   }
   const purpose = (r) => ["custom_cn", "geosite_cn", "geoip_cn"].includes(r.tag) ? "国内解析" : "海外解析";
@@ -7433,7 +7474,7 @@ function createUIUpdatePanel(container) {
   const target = (mode) => upgradeTarget(currentUI(), latest, {
     mode,
     unified: Boolean(client == null ? void 0 : client.unified),
-    migrationReady: client == null ? void 0 : client.migrationReady
+    configurationMigrations: client == null ? void 0 : client.configurationMigrations
   });
   const uploadReady = () => Boolean((client == null ? void 0 : client.coreUpload) && client.migrationReady);
   function accept(value) {
@@ -8974,27 +9015,56 @@ const upstreamErrorReasonLabels = {
   other: "其他错误"
 };
 function upstreamErrorReasonName(reason) {
-  return upstreamErrorReasonLabels[String(reason || "").toLowerCase()] || String(reason || "其他错误").replace(/_/g, " ");
+  const key = String(reason || "other").toLowerCase();
+  return Object.prototype.hasOwnProperty.call(upstreamErrorReasonLabels, key) ? upstreamErrorReasonLabels[key] : String(reason).replace(/_/g, " ");
+}
+function readErrorReasons(metrics, name, group, tag) {
+  const rows = metrics.filter((sample) => sample.name === name && sample.labels.metrics_tag === group && sample.labels.tag === tag && sample.labels.reason && Number.isFinite(sample.value) && sample.value >= 0);
+  const counts = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    const reason = row.labels.reason.toLowerCase();
+    counts.set(reason, (counts.get(reason) || 0) + row.value);
+  }
+  const reasons = [...counts].filter(([, value]) => value > 0).map(([reason, value]) => ({ reason, label: upstreamErrorReasonName(reason), value })).sort((left, right) => right.value - left.value || left.label.localeCompare(right.label));
+  return { reasons, reasonSupported: rows.length > 0 };
+}
+function readErrorRound(metrics, group, tag, lastError) {
+  const sample = (name) => {
+    var _a2;
+    return (_a2 = metrics.find((item) => item.name === name && item.labels.metrics_tag === group && item.labels.tag === tag)) == null ? void 0 : _a2.value;
+  };
+  const errors = sample("localdns_upstream_round_errors");
+  const successes = sample("localdns_upstream_round_successes");
+  if (![errors, successes].every((value) => Number.isFinite(value) && value >= 0)) return null;
+  const now = metricFind(metrics, "localdns_unixtime_seconds");
+  const quiet = metricFind(metrics, "localdns_upstream_error_round_quiet_seconds");
+  if (Number.isFinite(now) && Number.isFinite(quiet) && quiet > 0 && lastError > 0 && now - lastError >= quiet) {
+    return { err: 0, success: null, lastError: 0, reasons: [], reasonSupported: false };
+  }
+  return {
+    err: errors,
+    success: successes + errors > 0 ? successes / (successes + errors) * 100 : null,
+    lastError,
+    ...readErrorReasons(metrics, "localdns_upstream_round_error_reason", group, tag)
+  };
 }
 function upstreamMetrics(metrics, group, tag) {
   const labels = { metrics_tag: group, tag };
   const q = metricFind(metrics, "localdns_upstream_query_total", labels), err = metricFind(metrics, "localdns_upstream_error_total", labels), win = metricFind(metrics, "localdns_upstream_upstream_winner_total", labels), sum = metricFind(metrics, "localdns_upstream_response_latency_millisecond_sum", labels), count2 = metricFind(metrics, "localdns_upstream_response_latency_millisecond_count", labels);
-  const reasonMetricNames = /* @__PURE__ */ new Set(["localdns_upstream_upstream_error_reason_total"]);
-  const reasonRows = metrics.filter((x) => reasonMetricNames.has(x.name) && x.labels.metrics_tag === group && x.labels.tag === tag && x.labels.reason);
-  const reasonMap = {};
-  reasonRows.forEach((x) => {
-    const key = String(x.labels.reason || "other").toLowerCase();
-    reasonMap[key] = (reasonMap[key] || 0) + (Number(x.value) || 0);
-  });
-  const reasons = Object.entries(reasonMap).map(([reason, value]) => ({ reason, label: upstreamErrorReasonName(reason), value })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
-  const lastErrorNames = ["localdns_upstream_upstream_last_error_unixtime_seconds"];
-  let lastError = 0;
-  for (const name of lastErrorNames) {
-    lastError = metricFind(metrics, name, labels);
-    if (lastError) break;
-  }
+  const lastError = metricFind(metrics, "localdns_upstream_upstream_last_error_unixtime_seconds", labels);
   const ok = metricFind(metrics, "localdns_upstream_success_total", labels);
-  return { q, err, win, latencySamples: count2, latency: count2 ? sum / count2 : 0, success: ok + err ? ok / (ok + err) * 100 : null, adoption: q ? win / q * 100 : 0, reasons, lastError, reasonSupported: reasonRows.length > 0 };
+  return {
+    q,
+    err,
+    win,
+    latencySamples: count2,
+    latency: count2 ? sum / count2 : 0,
+    success: ok + err ? ok / (ok + err) * 100 : null,
+    adoption: q ? win / q * 100 : 0,
+    lastError,
+    ...readErrorReasons(metrics, "localdns_upstream_upstream_error_reason_total", group, tag),
+    round: readErrorRound(metrics, group, tag, lastError)
+  };
 }
 function upstreamErrorTime(ts) {
   if (!ts) return "";
@@ -9017,7 +9087,9 @@ function upstreamErrorKeydown(e) {
 }
 function openUpstreamErrorPopover(trigger, row) {
   closeUpstreamErrorPopover();
-  const { g, u, m } = row;
+  const { g, u } = row;
+  const m = row.m.round ?? row.m;
+  const countLabel = row.m.round ? "当前轮次" : "累计";
   const reasonTotal = (m.reasons || []).reduce((n, x) => n + (Number(x.value) || 0), 0);
   const detail = m.reasonSupported ? m.reasons.length ? `<div class="up-error-reason-list">${m.reasons.map((x) => `<div class="up-error-reason-row"><span>${esc$1(x.label)}</span><strong>${num(x.value)}</strong></div>`).join("")}</div>` : `<div class="up-error-compat"><strong>分类计数异常</strong><span>当前错误总数大于 0，但分类计数均为 0。请检查当前二进制是否提供完整的错误分类指标。</span></div>` : `<div class="up-error-compat"><strong>等待错误分类数据</strong><span>当前错误分类指标不可用；当二进制提供分类指标后，这里会自动显示超时、TLS 握手失败、SOCKS5 出错、连接中断等分类。</span></div>`;
   const totalMismatch = m.reasonSupported && reasonTotal !== Number(m.err || 0) ? `<div class="up-error-warning">分类合计 ${num(reasonTotal)} 与错误总数 ${num(m.err)} 不一致，请检查后端统计口径。</div>` : "";
@@ -9027,15 +9099,21 @@ function openUpstreamErrorPopover(trigger, row) {
   pop.className = "up-error-popover";
   pop.setAttribute("role", "dialog");
   pop.setAttribute("aria-label", `${u.tag} 错误详情`);
-  setHTML(pop, `<div class="up-error-popover-head"><div><strong>${esc$1(u.tag)} · 错误详情</strong><span>${esc$1(groupName(g))} · ${esc$1(u.protocol || "")}</span></div><button type="button" class="up-error-popover-close" aria-label="关闭">×</button></div>${detail}${totalMismatch}<div class="up-error-popover-meta"><div class="up-error-meta-row"><span>总计</span><strong>${num(m.err)}</strong></div>${last}</div><div class="up-error-recent"></div>`);
+  setHTML(pop, `<div class="up-error-popover-head"><div><strong>${esc$1(u.tag)} · 错误详情</strong>
+      <span>${esc$1(groupName(g))} · ${esc$1(u.protocol || "")}</span></div>
+      <button type="button" class="up-error-popover-close" aria-label="关闭">×</button></div>
+      ${detail}${totalMismatch}<div class="up-error-popover-meta">
+      <div class="up-error-meta-row"><span>${countLabel}错误</span><strong>${num(m.err)}</strong></div>${last}</div>
+      <div class="up-error-recent"></div>`);
   document.body.appendChild(pop);
   pop.querySelector(".up-error-popover-close").onclick = closeUpstreamErrorPopover;
   const recentBox = pop.querySelector(".up-error-recent");
   if (Number(m.err || 0) > 0) api.json("/api/v1/status").then((st) => {
     const s = (st.upstream_stats || []).find((x) => x.group === g && x.tag === u.tag);
     const list = s && s.recent_errors || [];
-    if (!list.length) return;
-    setHTML(recentBox, `<div class="up-error-recent-title">最近错误原因</div>${list.map((x) => `<div class="up-error-recent-row"><span>${esc$1(upstreamErrorTime(x.time))}</span><em>${esc$1(x.error)}</em></div>`).join("")}`);
+    if (!pop.isConnected || !list.length) return;
+    setHTML(recentBox, `<div class="up-error-recent-title">最近错误记录</div>${list.map((item) => `<div class="up-error-recent-row"><span>${esc$1(upstreamErrorTime(item.time))}</span>
+          <em>${esc$1(item.error)}</em></div>`).join("")}`);
   }).catch(() => {
   });
   const r = trigger.getBoundingClientRect(), gap = 8, pad = 12, w = Math.min(340, window.innerWidth - pad * 2);
@@ -11405,7 +11483,7 @@ async function renderOverview(container, context) {
     };
   });
   const enabledUps = allRealUps.filter((x) => x.u.enabled !== false);
-  const faultyUps = enabledUps.filter((x) => x.m.err > 0 && (x.m.success !== null ? x.m.success < 80 : x.m.win === 0));
+  const faultyUps = enabledUps.filter((x) => { const o = x.m.round ?? x.m; return o.err > 0 && (o.success !== null ? o.success < 80 : x.m.win === 0); });
   const healthyUpsCount = Math.max(0, enabledUps.length - faultyUps.length);
   const domActiveUps = (groupUpstreams.domestic || []).filter((x) => x.u.enabled !== false && x.m.latency > 0);
   const domAvgNum = domActiveUps.length ? domActiveUps.reduce((s, x) => s + x.m.latency, 0) / domActiveUps.length : 0;
@@ -12422,6 +12500,7 @@ function logDetailHtml(record2) {
 const logsRoute = { mount(container, context) {
   return renderLogs(container, context);
 } };
+const providerKernels = /* @__PURE__ */ new Set(["FJN8C", "FJO02"]);
 async function readUpstreams(scope) {
   var _a2;
   const [configResult, tagsResult] = await scope.guard(Promise.all([
@@ -12445,7 +12524,7 @@ async function readUpstreams(scope) {
   rows.sort((a, b) => Number(b.u.enabled !== false) - Number(a.u.enabled !== false));
   const configuredProviders = rows.some((row) => typeof row.u.provider === "string");
   const version = statusResult.ok && typeof ((_a2 = statusResult.data) == null ? void 0 : _a2.version) === "string" ? statusResult.data.version : null;
-  const providers = configuredProviders || (version === null ? null : version === "FJN8C");
+  const providers = configuredProviders || (version === null ? null : providerKernels.has(version));
   return {
     config,
     ecs: typeof (ecs == null ? void 0 : ecs.ecs) === "string" ? ecs.ecs : "",

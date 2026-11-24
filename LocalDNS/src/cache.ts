@@ -1,4 +1,4 @@
-import type { CacheEntry, CacheConfig, CachePoolMetrics, DnsPacket, DnsRecord } from './types';
+import type { CacheEntry, CacheConfig, CachePoolMetrics, CacheOrigin, DnsPacket, DnsRecord } from './types';
 import { serializeDnsPacket } from './dns-packet';
 
 export class CachePool {
@@ -37,7 +37,7 @@ export class CachePool {
     qtype: number,
     allowExpired = false,
     replyTtl = 60
-  ): { packet: DnsPacket; rawBytes: Uint8Array; isLazy: boolean } | null {
+  ): { packet: DnsPacket; rawBytes: Uint8Array; isLazy: boolean; origin?: CacheOrigin } | null {
     this.queries++;
     const k = this.key(domain, qtype);
     const entry = this.entries.get(k);
@@ -52,7 +52,7 @@ export class CachePool {
         ...entry.packet,
         answers: entry.packet.answers.map((ans: DnsRecord) => ({ ...ans, ttl: remainingSeconds })),
       };
-      return { packet: adjustedPacket, rawBytes: serializeDnsPacket(adjustedPacket), isLazy: false };
+      return { packet: adjustedPacket, rawBytes: serializeDnsPacket(adjustedPacket), isLazy: false, origin: entry.origin };
     }
 
     if (allowExpired) {
@@ -62,7 +62,7 @@ export class CachePool {
         ...entry.packet,
         answers: entry.packet.answers.map((ans: DnsRecord) => ({ ...ans, ttl: replyTtl })),
       };
-      return { packet: adjustedPacket, rawBytes: serializeDnsPacket(adjustedPacket), isLazy: true };
+      return { packet: adjustedPacket, rawBytes: serializeDnsPacket(adjustedPacket), isLazy: true, origin: entry.origin };
     }
 
     this.entries.delete(k);
@@ -80,7 +80,8 @@ export class CachePool {
     qtype: number,
     packet: DnsPacket,
     rawBytes: Uint8Array,
-    ttlOverride?: number
+    ttlOverride?: number,
+    origin?: CacheOrigin
   ): void {
     const k = this.key(domain, qtype);
     let minTtl = 300;
@@ -98,6 +99,7 @@ export class CachePool {
       originalTtl: minTtl,
       expiresAt: now + minTtl * 1000,
       createdAt: now,
+      origin: origin && Object.keys(origin).length ? origin : undefined,
     });
     this.evictIfNeeded();
   }
@@ -144,20 +146,20 @@ export class CachePool {
     return result;
   }
 
-  dumpForPersist(limit: number): Array<{ key: string; packet: DnsPacket; expiresAt: number; originalTtl: number; createdAt: number }> {
-    const out: Array<{ key: string; packet: DnsPacket; expiresAt: number; originalTtl: number; createdAt: number }> = [];
+  dumpForPersist(limit: number): Array<{ key: string; packet: DnsPacket; expiresAt: number; originalTtl: number; createdAt: number; origin?: CacheOrigin }> {
+    const out: Array<{ key: string; packet: DnsPacket; expiresAt: number; originalTtl: number; createdAt: number; origin?: CacheOrigin }> = [];
     const now = Date.now();
     // Iterate from most-recent to oldest
     const keys = Array.from(this.entries.keys());
     for (let i = keys.length - 1; i >= 0 && out.length < limit; i--) {
       const entry = this.entries.get(keys[i])!;
       if (entry.expiresAt <= now) continue;
-      out.push({ key: keys[i], packet: entry.packet, expiresAt: entry.expiresAt, originalTtl: entry.originalTtl, createdAt: entry.createdAt });
+      out.push({ key: keys[i], packet: entry.packet, expiresAt: entry.expiresAt, originalTtl: entry.originalTtl, createdAt: entry.createdAt, origin: entry.origin });
     }
     return out;
   }
 
-  loadForPersist(items: Array<{ key: string; packet: DnsPacket; expiresAt: number; originalTtl: number; createdAt: number }>): void {
+  loadForPersist(items: Array<{ key: string; packet: DnsPacket; expiresAt: number; originalTtl: number; createdAt: number; origin?: CacheOrigin }>): void {
     const now = Date.now();
     for (const it of items) {
       if (it.expiresAt <= now) continue;
@@ -167,6 +169,7 @@ export class CachePool {
         originalTtl: it.originalTtl,
         expiresAt: it.expiresAt,
         createdAt: it.createdAt,
+        origin: it.origin && typeof it.origin === 'object' ? it.origin : undefined,
       });
     }
     this.evictIfNeeded();
@@ -281,9 +284,9 @@ export class CacheManager {
     return pool.peek(domain, qtype);
   }
 
-  set(poolTag: string, domain: string, qtype: number, packet: DnsPacket, rawBytes: Uint8Array, ttlOverride?: number): void {
+  set(poolTag: string, domain: string, qtype: number, packet: DnsPacket, rawBytes: Uint8Array, ttlOverride?: number, origin?: CacheOrigin): void {
     const pool = this.getPool(poolTag);
-    if (pool) pool.set(domain, qtype, packet, rawBytes, ttlOverride);
+    if (pool) pool.set(domain, qtype, packet, rawBytes, ttlOverride, origin);
     this.schedulePersist();
   }
 

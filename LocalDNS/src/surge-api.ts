@@ -239,7 +239,8 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
   if (path === '/api/v1/surge/modules' || path === '/api/v1/surge/modules/') {
     if (method === 'GET') {
       const modules = await db.getModules();
-      return jsonResponse({ success: true, modules });
+      const checkedAt = Number(await db.getOptimizationFlag('modules_update_checked_at', '0')) || 0;
+      return jsonResponse({ success: true, modules, checked_at: checkedAt });
     }
     if (method === 'POST') {
       const body = parseJsonBody(req);
@@ -263,6 +264,33 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
     }
   }
 
+  // 3.0 模块上游更新巡检（只对比哈希，不改正文/不触发同步）
+  if (path === '/api/v1/surge/modules/check-updates' && (method === 'POST' || method === 'GET')) {
+    const body = method === 'POST' ? parseJsonBody(req) : ({} as any);
+    try {
+      const ids = Array.isArray(body?.ids) ? body.ids.map((x: any) => String(x)) : undefined;
+      const res = await service.checkModuleUpdates(ids);
+      return jsonResponse({ success: true, ...res });
+    } catch (e: any) {
+      return jsonResponse({ success: false, error: e?.message || 'check updates failed' }, 502);
+    }
+  }
+
+  // 3.0.1 读取缓存的更新状态（纯本地，无网络请求）
+  if (path === '/api/v1/surge/modules/updates' && method === 'GET') {
+    const modules = await db.getModules();
+    const remote = modules.filter((m) => Boolean(m.source_url));
+    const pending = remote.filter((m) => m.update_available);
+    const checkedAt = Number(await db.getOptimizationFlag('modules_update_checked_at', '0')) || 0;
+    return jsonResponse({
+      success: true,
+      total: remote.length,
+      count: pending.length,
+      checked_at: checkedAt,
+      modules: pending.map((m) => ({ id: m.id, name: m.name, remote_name: m.remote_name || null })),
+    });
+  }
+
   // 3.1 单个模块操作: /api/v1/surge/modules/:id (GET, DELETE)
   // 或 /api/v1/surge/modules/:id/toggle (POST)
   if (path.startsWith('/api/v1/surge/modules/')) {
@@ -282,7 +310,7 @@ export async function handleSurgeApiRequest(req: HttpRequest, path: string, meth
     if (parts.length === 2 && parts[1] === 'refresh' && method === 'POST') {
       const r = await service.refreshModule(modId);
       if (!r.updated) return jsonResponse({ success: false, id: modId, error: r.error }, 400);
-      return jsonResponse({ success: true, id: modId, rules: r.rules });
+      return jsonResponse({ success: true, id: modId, rules: r.rules, changed: r.changed, name: r.name });
     }
 
     // 模块参数管理: GET /api/v1/surge/modules/:id/arguments

@@ -9,7 +9,7 @@
  */
 
 import { Path, Script } from 'scripting';
-import { SurgeDatabase, type AppModule, type DnsRule, type HttpRule, type GeneralSetting, type ModuleArgumentItem } from './surge-db';
+import { SurgeDatabase, moduleContentHash, type AppModule, type DnsRule, type HttpRule, type GeneralSetting, type ModuleArgumentItem } from './surge-db';
 import { isOverbroadRejectRule } from './rule-guard';
 import { Store } from './store';
 import {
@@ -388,6 +388,36 @@ export class SurgeService {
     await this.db.init();
     await this.reloadDnsBlockCache();
     await this.autoRepairCorruptedRules();
+    this.startModuleUpdateWatch();
+  }
+
+  /**
+   * 后台巡检模块上游更新：进程启动 45s 后跑一次，之后每 6 小时一次；
+   * 单次巡检最多 30 分钟一次（避免反复抓取）。
+   */
+  private moduleUpdateTimer: any = null;
+  private moduleUpdateBootTimer: any = null;
+
+  public startModuleUpdateWatch(intervalMs = 6 * 60 * 60 * 1000): void {
+    if (this.moduleUpdateTimer || this.moduleUpdateBootTimer) return;
+    const tick = async () => {
+      try {
+        const last = Number(await this.db.getOptimizationFlag('modules_update_checked_at', '0')) || 0;
+        if (last && Date.now() - last < 30 * 60 * 1000) return;
+        const res = await this.checkModuleUpdates();
+        if (res.updates > 0) {
+          console.log(`[SurgeService] ${res.updates} 个模块有上游更新`);
+        }
+      } catch (e) {
+        console.warn('[SurgeService] module update watch failed:', e);
+      }
+    };
+    try {
+      this.moduleUpdateBootTimer = setTimeout(() => { this.moduleUpdateBootTimer = null; void tick(); }, 45000);
+      this.moduleUpdateTimer = setInterval(() => { void tick(); }, intervalMs);
+    } catch (e) {
+      console.warn('[SurgeService] module update watch unavailable:', e);
+    }
   }
 
   /**
@@ -2680,32 +2710,119 @@ export class SurgeService {
     return res;
   }
 
+  /** 仅把公网来源视为可巡检/可刷新的上游；本机回环地址是内部资源页，不做网络对比 */
+  private isUpstreamSource(url: string | null | undefined): boolean {
+    if (!url) return false;
+    try {
+      const host = new URL(url.trim()).hostname.toLowerCase();
+      return host !== '127.0.0.1' && host !== 'localhost' && host !== '::1' && host !== '0.0.0.0';
+    } catch {
+      return false;
+    }
+  }
+
   /**
-   * 从远程源重新下载并脱水单个模块（保留名称/分类/启用状态）
+   * 从远程源重新下载并脱水单个模块（保留分类/启用状态/自定义参数）
+   * 名称会按上游 #!name 同步（仅当它看起来是自动生成的名字时），否则保留用户改名。
    */
-  public async refreshModule(id: string): Promise<{ updated: boolean; rules: number; error?: string }> {
+  public async refreshModule(id: string): Promise<{ updated: boolean; changed: boolean; rules: number; name?: string; error?: string }> {
     const mod = await this.db.getModule(id);
-    if (!mod) return { updated: false, rules: 0, error: '模块不存在' };
-    if (!mod.source_url) return { updated: false, rules: 0, error: '本地模块无远程更新源' };
+    if (!mod) return { updated: false, changed: false, rules: 0, error: '模块不存在' };
+    if (!mod.source_url || !this.isUpstreamSource(mod.source_url)) return { updated: false, changed: false, rules: 0, error: '本地模块无远程更新源' };
     try {
       const { text, finalUrl } = await this.fetchRemoteText(mod.source_url);
       const parsed = this.parseModuleText(id, text, mod.custom_arguments);
+      const beforeHash = mod.content_hash || moduleContentHash(mod.raw_content);
+      const nextHash = moduleContentHash(text);
+      const changed = Boolean(nextHash && nextHash !== beforeHash);
+      const nextName = this.pickModuleName(mod.name, parsed.name, mod.remote_name);
       const moduleObj: AppModule = {
         ...mod,
+        name: nextName,
         source_url: finalUrl || mod.source_url,
         raw_content: text,
         arguments_schema: parsed.argumentsSchema,
         arguments_desc: parsed.argumentsDesc,
+        content_hash: nextHash || mod.content_hash || null,
+        remote_hash: nextHash || null,
+        remote_checked_at: Date.now(),
+        remote_name: parsed.name || mod.remote_name || null,
         updated_at: Date.now(),
       };
       await this.db.saveModule(moduleObj);
       await this.db.saveModuleRules(id, parsed.dnsRules, parsed.mitmHosts, parsed.httpRules, parsed.generalSettings);
       await this.reloadDnsBlockCache();
       this.scheduleSurgeSync();
-      return { updated: true, rules: parsed.httpRules.length + parsed.dnsRules.length };
+      return { updated: true, changed, rules: parsed.httpRules.length + parsed.dnsRules.length, name: nextName };
     } catch (e: any) {
-      return { updated: false, rules: 0, error: String(e?.message || e) };
+      return { updated: false, changed: false, rules: 0, error: String(e?.message || e) };
     }
+  }
+
+  /** 从模块文本里抽 #!name（不跑完整解析，巡检用） */
+  private extractModuleName(text: string): string | null {
+    const m = /^\s*#!\s*name\s*=\s*(.+)$/m.exec(text);
+    return m ? m[1].trim().slice(0, 120) : null;
+  }
+
+  /**
+   * 决定刷新后的显示名：
+   * - 上游无名字 → 保持
+   * - 用户改过名且不是「(2026年11月25日更新)」这类自动版本名 → 保持
+   * - 其余采用上游名（第三方模块的日期版本就在这里）
+   */
+  private pickModuleName(current: string, upstream: string | null | undefined, previousRemote: string | null | undefined): string {
+    if (!upstream) return current;
+    if (current === upstream) return current;
+    const dated = /[（(]\s*\d{4}\s*[年-]\s*\d{1,2}\s*[月-]\s*\d{1,2}/.test(current);
+    const userRenamed = Boolean(previousRemote) && current !== previousRemote;
+    if (userRenamed && !dated) return current;
+    return upstream;
+  }
+
+  /**
+   * 巡检上游是否有更新：只对比哈希并写回 remote_*，不改正文、不重载、不触发同步。
+   */
+  public async checkModuleUpdates(ids?: string[]): Promise<{
+    checked: number;
+    updates: number;
+    failed: number;
+    checked_at: number;
+    items: Array<{ id: string; name: string; has_update: boolean; remote_name: string | null; error?: string }>;
+  }> {
+    await this.init();
+    const all = await this.db.getModules();
+    const want = ids && ids.length ? new Set(ids) : null;
+    const list = all.filter((m) => this.isUpstreamSource(m.source_url) && (!want || want.has(m.id)));
+    const checkedAt = Date.now();
+    const items: Array<{ id: string; name: string; has_update: boolean; remote_name: string | null; error?: string }> = [];
+    let updates = 0;
+    let failed = 0;
+    let cursor = 0;
+
+    const worker = async () => {
+      while (cursor < list.length) {
+        const m = list[cursor++];
+        try {
+          const { text } = await this.fetchRemoteText(m.source_url as string);
+          const remoteHash = moduleContentHash(text);
+          const localHash = m.content_hash || moduleContentHash(m.raw_content);
+          const upstreamName = this.extractModuleName(text);
+          const hasUpdate = Boolean(remoteHash && localHash && remoteHash !== localHash);
+          if (hasUpdate) updates++;
+          await this.db.setModuleRemoteCheck(m.id, remoteHash, upstreamName, checkedAt, localHash);
+          items.push({ id: m.id, name: m.name, has_update: hasUpdate, remote_name: upstreamName });
+        } catch (e: any) {
+          failed++;
+          items.push({ id: m.id, name: m.name, has_update: false, remote_name: null, error: String(e?.message || e) });
+        }
+      }
+    };
+
+    const concurrency = Math.max(1, Math.min(3, list.length));
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+    await this.db.setOptimizationFlag('modules_update_checked_at', String(checkedAt));
+    return { checked: list.length, updates, failed, checked_at: checkedAt, items };
   }
 
   /**
@@ -2714,24 +2831,27 @@ export class SurgeService {
   public async refreshAllModules(): Promise<{
     total: number;
     updated: number;
+    changed: number;
     skipped: number;
-    results: Array<{ id: string; name: string; updated: boolean; error?: string }>;
+    results: Array<{ id: string; name: string; updated: boolean; changed?: boolean; error?: string }>;
   }> {
     await this.init();
     const modules = await this.db.getModules();
-    const results: Array<{ id: string; name: string; updated: boolean; error?: string }> = [];
+    const results: Array<{ id: string; name: string; updated: boolean; changed?: boolean; error?: string }> = [];
     let updated = 0;
+    let changed = 0;
     let skipped = 0;
     for (const m of modules) {
-      if (!m.source_url) {
+      if (!this.isUpstreamSource(m.source_url)) {
         skipped++;
         continue;
       }
       const r = await this.refreshModule(m.id);
       if (r.updated) updated++;
-      results.push({ id: m.id, name: m.name, updated: r.updated, error: r.error });
+      if (r.changed) changed++;
+      results.push({ id: m.id, name: m.name, updated: r.updated, changed: r.changed, error: r.error });
     }
-    return { total: modules.length, updated, skipped, results };
+    return { total: modules.length, updated, changed, skipped, results };
   }
 
   /**

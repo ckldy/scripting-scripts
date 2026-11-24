@@ -48,6 +48,16 @@ export interface DnsPacket {
   additionals: DnsRecord[];
 }
 
+/**
+ * 缓存条目的来源信息（上游 UI 2026.11.21.1 的「原始分流 / 原始上游尝试 / 原始学习记录」）。
+ * 只有真正写入缓存时已知的字段才会被填上；未知即缺省，界面不据此推测。
+ */
+export interface CacheOrigin {
+  domain_set?: string;
+  upstream_attempt?: string;
+  learning?: string;
+}
+
 export interface AuditLogEntry {
   id: string;
   time: string; // ISO 8601 or local format
@@ -61,6 +71,8 @@ export interface AuditLogEntry {
   duration_ms: number;
   answers: string[];
   upstream_tag?: string;
+  cache?: boolean;
+  origin?: CacheOrigin;
   trace_id: string;
 }
 
@@ -79,6 +91,7 @@ export interface CacheEntry {
   expiresAt: number;
   originalTtl: number;
   createdAt: number;
+  origin?: CacheOrigin;
 }
 
 export interface CachePoolMetrics {
@@ -128,6 +141,10 @@ export interface DiversionSource {
   last_error: string | null;
 }
 
+/**
+ * 单个上游节点的累计指标 + 当前错误轮次指标。
+ * 轮次：最后一次错误之后静默 quiet 秒即结束，结束后不再把历史错误计入当前轮次。
+ */
 export interface UpstreamStats {
   group: string;
   tag: string;
@@ -138,6 +155,12 @@ export interface UpstreamStats {
   latency_sum: number;
   latency_count: number;
   recent_errors: Array<{ time: number; error: string }>;
+  last_error_ts: number;
+  error_reasons: Record<string, number>;
+  round_successes: number;
+  round_errors: number;
+  round_reasons: Record<string, number>;
+  round_last_error_ts: number;
 }
 
 export interface SpeedConfig {

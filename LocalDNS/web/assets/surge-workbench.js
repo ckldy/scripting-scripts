@@ -12,6 +12,7 @@
 (function () {
   var activeTab = 'modules'; // 'modules' | 'diversion' | 'surge-settings' | 'guide' | 'raw-editor'
   var workbenchInjected = false;
+  var modulesAutoChecked = false;
   var cachedRuntime = null;
 
   function injectWorkbenchStyles() {
@@ -451,9 +452,11 @@
       '    <div>',
       '      <h2 style="font-size:16px;margin:0 0 4px">已托管 App 净化模块</h2>',
       '      <p style="font-size:12px;opacity:0.75;margin:0">所有模块中的域名拦截已被 LocalDNS 本地吸收并纳秒级阻断，仅向 Surge 注入必要之七层重写。</p>',
+      '      <p id="sw-mod-update-summary" style="font-size:12px;margin:6px 0 0;min-height:16px"></p>',
       '    </div>',
       '    <div style="display:flex;gap:8px;flex-wrap:wrap">',
       '      <button type="button" class="button small" id="sw-btn-install-surge" style="background:#10B981;color:#fff">📲 导入至 Surge</button>',
+      '      <button type="button" class="button small" id="sw-btn-check-modules">🔍 检查更新</button>',
       '      <button type="button" class="button small" id="sw-btn-refresh-all-modules">🔄 全部更新</button>',
       '      <button type="button" class="button small primary" id="sw-btn-import-remote-mod">🌐 导入远程模块 (URL)</button>',
       '      <button type="button" class="button small" id="sw-btn-add-module-raw">+ 粘贴文本导入</button>',
@@ -971,6 +974,24 @@
   // ==================== 数据交互与业务逻辑 ====================
 
   // 刷新模块列表
+  async function checkModuleUpdates(force) {
+    try {
+      var KEY = 'sw.modules.checkedAt';
+      var last = Number(localStorage.getItem(KEY) || 0) || 0;
+      if (!force && last && Date.now() - last < 30 * 60 * 1000) return null;
+      var r = await fetch('/api/v1/surge/modules/check-updates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      var d = await r.json();
+      if (d && d.checked_at) localStorage.setItem(KEY, String(d.checked_at));
+      return d;
+    } catch (e) {
+      return null;
+    }
+  }
+
   async function loadModules() {
     var container = q('#sw-modules-list');
     if (!container) return;
@@ -982,15 +1003,25 @@
         return;
       }
       container.innerHTML = data.modules.map(function (m) {
+        var safeName = String(m.name || '').replace(/</g, '&lt;');
+        var nameHtml = safeName + (m.update_available
+          ? ' <span style="font-size:10px;font-weight:700;color:#B45309;background:rgba(245,158,11,0.18);border:1px solid rgba(245,158,11,0.45);border-radius:5px;padding:1px 5px;white-space:nowrap">🆕 有更新</span>'
+          : '');
+        var upstreamLine = (m.update_available && m.remote_name)
+          ? '    <div style="font-size:11px;color:#B45309;margin-bottom:6px;line-height:1.45">上游：' + String(m.remote_name).replace(/</g, '&lt;') + '</div>'
+          : '';
+        var refreshStyle = m.update_available ? ' style="background:#F59E0B;color:#fff;border-color:transparent"' : '';
+        var refreshLabel = m.update_available ? '⬆️ 更新到新版' : '🔄 更新';
         return [
           '<div class="glass-card" style="padding:14px;display:flex;flex-direction:column;justify-content:space-between;border:1px solid ' + (m.enabled ? 'rgba(16,185,129,0.3)' : 'rgba(148,163,184,0.2)') + '">',
           '  <div>',
           '    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">',
-          '      <strong style="font-size:14px">' + m.name + '</strong>',
+          '      <strong style="font-size:14px">' + nameHtml + '</strong>',
           '      <label style="cursor:pointer;display:inline-flex;align-items:center">',
           '        <input type="checkbox" class="sw-mod-toggle" data-mod-id="' + m.id + '" ' + (m.enabled ? 'checked' : '') + ' />',
           '      </label>',
           '    </div>',
+          upstreamLine,
           '    <div style="font-size:12px;opacity:0.8;margin-bottom:8px">分类: ' + (m.category || 'app') + ' · 状态: ' + (m.enabled ? '<span style="color:#10B981">运行中</span>' : '<span style="opacity:0.6">已关闭</span>') + '</div>',
           '    <div style="font-size:11px;padding:6px 8px;background:rgba(148,163,184,0.1);border-radius:6px;line-height:1.5">',
           '      ⚡️ 域名拦截已在 LocalDNS 纳秒阻断<br/>',
@@ -999,13 +1030,28 @@
           '  </div>',
           '  <div style="display:flex;justify-content:flex-end;margin-top:10px;gap:6px;flex-wrap:wrap">',
           (m.hasArguments || (m.arguments_schema && m.arguments_schema.length > 0) ? '    <button type="button" class="button small primary sw-btn-params-mod" data-mod-id="' + m.id + '" data-mod-name="' + m.name + '" style="background:rgba(59,130,246,0.15);color:#3B82F6;border-color:rgba(59,130,246,0.35)">🎛 编辑参数</button>' : ''),
-          (m.source_url ? '    <button type="button" class="button small sw-btn-refresh-mod" data-mod-id="' + m.id + '">🔄 更新</button>' : ''),
+          (m.source_url ? '    <button type="button" class="button small sw-btn-refresh-mod" data-mod-id="' + m.id + '"' + refreshStyle + '>' + refreshLabel + '</button>' : ''),
           '    <button type="button" class="button small sw-btn-edit-mod" data-mod-id="' + m.id + '" data-mod-name="' + m.name + '">✏️ 查看代码</button>',
           '    <button type="button" class="button small sw-btn-del-mod" data-mod-id="' + m.id + '" style="color:#EF4444;border-color:rgba(239,68,68,0.3)">删除</button>',
           '  </div>',
           '</div>'
         ].join('');
       }).join('');
+
+      var pending = data.modules.filter(function (m) { return m.update_available; }).length;
+      var summaryEl = q('#sw-mod-update-summary');
+      if (summaryEl) {
+        var checkedTxt = data.checked_at ? ('检查于 ' + new Date(data.checked_at).toLocaleString('zh-CN', { hour12: false })) : '尚未检查';
+        summaryEl.innerHTML = pending
+          ? '<span style="color:#B45309;font-weight:700">🆕 ' + pending + ' 个模块有上游更新</span><span style="opacity:0.6"> · ' + checkedTxt + '</span>'
+          : '<span style="opacity:0.6">模块已是最新 · ' + checkedTxt + '</span>';
+      }
+      if (!modulesAutoChecked) {
+        modulesAutoChecked = true;
+        checkModuleUpdates(false).then(function (d) {
+          if (d && d.success && (d.updates > 0 || d.failed > 0)) loadModules();
+        });
+      }
 
       // 开关事件
       qq('.sw-mod-toggle', container).forEach(function (chk) {
@@ -1032,7 +1078,14 @@
           try {
             var r = await fetch('/api/v1/surge/modules/' + encodeURIComponent(id) + '/refresh', { method: 'POST' });
             var d = await r.json();
-            if (d.success) toast('模块已更新', '重新脱水 ' + (d.rules || 0) + ' 条规则 · 请到 Surge 中更新模块生效');
+            if (d.success) {
+              toast(
+                d.changed ? '模块已更新' : '模块已是最新',
+                d.changed
+                  ? ('已重新脱水 ' + (d.rules || 0) + ' 条规则 · 当前名称：' + (d.name || ''))
+                  : '上游内容与本地一致，无需重新脱水'
+              );
+            }
             else alert('更新失败: ' + (d.error || '未知错误'));
           } catch (e) {
             alert('更新失败: ' + e.message);
@@ -2422,7 +2475,7 @@
           var d = await r.json();
           if (d.success) {
             var fail = (d.results || []).filter(function (x) { return !x.updated; });
-            toast('全部模块已更新', '成功 ' + d.updated + ' / ' + d.total + '，本地模块跳过 ' + d.skipped + (fail.length ? '，失败 ' + fail.length : ''));
+            toast('全部模块已检查', '成功更新 ' + d.updated + ' / ' + d.total + '，内容有变 ' + (d.changed || 0) + '，本地模块跳过 ' + d.skipped + (fail.length ? '，失败 ' + fail.length : ''));
             if (fail.length) console.warn('更新失败模块:', fail);
           } else {
             alert('更新失败: ' + (d.error || '未知错误'));
@@ -2432,6 +2485,27 @@
         }
         btnRefreshAllModules.disabled = false;
         btnRefreshAllModules.textContent = old;
+        loadModules();
+      };
+    }
+
+    var btnCheckModules = q('#sw-btn-check-modules');
+    if (btnCheckModules) {
+      btnCheckModules.onclick = async function () {
+        var oldLabel = btnCheckModules.textContent;
+        btnCheckModules.disabled = true;
+        btnCheckModules.textContent = '正在检查上游…';
+        var d = await checkModuleUpdates(true);
+        btnCheckModules.disabled = false;
+        btnCheckModules.textContent = oldLabel;
+        if (d && d.success) {
+          toast(
+            d.updates > 0 ? ('发现 ' + d.updates + ' 个模块有更新') : '模块已是最新',
+            '已检查 ' + d.checked + ' 个远程模块' + (d.failed ? '，失败 ' + d.failed + ' 个' : '')
+          );
+        } else {
+          alert('检查更新失败: ' + ((d && d.error) || '网络或上游不可达'));
+        }
         loadModules();
       };
     }

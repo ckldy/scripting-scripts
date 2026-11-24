@@ -1,0 +1,93 @@
+{
+  "_comment": "LocalDNS iOS 移植的本地定制补丁规格。app：上游打包 SPA 上的 7 处 Surge 集成补丁（锚点必须唯一命中）；editor：代理配置编辑器的 Surge 区段校验。由 tools/sync-upstream-ui.py 逐个重放，任一锚点命中数不为 1 即硬失败。",
+  "schema": 1,
+  "app": [
+    {
+      "id": "nav-subtitle",
+      "old": [
+        "    subtitle: \"查看代理用量与排行，管理 Mihomo / sing-box 配置\","
+      ],
+      "new": [
+        "    subtitle: \"查看 Surge 代理流量与排行，管理核心脱水联动配置\","
+      ]
+    },
+    {
+      "id": "traffic-source-surge",
+      "old": [
+        "    source: raw.source === \"sing-box\" ? \"sing-box\" : \"Mihomo\","
+      ],
+      "new": [
+        "    source: raw.source === \"Surge\" ? \"Surge\" : (raw.source === \"sing-box\" ? \"sing-box\" : \"Mihomo\"),"
+      ]
+    },
+    {
+      "id": "brands-surge",
+      "old": [
+        "const brands = { mihomo: { name: \"Mihomo\", format: \"YAML\", logo: \"assets/img/proxy-panel.svg\" }, \"sing-box\": { name: \"sing-box\", format: \"JSON\", logo: \"assets/img/proxy-panel.svg\" } };"
+      ],
+      "new": [
+        "const brands = { surge: { name: \"Surge\", format: \"CONF\", logo: \"assets/img/proxy-panel.svg\" }, mihomo: { name: \"Mihomo\", format: \"YAML\", logo: \"assets/img/proxy-panel.svg\" }, \"sing-box\": { name: \"sing-box\", format: \"JSON\", logo: \"assets/img/proxy-panel.svg\" } };"
+      ]
+    },
+    {
+      "id": "default-core-surge",
+      "old": [
+        "let editor, tools, cores = [], core = \"mihomo\", path = \"\", revision = \"\", base = \"\", newline = \"\\n\", busy = false, programmatic = false, serviceReady = false, activeFile = false, groupRevision = \"\", fragmentMode = false, groupCount = 0, alive = true, mode = \"file\", directory = \"\", directoryCore = \"mihomo\", directoryFiles = [], browseSequence = 0, browsing = false;"
+      ],
+      "new": [
+        "let editor, tools, cores = [], core = \"surge\", path = \"\", revision = \"\", base = \"\", newline = \"\\n\", busy = false, programmatic = false, serviceReady = false, activeFile = false, groupRevision = \"\", fragmentMode = false, groupCount = 0, alive = true, mode = \"file\", directory = \"\", directoryCore = \"surge\", directoryFiles = [], browseSequence = 0, browsing = false;"
+      ]
+    },
+    {
+      "id": "core-select-surge",
+      "old": [
+        "<select id=\"pc-core-select\"><option value=\"mihomo\">Mihomo · YAML</option>"
+      ],
+      "new": [
+        "<select id=\"pc-core-select\"><option value=\"surge\">Surge · CONF</option><option value=\"mihomo\">Mihomo · YAML</option>"
+      ]
+    },
+    {
+      "id": "prefer-surge-core",
+      "old": [
+        "        const chosen = cores.find((item) => item.id === (preferred == null ? void 0 : preferred.core) && item.available && item.exists) || cores.find((item) => item.available && item.exists);"
+      ],
+      "new": [
+        "        const chosen = cores.find((item) => item.id === (preferred == null ? void 0 : preferred.core) && item.available && item.exists) || cores.find((item) => item.id === \"surge\" && item.available && item.exists) || cores.find((item) => item.available && item.exists);"
+      ]
+    },
+    {
+      "id": "proxy-panel-copy",
+      "old": [
+        "<h1 id=\"proxy-title\">代理</h1><p>查看代理用量，管理核心配置。</p>"
+      ],
+      "new": [
+        "<h1 id=\"proxy-title\">代理</h1><p>查看 Surge 代理用量，管理核心联动配置。</p>"
+      ]
+    },
+    {
+      "id": "overview-health-round",
+      "old": [
+        "  const faultyUps = enabledUps.filter((x) => x.m.err > 0 && (x.m.success !== null ? x.m.success < 80 : x.m.win === 0));"
+      ],
+      "new": [
+        "  const faultyUps = enabledUps.filter((x) => { const o = x.m.round ?? x.m; return o.err > 0 && (o.success !== null ? o.success < 80 : x.m.win === 0); });"
+      ]
+    }
+  ],
+  "editor": [
+    {
+      "id": "surge-section-check",
+      "anchor": "  if (type === \"sing-box\") {\n",
+      "marker": "Surge 配置文件应包含区段头",
+      "new": [
+        "  if (type === \"surge\") {",
+        "    if (!text.includes(\"[\") || !text.includes(\"]\")) {",
+        "      return [{ from: 0, to: Math.min(text.length, 10), line: 1, message: \"Surge 配置文件应包含区段头（如 [General]、[Proxy]、[Rule]）。\" }];",
+        "    }",
+        "    return [];",
+        "  }"
+      ]
+    }
+  ]
+}

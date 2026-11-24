@@ -13,6 +13,7 @@ import {
   Spacer,
   Image,
   useState,
+  useEffect,
   Toolbar,
   ToolbarItem,
 } from 'scripting';
@@ -27,6 +28,7 @@ import { DnsResolver, cleanDomain } from './src/resolver';
 import { parseDnsPacket, serializeDnsPacket } from './src/dns-packet';
 import type { DnsPacket } from './src/types';
 import { ProcessGuardian } from './src/guardian';
+import { showUpdateNoticeOnce } from './src/changelog';
 
 // WebViewController global declaration for TypeScript
 declare class WebViewController {
@@ -58,7 +60,7 @@ const APP_VERSION = (() => {
   // 兜底不再写死任何版本号，避免再次出现「清单 1.15.x / 界面 1.14.x」的假版本
   return 'v?';
 })();
-const APP_BUILD = '20261116';
+const APP_BUILD = '20261125';
 const APP_AUTHOR = 'vcncv';
 const UPSTREAM_REPO = 'https://github.com/yyhoworks/LocalDNS';
 
@@ -71,6 +73,14 @@ function LocalDnsApp() {
     server.stop();
     Script.exit();
   };
+
+  // 本版首次启动展示一次更新内容（同一版本只弹一次）
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void showUpdateNoticeOnce(APP_VERSION);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Server state
   const [isRunning, setIsRunning] = useState<boolean>(server.getIsRunning());

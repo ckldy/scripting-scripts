@@ -3,16 +3,19 @@
 
 用法：
   python3 tools/sync-upstream-ui.py latest                  # 自动取 GitHub 最新发行版
-  python3 tools/sync-upstream-ui.py fjn8c-ui-v2026.11.08.4   # 直接按 tag 下载
+  python3 tools/sync-upstream-ui.py fjo02-ui-v2026.11.21.1   # 直接按 tag 下载
   python3 tools/sync-upstream-ui.py <upstream-ui-dir>        # 已解包的 ui/ 目录
 
 做的事：
   1. 备份当前 app-*.js / index-*.css / index.html / version.json / build-meta.json
-  2. 删除旧打包文件，复制新打包文件，重放 app bundle 的 7 处 Surge 补丁
+  2. 删除旧打包文件，复制新打包文件，按 tools/upstream-patch-spec.json 重放 app 补丁
   3. 复制 fonts / img / help / build-meta.json，重写 version.json（后端标识 FJMOS）
   4. 以上游 index.html 为基底重放三处本地定制（本地脚本、AdHunter 入口、FJMOS 徽标）
-  5. 保留 editor（补丁幂等重放）、config.js 与本地 assets
+  5. 保留 editor（按规格幂等重放 Surge 区段校验）、config.js 与本地 assets
   6. 收尾自检：补丁特征串、index.html 定制、打包文件唯一性；任一不符即硬失败
+
+补丁规格默认读取项目内 tools/upstream-patch-spec.json（随仓库版本化），
+读不到时回退旧位置 App Group 的 patch_spec.json。
 """
 import datetime
 import hashlib
@@ -26,8 +29,14 @@ import zipfile
 
 ROOT = "/var/mobile/Library/Mobile Documents/iCloud~com~thomfang~Scripting/Documents/scripts/LocalDNS"
 WEB = os.path.join(ROOT, "web")
-APP_GROUP = "/var/mobile/Containers/Shared/AppGroup/8C8228F0-EECE-4A41-A8A8-333951C28E7C/Documents/scripting-agent"
-SPEC = os.path.join(APP_GROUP, "patch_spec.json")
+SPEC = os.path.join(ROOT, "tools", "upstream-patch-spec.json")
+LEGACY_SPEC = ("/var/mobile/Containers/Shared/AppGroup/8C8228F0-EECE-4A41-A8A8-333951C28E7C/"
+               "Documents/scripting-agent/patch_spec.json")
+WORK_DIRS = [
+    "/var/mobile/Library/Mobile Documents/iCloud~com~thomfang~Scripting/Documents/scripting-agent/"
+    "workspace/LocalDNS/upstream",
+    os.path.join(ROOT, "backup", "upstream"),
+]
 
 LIVEPULSE = '  <script src="/ui/assets/livepulse.js?v=20261105-v2" defer></script>\n' \
             '  <script src="/ui/assets/surge-workbench.js?v=20261116-v1" defer></script>\n'
@@ -40,8 +49,8 @@ ADHUNTER = (
     '          </a>\n'
 )
 DOCK_ANCHOR = '        <div class="top-actions-dock">\n'
-# 上游内核代号会随发行线变（FJN01 → FJN8C …），徽标锚点按模式匹配，不再写死某一代号
-BRAND_RE = re.compile(r'data-backend-version="FJN[0-9A-Z]+">FJN[0-9A-Z]+<')
+# 上游内核代号会随发行线变（FJN01 → FJN8C → FJO02 …），徽标锚点按模式匹配，不写死某一代号
+BRAND_RE = re.compile(r'data-backend-version="FJ[A-Z][A-Z0-9]+">FJ[A-Z][A-Z0-9]+<')
 BRAND_NEW = 'data-backend-version="FJMOS">FJMOS<'
 TAG_RE = re.compile(r"^[a-z0-9]+-ui-v\d{4}\.\d{2}\.\d{2}(\.\d+)?$")
 
@@ -68,6 +77,27 @@ def one(pattern_dir, prefix, suffix):
     return names[0]
 
 
+def load_spec():
+    for path in (SPEC, LEGACY_SPEC):
+        if os.path.exists(path):
+            print("补丁规格：", path)
+            return json.load(open(path, encoding="utf-8"))
+    raise SystemExit("找不到补丁规格：%s" % SPEC)
+
+
+def work_root():
+    for base in WORK_DIRS:
+        try:
+            os.makedirs(base, exist_ok=True)
+            probe = os.path.join(base, ".probe")
+            open(probe, "w").close()
+            os.remove(probe)
+            return base
+        except Exception:
+            continue
+    raise SystemExit("没有可写的工作目录：%s" % WORK_DIRS)
+
+
 def resolve_latest():
     """从 GitHub API 取最新正式发行版 tag，避免手工抄写版本号。"""
     url = "https://api.github.com/repos/yyhoworks/LocalDNS/releases/latest"
@@ -83,7 +113,7 @@ def fetch_release(tag):
     version = tag.split("-v")[-1]
     base = "https://github.com/yyhoworks/LocalDNS/releases/download/%s" % tag
     url = base + "/LocalDNS_UI_%s_Update.zip" % version
-    dest = os.path.join(APP_GROUP, "upstream", version)
+    dest = os.path.join(work_root(), version)
     os.makedirs(dest, exist_ok=True)
     zip_path = os.path.join(dest, os.path.basename(url))
     if not os.path.exists(zip_path) or os.path.getsize(zip_path) < 1000000:
@@ -127,6 +157,7 @@ def verify_checksum(base, zip_path):
 def main():
     if len(sys.argv) != 2:
         raise SystemExit(__doc__)
+    spec = load_spec()
     up = sys.argv[1]
     if up in ("latest", "--latest"):
         up = resolve_latest()
@@ -134,11 +165,12 @@ def main():
         up = fetch_release(up)
     up_assets = os.path.join(up, "assets")
     new_app = one(up_assets, "app-", ".js")
+    upstream_app = new_app
     new_css = one(up_assets, "index-", ".css")
     new_editor = one(up_assets, "editor-", ".js")
 
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup = os.path.join(APP_GROUP, "web-backup-" + stamp)
+    backup = os.path.join(work_root(), "web-backup-" + stamp)
     os.makedirs(os.path.join(backup, "assets"), exist_ok=True)
     for name in os.listdir(os.path.join(WEB, "assets")):
         if name.startswith(("app-", "index-")) or name.startswith("editor-"):
@@ -154,27 +186,37 @@ def main():
     shutil.copy2(os.path.join(up_assets, new_app), os.path.join(WEB, "assets", new_app))
     shutil.copy2(os.path.join(up_assets, new_css), os.path.join(WEB, "assets", new_css))
 
-    spec = json.load(open(SPEC, encoding="utf-8"))
     app_path = os.path.join(WEB, "assets", new_app)
     text = read(app_path)
     for i, patch in enumerate(spec["app"], 1):
         old, new = patch["old"][0], patch["new"][0]
+        label = patch.get("id") or ("patch-%d" % i)
         if text.count(new) and not text.count(old):
-            print("  补丁 %d 已存在，跳过" % i)
+            print("  补丁 %d(%s) 已存在，跳过" % (i, label))
             continue
         if text.count(old) != 1:
-            raise SystemExit("补丁 %d 锚点命中 %d 次（应为 1）：%s" % (i, text.count(old), old[:80]))
+            raise SystemExit("补丁 %d(%s) 锚点命中 %d 次（应为 1）：%s"
+                             % (i, label, text.count(old), old[:80]))
         text = text.replace(old, new)
-        print("  补丁 %d 已重放" % i)
+        print("  补丁 %d(%s) 已重放" % (i, label))
     write(app_path, text)
+
+    # 打补丁后的字节与上游不同，但文件名仍是上游的内容哈希；而这个哈希文件名会被
+    # server.ts 以 `immutable` 缓存一年。为避免已访问过的浏览器继续用旧字节，
+    # 本地补丁版改名成 app-<上游哈希>-local.js，让缓存键随补丁一起变。
+    local_app = new_app[:-3] + '-local.js'
+    if local_app != new_app:
+        os.replace(os.path.join(WEB, "assets", new_app), os.path.join(WEB, "assets", local_app))
+        print("  本地补丁版重命名：%s -> %s" % (new_app, local_app))
+        new_app = local_app
 
     # ---- 2. editor：仅在上游内容变化时重打 ----
     local_editor = os.path.join(WEB, "assets", new_editor)
     up_editor = os.path.join(up_assets, new_editor)
     ed = read(up_editor)
     ins = spec["editor"][0]
-    anchor = '  if (type === "sing-box") {\n'
-    marker = "Surge 配置文件应包含区段头"
+    anchor = ins["anchor"]
+    marker = ins["marker"]
     if marker not in ed:
         if ed.count(anchor) != 1:
             raise SystemExit("editor 锚点命中 %d 次" % ed.count(anchor))
@@ -210,13 +252,17 @@ def main():
 
     # ---- 4. version.json ----
     ver = json.loads(read(os.path.join(up, "version.json")))
+    upstream_backend = ver.get("backendVersion", "")
     ver["backendVersion"] = "FJMOS"
-    # releaseTag 跟随上游发行线（fjn01- / fjn8c- …），不再硬编码前缀
+    # releaseTag 跟随上游发行线（fjn01- / fjn8c- / fjo02- …），不再硬编码前缀
     ver.setdefault("releaseTag", "ui-v%s" % ver["uiVersion"])
     write(os.path.join(WEB, "version.json"), json.dumps(ver, ensure_ascii=False, indent=2) + "\n")
 
     # ---- 5. index.html ----
     html = read(os.path.join(up, "index.html"))
+    # 本地补丁版可能改名（…-local.js），上游 html 里引用的旧文件名一并换成新名
+    if upstream_app != new_app:
+        html = html.replace("/ui/assets/%s" % upstream_app, "/ui/assets/%s" % new_app)
     css_line = '  <link rel="stylesheet" crossorigin href="/ui/assets/%s">\n' % new_css
     if html.count(css_line) != 1:
         raise SystemExit("index.html 中未能唯一定位 css link")
@@ -243,8 +289,8 @@ def main():
     patched = read(os.path.join(assets, new_app))
     for i, patch in enumerate(spec["app"], 1):
         if patch["new"][0] not in patched:
-            problems.append("app 补丁 %d 未命中" % i)
-    if "Surge 配置文件应包含区段头" not in read(local_editor):
+            problems.append("app 补丁 %d(%s) 未命中" % (i, patch.get("id") or ""))
+    if marker not in read(local_editor):
         problems.append("editor Surge 校验补丁未命中")
     for needle in ("livepulse.js", "surge-workbench.js", "ad-hunter.html", 'data-backend-version="FJMOS"'):
         if needle not in html:
@@ -255,6 +301,7 @@ def main():
         raise SystemExit("同步自检失败：\n  - " + "\n  - ".join(problems))
 
     print("完成：%s / %s（自检通过）" % (new_app, new_css))
+    print("  上游内核标识：%s（保留本地 FJMOS 标识）" % (upstream_backend or "未知"))
     for rel in ["assets/" + new_app, "assets/" + new_css, "assets/" + new_editor, "index.html", "version.json"]:
         print("  %s  %s" % (sha(os.path.join(WEB, rel))[:16], rel))
 

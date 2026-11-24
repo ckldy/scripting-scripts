@@ -4,6 +4,32 @@ import { CacheManager } from './cache';
 import { AdGuardEngine } from './adguard';
 import type { AuditLogEntry, AuditStats, UpstreamStats } from './types';
 
+/**
+ * 当前错误轮次的静默窗口：最后一次错误过去 quiet 秒后该轮次结束，
+ * 此后不再把历史错误计入当前轮次（与上游 FJO02 内核的语义对齐）。
+ */
+const UPSTREAM_ERROR_ROUND_QUIET_SECONDS = 300;
+
+/**
+ * 把上游异常文本归到 UI 认识的原因分类键（timeout / tls / socks5 / refused /
+ * unreachable / eof / connect / http / protocol / other），避免全部堆到 other。
+ */
+function classifyUpstreamError(message?: string): string {
+  const text = String(message || '').toLowerCase();
+  if (!text) return 'other';
+  if (/abort|timeout|timed out|etimedout/.test(text)) return 'timeout';
+  if (/certificate|self[- ]signed|tls|ssl/.test(text)) return 'tls';
+  if (/socks/.test(text)) return 'socks5';
+  if (/refused|econnrefused/.test(text)) return 'refused';
+  if (/unreachable|ehostunreach|enetunreach|no route/.test(text)) return 'unreachable';
+  if (/reset|econnreset|broken pipe|epipe|closed before response|hang up|unexpected eof/.test(text)) return 'eof';
+  if (/http\s*\d{3}/.test(text)) return 'http';
+  if (/load failed|fetch failed|network|offline/.test(text)) return 'connect';
+  if (/dns|unpack|parse|malformed|truncat|bad response/.test(text)) return 'protocol';
+  if (/connect|econn/.test(text)) return 'connect';
+  return 'other';
+}
+
 export class AuditManager {
   private static instance: AuditManager;
 
@@ -95,6 +121,35 @@ export class AuditManager {
     isWinner: boolean,
     error?: string
   ): void {
+    const stats = this.upstreamStats(group, tag);
+    const nowMs = Date.now();
+    this.closeExpiredRound(stats, nowMs);
+
+    stats.query_total++;
+    if (success) {
+      stats.success_total++;
+      if (isWinner) stats.winner_total++;
+      stats.latency_sum += durationMs;
+      stats.latency_count++;
+      stats.round_successes++;
+      return;
+    }
+
+    const reason = classifyUpstreamError(error);
+    const nowSeconds = Math.floor(nowMs / 1000);
+    stats.error_total++;
+    stats.error_reasons[reason] = (stats.error_reasons[reason] || 0) + 1;
+    stats.last_error_ts = nowSeconds;
+    stats.round_errors++;
+    stats.round_reasons[reason] = (stats.round_reasons[reason] || 0) + 1;
+    stats.round_last_error_ts = nowSeconds;
+    if (error) {
+      stats.recent_errors.unshift({ time: nowSeconds, error });
+      if (stats.recent_errors.length > 10) stats.recent_errors.length = 10;
+    }
+  }
+
+  private upstreamStats(group: string, tag: string): UpstreamStats {
     const key = `${group}:${tag}`;
     let stats = this.upstreamStatsMap.get(key);
     if (!stats) {
@@ -108,23 +163,26 @@ export class AuditManager {
         latency_sum: 0,
         latency_count: 0,
         recent_errors: [],
+        last_error_ts: 0,
+        error_reasons: {},
+        round_successes: 0,
+        round_errors: 0,
+        round_reasons: {},
+        round_last_error_ts: 0,
       };
       this.upstreamStatsMap.set(key, stats);
     }
+    return stats;
+  }
 
-    stats.query_total++;
-    if (success) {
-      stats.success_total++;
-      if (isWinner) stats.winner_total++;
-      stats.latency_sum += durationMs;
-      stats.latency_count++;
-    } else {
-      stats.error_total++;
-      if (error) {
-        stats.recent_errors.unshift({ time: Math.floor(Date.now() / 1000), error });
-        if (stats.recent_errors.length > 10) stats.recent_errors.length = 10;
-      }
-    }
+  /** 静默期结束的轮次归零：只清当前轮次，累计指标保持不变。 */
+  private closeExpiredRound(stats: UpstreamStats, nowMs: number): void {
+    if (stats.round_last_error_ts <= 0) return;
+    if (nowMs / 1000 - stats.round_last_error_ts < UPSTREAM_ERROR_ROUND_QUIET_SECONDS) return;
+    stats.round_successes = 0;
+    stats.round_errors = 0;
+    stats.round_reasons = {};
+    stats.round_last_error_ts = 0;
   }
 
   getUpstreamStatsList(): UpstreamStats[] {
@@ -133,13 +191,7 @@ export class AuditManager {
 
   /** Mark a node as the winning node without double-counting query_total/success. */
   recordUpstreamWinner(group: string, tag: string): void {
-    const key = `${group}:${tag}`;
-    let stats = this.upstreamStatsMap.get(key);
-    if (!stats) {
-      stats = { group, tag, query_total: 0, success_total: 0, winner_total: 0, error_total: 0, latency_sum: 0, latency_count: 0, recent_errors: [] };
-      this.upstreamStatsMap.set(key, stats);
-    }
-    stats.winner_total++;
+    this.upstreamStats(group, tag).winner_total++;
   }
 
   recordSpeed(probeCount: number): void {
@@ -444,6 +496,14 @@ export class AuditManager {
     }
 
     // Upstream metrics
+    lines.push('# HELP localdns_unixtime_seconds Current unix time in seconds (used for round freshness comparisons).');
+    lines.push('# TYPE localdns_unixtime_seconds gauge');
+    lines.push(`localdns_unixtime_seconds ${Math.floor(Date.now() / 1000)}`);
+
+    lines.push('# HELP localdns_upstream_error_round_quiet_seconds Silence after the last error that closes an error round.');
+    lines.push('# TYPE localdns_upstream_error_round_quiet_seconds gauge');
+    lines.push(`localdns_upstream_error_round_quiet_seconds ${UPSTREAM_ERROR_ROUND_QUIET_SECONDS}`);
+
     lines.push('# HELP localdns_upstream_query_total Total queries sent to upstream.');
     lines.push('# TYPE localdns_upstream_query_total counter');
     lines.push('# HELP localdns_upstream_success_total Total successful upstream responses.');
@@ -456,33 +516,45 @@ export class AuditManager {
     lines.push('# TYPE localdns_upstream_response_latency_millisecond_sum counter');
     lines.push('# HELP localdns_upstream_response_latency_millisecond_count Number of upstream latency measurements.');
     lines.push('# TYPE localdns_upstream_response_latency_millisecond_count counter');
+    lines.push('# HELP localdns_upstream_round_errors Errors in the current upstream error round.');
+    lines.push('# TYPE localdns_upstream_round_errors gauge');
+    lines.push('# HELP localdns_upstream_round_successes Successful responses in the current upstream error round.');
+    lines.push('# TYPE localdns_upstream_round_successes gauge');
+    lines.push('# HELP localdns_upstream_round_error_reason Errors in the current round grouped by reason.');
+    lines.push('# TYPE localdns_upstream_round_error_reason gauge');
+    lines.push('# HELP localdns_upstream_upstream_error_reason_total Total upstream errors by reason.');
+    lines.push('# TYPE localdns_upstream_upstream_error_reason_total counter');
+    lines.push('# HELP localdns_upstream_upstream_last_error_unixtime_seconds Unix time of the last upstream error.');
+    lines.push('# TYPE localdns_upstream_upstream_last_error_unixtime_seconds gauge');
 
+    const nowMs = Date.now();
     const cfg = Store.get().getUpstreamConfig();
     const groups = Object.keys(cfg) as Array<keyof typeof cfg>;
     for (const g of groups) {
       for (const node of cfg[g] || []) {
-        const stats = this.upstreamStatsMap.get(`${g}:${node.tag}`) || {
-          group: g,
-          tag: node.tag,
-          query_total: 0,
-          success_total: 0,
-          winner_total: 0,
-          error_total: 0,
-          latency_sum: 0,
-          latency_count: 0,
-          recent_errors: [],
-        };
+        const stats = this.upstreamStats(g, node.tag);
+        this.closeExpiredRound(stats, nowMs);
+        const labels = `metrics_tag="${g}",group="${g}",tag="${node.tag}"`;
 
-        lines.push(`localdns_upstream_query_total{metrics_tag="${g}",group="${g}",tag="${node.tag}"} ${stats.query_total}`);
-        lines.push(`localdns_upstream_success_total{metrics_tag="${g}",group="${g}",tag="${node.tag}"} ${stats.success_total}`);
-        lines.push(`localdns_upstream_upstream_winner_total{metrics_tag="${g}",group="${g}",tag="${node.tag}"} ${stats.winner_total}`);
-        lines.push(`localdns_upstream_error_total{metrics_tag="${g}",group="${g}",tag="${node.tag}"} ${stats.error_total}`);
-        lines.push(`localdns_upstream_response_latency_millisecond_sum{metrics_tag="${g}",group="${g}",tag="${node.tag}"} ${stats.latency_sum}`);
-        lines.push(`localdns_upstream_response_latency_millisecond_count{metrics_tag="${g}",group="${g}",tag="${node.tag}"} ${stats.latency_count}`);
+        lines.push(`localdns_upstream_query_total{${labels}} ${stats.query_total}`);
+        lines.push(`localdns_upstream_success_total{${labels}} ${stats.success_total}`);
+        lines.push(`localdns_upstream_upstream_winner_total{${labels}} ${stats.winner_total}`);
+        lines.push(`localdns_upstream_error_total{${labels}} ${stats.error_total}`);
+        lines.push(`localdns_upstream_response_latency_millisecond_sum{${labels}} ${stats.latency_sum}`);
+        lines.push(`localdns_upstream_response_latency_millisecond_count{${labels}} ${stats.latency_count}`);
+        lines.push(`localdns_upstream_round_errors{${labels}} ${stats.round_errors}`);
+        lines.push(`localdns_upstream_round_successes{${labels}} ${stats.round_successes}`);
 
-        if (stats.error_total > 0 && stats.recent_errors.length > 0) {
-          lines.push(`localdns_upstream_upstream_error_reason_total{metrics_tag="${g}",tag="${node.tag}",reason="other"} ${stats.error_total}`);
-          lines.push(`localdns_upstream_upstream_last_error_unixtime_seconds{metrics_tag="${g}",tag="${node.tag}"} ${stats.recent_errors[0].time}`);
+        for (const [reason, count] of Object.entries(stats.error_reasons)) {
+          if (count <= 0) continue;
+          lines.push(`localdns_upstream_upstream_error_reason_total{metrics_tag="${g}",tag="${node.tag}",reason="${reason}"} ${count}`);
+        }
+        for (const [reason, count] of Object.entries(stats.round_reasons)) {
+          if (count <= 0) continue;
+          lines.push(`localdns_upstream_round_error_reason{metrics_tag="${g}",tag="${node.tag}",reason="${reason}"} ${count}`);
+        }
+        if (stats.last_error_ts > 0) {
+          lines.push(`localdns_upstream_upstream_last_error_unixtime_seconds{metrics_tag="${g}",tag="${node.tag}"} ${stats.last_error_ts}`);
         }
       }
     }

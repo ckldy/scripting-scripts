@@ -1,15 +1,17 @@
 import { Path, Script } from 'scripting';
 import { LocalDnsServer } from '../src/server';
 import { Store } from '../src/store';
+import { AuditManager } from '../src/audit';
 
 /**
- * 上游 SPA（FJN8C / UI 2026.11.08.4）契约校验。
+ * 上游 SPA（FJO02 / UI 2026.11.21.1）契约校验。
  * 重点覆盖 UI normalizeResponse 对 GET 响应的严格类型校验、
  * upstream/config 的 group 字段兼容、/api/v1/features 的 legacy 探测、
- * 独立缓存开关 (switch13/switch4) 与 国外 IP 段 (foreign_ip / foreign_cidrs)。
+ * 独立缓存开关 (switch13/switch4)、国外 IP 段 (foreign_ip / foreign_cidrs)，
+ * 以及 2026.11.21.1 新增的缓存来源 (origin) 与上游错误轮次指标。
  */
 async function main() {
-  console.log('=== [LocalDNS] UI Contract Verification (FJN8C / UI 2026.11.08.4) ===');
+  console.log('=== [LocalDNS] UI Contract Verification (FJO02 / UI 2026.11.21.1) ===');
   let passed = 0;
   let failed = 0;
   const assert = (cond: boolean, desc: string) => {
@@ -163,6 +165,60 @@ async function main() {
     // 缓存参数为可选能力：本移植端未实现时应 404，让 UI 自动隐藏该入口
     const cacheSettings = await fetch(`${base}/api/v1/cache/settings`);
     assert([404, 405, 501].includes(cacheSettings.status), `cache/settings optional endpoint degrades gracefully (got ${cacheSettings.status})`);
+
+    // 2026.11.21.1：查询详情「缓存记录」读 record.origin（原始分流 / 原始上游尝试 / 原始学习记录）
+    const wasCapturing = store.isAuditCapturing();
+    try {
+      store.setAuditCapturing(true);
+      AuditManager.get().recordQuery({
+        id: 'contract-origin',
+        time: '00:00:00',
+        timestamp: Math.floor(Date.now() / 1000),
+        client: '127.0.0.1',
+        domain: 'contract-origin.example',
+        query_type: 'A',
+        domain_set: 'custom_cn',
+        response_code: 'NOERROR',
+        duration_ms: 1,
+        answers: ['1.2.3.4'],
+        upstream_tag: 'cache_hit',
+        cache: true,
+        origin: { domain_set: 'geosite_cn', upstream_attempt: 'ali_doh' },
+        trace_id: 'contract-origin',
+      });
+      const logsRes = await fetch(`${base}/api/v2/audit/logs?q=contract-origin.example&limit=10`);
+      const logsJson = await logsRes.json();
+      const rec = (logsJson.logs || []).find((x: any) => x.trace_id === 'contract-origin');
+      assert(!!rec, 'audit logs returns the recorded entry');
+      assert(!!rec && rec.cache === true, `audit log carries boolean cache=true (got ${JSON.stringify(rec && rec.cache)})`);
+      assert(!!rec && rec.origin && rec.origin.domain_set === 'geosite_cn' && rec.origin.upstream_attempt === 'ali_doh', 'audit log origin keeps original domain_set / upstream_attempt');
+      assert(!!rec && rec.origin && !('learning' in rec.origin), 'audit log origin omits unknown learning (no guessing)');
+    } finally {
+      store.setAuditCapturing(wasCapturing);
+    }
+
+    // 2026.11.21.1：「解析」按上游当前错误轮次统计（round_errors / round_successes / 原因分类）
+    const roundNode = { tag: 'contract_round_node', protocol: 'https', addr: 'https://127.0.0.1:65535/dns-query', enabled: false };
+    const roundPost = await fetch(`${base}/api/v1/upstream/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group: 'domestic', upstreams: [roundNode] }),
+    });
+    assert(roundPost.status === 200, `POST upstream/config for round node returns 200 (got ${roundPost.status})`);
+    const audit = AuditManager.get();
+    audit.recordUpstreamResult('domestic', 'contract_round_node', 5, true, false);
+    audit.recordUpstreamResult('domestic', 'contract_round_node', 7, false, false, 'AbortError: The operation was aborted.');
+    audit.recordUpstreamResult('domestic', 'contract_round_node', 9, false, false, 'connect ECONNREFUSED 127.0.0.1:65535');
+    const metricsText = await (await fetch(`${base}/metrics`)).text();
+    const tagLabels = 'metrics_tag="domestic",group="domestic",tag="contract_round_node"';
+    assert(metricsText.includes('localdns_unixtime_seconds '), 'metrics includes localdns_unixtime_seconds (round freshness base)');
+    assert(/localdns_upstream_error_round_quiet_seconds \d+/.test(metricsText), 'metrics includes localdns_upstream_error_round_quiet_seconds');
+    assert(metricsText.includes(`localdns_upstream_round_errors{${tagLabels}} 2`), 'round_errors counts only the current error round');
+    assert(metricsText.includes(`localdns_upstream_round_successes{${tagLabels}} 1`), 'round_successes counts the same round');
+    assert(metricsText.includes('localdns_upstream_round_error_reason{metrics_tag="domestic",tag="contract_round_node",reason="timeout"} 1'), 'round reason classifies abort as timeout');
+    assert(metricsText.includes('localdns_upstream_round_error_reason{metrics_tag="domestic",tag="contract_round_node",reason="refused"} 1'), 'round reason classifies ECONNREFUSED as refused');
+    assert(metricsText.includes('localdns_upstream_upstream_error_reason_total{metrics_tag="domestic",tag="contract_round_node",reason="timeout"} 1'), 'cumulative reason counters stay classified (no blanket other)');
+    assert(metricsText.includes(`localdns_upstream_error_total{${tagLabels}} 2`), 'cumulative error_total matches the two failures');
   } catch (e: any) {
     console.error('  💥 ERROR:', e?.message || e);
     failed++;

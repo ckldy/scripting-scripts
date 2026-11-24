@@ -48,9 +48,9 @@ async function runTests() {
   // 读取 version.json 校验
   const verStr = await FileManager.readAsString(Path.join(webDir, 'version.json'));
   const verData = JSON.parse(verStr);
-  assert(verData.uiVersion === '2026.11.08.4', `UI version matches 2026.11.08.4 (got: ${verData.uiVersion})`);
+  assert(verData.uiVersion === '2026.11.21.1', `UI version matches 2026.11.21.1 (got: ${verData.uiVersion})`);
   assert(verData.backendVersion === 'FJMOS', `Backend version matches FJMOS (got: ${verData.backendVersion})`);
-  assert(verData.releaseTag === 'fjn8c-ui-v2026.11.08.4', `Release tag matches (got: ${verData.releaseTag})`);
+  assert(verData.releaseTag === 'fjo02-ui-v2026.11.21.1', `Release tag matches (got: ${verData.releaseTag})`);
 
   // 检查 index.html 包含双皮肤及新资源引入
   assert(htmlStr.includes('data-skin="claude"'), 'index.html includes Claude skin attribute');

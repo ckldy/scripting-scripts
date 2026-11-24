@@ -2,7 +2,7 @@
   "name": "LocalDNS",
   "icon": "shield.lefthalf.filled",
   "color": "#6366f1",
-  "version": "1.15.17",
+  "version": "1.15.21",
   "author": "vcncv",
-  "description": "本地 DNS 与安全服务系统，v1.15.17 修 Surge 联动状态条被一次瞬时探测失败焊死成「未连接」：工作台改为三态（检测中/已连通/未连接并就地显示原因），探测失败自动重试一次，停在配置页每 30s 重探且只重绘状态条不丢当前 tab；后端零改动。v1.15.16 已精确同步上游 UI 2026.11.08.4（发行线 fjn01 → fjn8c，内核仍为零改动的 FJMOS），安装包经 SHA256SUMS 校验（b8c50e03…），7 处 Surge 补丁锚点全部命中，livepulse 拓扑、Surge 工作台、AdHunter 入口与 FJMOS 徽标零丢失，新旧 bundle 的 /api/v1 · /api/v2 端点集合 0 新增 0 消失。对齐上游 UI 2026.11.08.4（FJMOS 内核保留），由 vcncv 移植构建。"
+  "description": "本地 DNS 与安全服务系统，v1.15.21 为托管模块加入上游更新检测：模块表新增内容哈希与巡检字段，刷新时采用上游 #!name（毒奶这类日期名会跟着更新），新增 check-updates / updates 接口与后台巡检（启动 45 秒后 + 每 6 小时），模块工作台显示「🆕 有更新」徽标、上游版本与「🔍 检查更新」按钮；本机来源（ad-hunter）不参与巡检。沿用 v1.15.18 的 FJO02 / UI 2026.11.21.1、FJMOS 内核与全部本地 Surge 定制；构建号 20261125。"
 }

@@ -23,8 +23,33 @@ export interface AppModule {
   arguments_schema?: ModuleArgumentItem[];
   arguments_desc?: string | null;
   custom_arguments?: Record<string, string>;
+  /** 本地正文的规整哈希，用于与上游对比 */
+  content_hash?: string | null;
+  /** 最近一次巡检抓到的上游哈希 */
+  remote_hash?: string | null;
+  /** 最近一次巡检时间（毫秒） */
+  remote_checked_at?: number | null;
+  /** 上游 #!name（第三方模块常在里面送日期版本） */
+  remote_name?: string | null;
+  /** 派生字段：remote_hash 与 content_hash 不同即视为有更新 */
+  update_available?: boolean;
   created_at: number;
   updated_at: number;
+}
+
+/**
+ * 模块正文规整哈希（去 CRLF、去首尾空白）
+ * 只做内容对比，不参与解码与缓存。
+ */
+export function moduleContentHash(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  if (!normalized) return null;
+  try {
+    return Crypto.sha256(Data.fromRawString(normalized, 'utf-8')).toHexString().slice(0, 24);
+  } catch {
+    return null;
+  }
 }
 
 export interface ScriptRegistryEntry {
@@ -256,6 +281,18 @@ export class SurgeDatabase {
         } catch {}
         try {
           await this.db.execute('ALTER TABLE app_modules ADD COLUMN custom_arguments TEXT;');
+        } catch {}
+        try {
+          await this.db.execute('ALTER TABLE app_modules ADD COLUMN content_hash TEXT;');
+        } catch {}
+        try {
+          await this.db.execute('ALTER TABLE app_modules ADD COLUMN remote_hash TEXT;');
+        } catch {}
+        try {
+          await this.db.execute('ALTER TABLE app_modules ADD COLUMN remote_checked_at INTEGER;');
+        } catch {}
+        try {
+          await this.db.execute('ALTER TABLE app_modules ADD COLUMN remote_name TEXT;');
         } catch {}
         try {
           await this.db.execute('ALTER TABLE remote_rule_sets ADD COLUMN name TEXT;');
@@ -1167,6 +1204,11 @@ export class SurgeDatabase {
         arguments_schema: schema,
         arguments_desc: r.arguments_desc,
         custom_arguments: customArgs,
+        content_hash: r.content_hash || null,
+        remote_hash: r.remote_hash || null,
+        remote_checked_at: r.remote_checked_at || null,
+        remote_name: r.remote_name || null,
+        update_available: Boolean(r.remote_hash && r.remote_hash !== r.content_hash),
         created_at: r.created_at,
         updated_at: r.updated_at,
       };
@@ -1196,6 +1238,11 @@ export class SurgeDatabase {
       arguments_schema: schema,
       arguments_desc: r.arguments_desc,
       custom_arguments: customArgs,
+      content_hash: r.content_hash || null,
+      remote_hash: r.remote_hash || null,
+      remote_checked_at: r.remote_checked_at || null,
+      remote_name: r.remote_name || null,
+      update_available: Boolean(r.remote_hash && r.remote_hash !== r.content_hash),
       created_at: r.created_at,
       updated_at: r.updated_at,
     };
@@ -1206,10 +1253,13 @@ export class SurgeDatabase {
     const now = Date.now();
     const schemaStr = module.arguments_schema ? JSON.stringify(module.arguments_schema) : null;
     const customArgsStr = module.custom_arguments ? JSON.stringify(module.custom_arguments) : null;
+    // 正文哈希在入库时统一计算，导入/刷新/手动改文都会自动对齐，
+    // 用来与远程巡检拿到的哈希直接比较。
+    const contentHash = moduleContentHash(module.raw_content);
 
     await this.getDb().execute(
-      `INSERT OR REPLACE INTO app_modules (id, name, category, source_url, enabled, raw_content, arguments_schema, arguments_desc, custom_arguments, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM app_modules WHERE id = ?), ?), ?)`,
+      `INSERT OR REPLACE INTO app_modules (id, name, category, source_url, enabled, raw_content, arguments_schema, arguments_desc, custom_arguments, content_hash, remote_hash, remote_checked_at, remote_name, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM app_modules WHERE id = ?), ?), ?)`,
       [
         module.id,
         module.name,
@@ -1220,10 +1270,31 @@ export class SurgeDatabase {
         schemaStr,
         module.arguments_desc || null,
         customArgsStr,
+        contentHash,
+        module.remote_hash || null,
+        module.remote_checked_at || null,
+        module.remote_name || null,
         module.id,
         now,
         now,
       ]
+    );
+  }
+
+  /**
+   * 仅记录一次上游巡检结果，不碰正文与规则（不会触发 INSERT OR REPLACE 的级联删除）
+   */
+  public async setModuleRemoteCheck(
+    id: string,
+    remoteHash: string | null,
+    remoteName: string | null,
+    checkedAt: number,
+    localHash?: string | null
+  ): Promise<void> {
+    await this.init();
+    await this.getDb().execute(
+      'UPDATE app_modules SET remote_hash = ?, remote_name = ?, remote_checked_at = ?, content_hash = COALESCE(content_hash, ?) WHERE id = ?',
+      [remoteHash, remoteName, checkedAt, localHash || null, id]
     );
   }
 

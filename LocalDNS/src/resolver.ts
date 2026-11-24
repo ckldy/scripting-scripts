@@ -18,7 +18,7 @@ import { LocalRecordsEngine } from './records';
 import { synthesizeAAAA } from './dns64';
 import { SurgeDatabase } from './surge-db';
 import { SurgeService } from './surge-service';
-import type { DnsPacket, DnsRecord, UpstreamNode, UpstreamGroup, SpeedConfig } from './types';
+import type { DnsPacket, DnsRecord, UpstreamNode, UpstreamGroup, SpeedConfig, CacheOrigin } from './types';
 
 function generateTraceId(): string {
   const chars = 'abcdef0123456789';
@@ -143,6 +143,7 @@ export class DnsResolver {
   private logQuery(params: {
     traceId: string; clientIp: string; domain: string; qtypeName: string; domainSet: string;
     rcode: string; duration: number; answers: string[]; upstreamTag?: string;
+    cache?: boolean; origin?: CacheOrigin;
   }): void {
     AuditManager.get().recordQuery({
       id: params.traceId,
@@ -156,6 +157,8 @@ export class DnsResolver {
       duration_ms: params.duration,
       answers: params.answers,
       upstream_tag: params.upstreamTag,
+      cache: params.cache,
+      origin: params.origin,
       trace_id: params.traceId,
     });
 
@@ -332,7 +335,7 @@ export class DnsResolver {
             }
           }
         }
-        this.logQuery({ traceId, clientIp, domain, qtypeName, domainSet: diversion.domainSet, rcode: respPacket.rcodeName, duration: Date.now() - startTime, answers: respPacket.answers.map(a => String(a.data)), upstreamTag: cached.isLazy ? 'cache_lazy' : 'cache_hit' });
+        this.logQuery({ traceId, clientIp, domain, qtypeName, domainSet: diversion.domainSet, rcode: respPacket.rcodeName, duration: Date.now() - startTime, answers: respPacket.answers.map(a => String(a.data)), upstreamTag: cached.isLazy ? 'cache_lazy' : 'cache_hit', cache: true, origin: cached.origin });
         return serializeDnsPacket(respPacket);
       }
     }
@@ -443,8 +446,12 @@ export class DnsResolver {
     if (switches.switch13 === 'A' && !noCache) {
       const isNegative = respPacket.rcode !== 0 || respPacket.answers.length === 0;
       const ttlOverride = isNegative ? cacheCfg.negativeTtl : undefined;
-      cacheManager.set(groupPoolTag, domain, qtype, respPacket, finalBytes, ttlOverride);
-      cacheManager.set('cache_main', domain, qtype, respPacket, finalBytes, ttlOverride);
+      // 缓存来源：只记录写入时真正知道的字段，未知道的留给界面显示「未记录」
+      const origin: CacheOrigin = {};
+      if (diversion.domainSet) origin.domain_set = diversion.domainSet;
+      if (winnerTag) origin.upstream_attempt = winnerTag;
+      cacheManager.set(groupPoolTag, domain, qtype, respPacket, finalBytes, ttlOverride, origin);
+      cacheManager.set('cache_main', domain, qtype, respPacket, finalBytes, ttlOverride, origin);
     }
 
     // 11. Audit

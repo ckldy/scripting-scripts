@@ -1,10 +1,52 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.15.17 (Build 20261116)`  
+> **当前版本**：`v1.15.21 (Build 20261125)`  
 > **移植作者**：`vcncv`  
-> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.11.08.4` / 内核 `FJMOS`）
+> **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.11.21.1` / 内核 `FJMOS`）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地高性能 DNS 服务与安全管理系统。
+
+### v1.15.21 托管模块自动检测上游更新
+- **结论**：模块更新一直「能用」，但**看不出变化**——`refreshModule` 只换正文，`name` 从来没动过，所以毒奶始终显示「2026年10月31日更新」，而上游当天已是「(2026年11月25日更新)」。
+- **新字段**：`app_modules` 增加 `content_hash / remote_hash / remote_checked_at / remote_name`（幂等 ALTER）；正文哈希在 `saveModule()` 统一计算，导入 / 刷新 / 手改都自动对齐。
+- **巡检**：`checkModuleUpdates()` 并发 3 抓取上游、只比哈希、写回 `remote_*`；本机回环来源（`http://127.0.0.1:9099/ad-hunter.html`）自动跳过，不计失败。
+- **刷新**：`refreshModule()` 采纳上游 `#!name`（用户改过名且不是「(日期)」型名字时保留），并返回 `changed` 区分「已更新 / 已是最新」。
+- **自动巡检**：进程启动 45 秒后跑一次，之后每 6 小时一次；同一进程内最短 30 分钟一次。
+- **接口**：`POST /api/v1/surge/modules/check-updates`（可带 `ids`）、`GET /api/v1/surge/modules/updates`（只读缓存）、`GET /api/v1/surge/modules` 增返回 `checked_at`。
+- **UI**：卡片「🆕 有更新」徽标 + 「上游：…」版本行 + 橙色「⬆️ 更新到新版」按钮；面板顶部「🆕 N 个模块有上游更新 · 检查于 …」；新增「🔍 检查更新」；打开模块页首次自动检查（localStorage 30 分钟节流）。
+- **实测**：`tools/test-module-updates.ts` **19/19**（真实上游：毒奶 11月25日 → 强制置旧判定有更新 → 刷新 → 名称同步 → 复查无更新）；`tools/test-module-api.ts` **8/8**（新端点 200、旧路由不受影响、本机来源跳过）。全量巡检出 **哔哩哔哩增强** 确有上游更新（`bilibili.request` 改名 + 新增 `resolve?host=` 规则）。
+- **事故记录**：编辑 `web/assets/surge-workbench.js` 时用 `open(path,'w')` 触发异常，文件被截断为 0 字节；已从 `scripting-repos/scripting-scripts-work` 的 11-16 源码快照恢复并重放本次补丁。11-17～11-24 之间若该文件另有小改动，可能缺失，需人工核对。此后所有文件改写一律走「写临时文件 + `os.replace`」。
+
+### v1.15.20 修概览「上游 DNS 健康」误报 + 补丁包改名避开 immutable 缓存
+- **现象**：重启脚本后约 1 分钟，概览一直显示「5/7（2 异常）」，「解析」页两项境外 DoH 各累计 8 次超时，看着像解析坏了。
+- **实测时间线**：04:39:25 进程启动；04:39:40–04:40:32 期间 `1.1.1.1` / `dns.google` 各超时 8 次（`The operation was aborted`，6 s 上限），同一分钟的国内查询 99 ms / 1 ms 正常 → 是随道未就绪，不是事件循环卡死，也不是解析链路改动。
+- **真因**：概览健康度用**累计**口径 `err > 0 && success < 80`，成功 3/(3+8)=27%，要再成功约 32 次才回到 80%，所以一直红；而「解析」页早已按当前轮次显示。
+- **修法（第 8 处本地补丁 `overview-health-round`）**：`faultyUps` 判定改用 `x.m.round ?? x.m`，与轮次指标同源；静默 300 s 后轮次归零，健康度自动恢复。实测刷新后显示 **7/7 在线**。
+- **补丁包改名**：打补丁后的字节与上游哈希不符，而 `/ui/assets/*` 带 `public, max-age=31536000, immutable`；同名文件会让回访浏览器一年内继续用旧包。同步工具现在把补丁版重命名为 `app-zO37TzL3-local.js` 并同步改写 `index.html`，以后每次发版都会得到新文件名。
+- **排查记录**：`dig @127.0.0.1` 超时是预期行为——LocalDNS 只提供 DoH（9099 / 9443），不监听 53。
+- **建议**：要把 DNS 交给 LocalDNS 时，Surge `[General]` 用 `encrypted-dns-server = https://127.0.0.1:9443/dns-query` 且保留 `dns-server` 公共回退；当前生效配置用的是 `tls://1.1.1.1` 等外部 DNS，随道重连时设备解析会跟着抖一阵。
+
+### v1.15.19 新增「版本更新提示」：每个版本只在首次启动弹一次
+- **触发规则**：原生界面挂载后延时 800 ms 调 `showUpdateNoticeOnce(APP_VERSION)`；Storage 键 `localdns_update_notice_seen_version` 记录已看版本，同版本不再弹；换新版本（版本号变化）后的首次启动会再弹一次。
+- **确认才记账**：只有用户点「知道了」后才写入已看版本；中途退出或进程被杀，下次仍会提示。版本号读取失败（`v?`）或清单里没有该版本的文案时不弹也不写，避免把提示永久吞掉。
+- **文案集中管理**：更新列表在 `src/changelog.ts` 的 `RELEASE_NOTES`（version / build / items），新增版本只补一条，`index.tsx` 不存任何文案。
+- **不影响主界面**：宿主没有 `Dialog` 或 Storage 不可用时静默跳过，只打一行 `console.warn`。
+- **踩坑记录**：`Dialog` 是宿主的**全局命名空间**，不能从 `'scripting'` 导入——导入会拿到 `undefined` 并静默失效；现改为 `globalThis.Dialog` 能力探测，声明放在 `src/globals.d.ts`。
+- **验收**：`_probe_changelog.ts` 19 项断言全通过（版本归一化、首启/同版本/升级/回退/未知版本判定、正文渲染、Storage 往返、无文案与空版本不弹、同进程只尝试一次），真机上 `Dialog.alert` 与 `useEffect` 均为 function。
+- **构建号**：`20261125`；`script.json` 1.15.19。升级后首次启动会看到 v1.15.19 的更新内容（含上一版 FJO02 同步与模块库恢复要点）。
+
+### v1.15.18 精确同步上游 UI 2026.11.21.1（FJO02 发行线）并按新契约补齐后端
+- **精确替换打包 SPA**：`app-zO37TzL3.js`（890 KB）+ `index-CBx03oFF.css`（778 KB），旧 `app-BF6QW_hf.js` / `index-3nLTlqR7.css` 已移除；`editor-A1rycQg2.js` 上游逐字节未变（`6bbce02c…`），本地 Surge 区段校验原样重放。
+- **7 处 Surge 补丁零丢失**：导航副标题、代理流量 `source` 透传、`brands.surge`、默认核心 `surge`、`Surge · CONF` 下拉项、`chosen` 优先 surge、代理页副标题，逐条命中 1 次；`livepulse.js`、`surge-workbench.js`、AdHunter 入口、`data-backend-version="FJMOS"` 全部保留。
+- **端点集合 0 新增 / 0 消失**（26 个），本版变更集中在字段级：新增日志 `origin` 与上游轮次指标。
+- **新功能 1：查询详情「缓存记录」显示缓存来源**。`CacheEntry` 记住写入时的 `domain_set` / `upstream_attempt`（并随缓存 dump 持久化），命中时随审计日志下发 `origin`；`/api/v2/audit/logs` 只透传已知字符串字段——本地没有学习机制，`origin.learning` 不下发也不猜测。实测 `example.org` 二次解析：`{"cache":true,"origin":{"domain_set":"default_foreign","upstream_attempt":"cloudflare_ip"}}`，前端「缓存记录」步骤显示「原始分流 / 原始上游尝试」与「原始字段来自缓存条目，不代表本次查询访问了上游」。
+- **新功能 2：解析页按上游展示「当前错误轮次」与轮次成功率**。新增 `localdns_upstream_round_errors`、`localdns_upstream_round_successes`、`localdns_upstream_round_error_reason{reason}`、`localdns_upstream_error_round_quiet_seconds`（300 s）与 `localdns_unixtime_seconds`；轮次在最后一次错误后静默 300 s 结束，结束后不再把历史错误计入当前轮次，累计指标保持不变。
+- **顺带修正累计错误分类**：旧实现把每个失败都写成 `reason="other"`；现在按异常文本归类 timeout / tls / socks5 / refused / unreachable / eof / connect / http / protocol，分类合计恒等于 `error_total`，UI 的「分类合计与错误总数不一致」告警不会触发。
+- **能力探测保持兼容**：新 UI 用 `providerKernels = {FJN8C, FJO02}` 判断服务商编辑能力，`/api/v1/status.version` 仍为 `FJMOS`，行为与上一版一致（隐藏服务商列、不写 `provider`、保存时不删除未知字段）。
+- **同步工具二次去硬编码**：品牌锚点由 `FJN[0-9A-Z]+` 放宽为 `FJ[A-Z][A-Z0-9]+`（FJO02 不再以 FJN 开头）；补丁规格移入仓库 `tools/upstream-patch-spec.json`，可用 11.08.4 原包逐字节复现当前产物；工作目录在 App Group 不可写时自动回退到工作区。
+- **完整性校验**：`LocalDNS_UI_2026.11.21.1_Update.zip` 经发行版 `SHA256SUMS.txt` 校验（`dda168da…`，8,762,552 B）。
+- **验收**：`test-ui-contract.ts` **47/47**（新增 13 项：origin 透传与不猜测、轮次计数、原因分类、unixtime / quiet 指标）；`test-suite.ts` **153/154**，唯一失败 `AdGuard engine has over 100,000 rules active` 是本地规则库为空的数据状态（存储 `count=0 / stored_bytes=0`，内存仅 48 条），与本次升级无关，见「已知问题」。
+- **真机浏览器复核**（本地服务 9298）：概览页徽标 `FJMOS`、AdHunter 入口、livepulse 回环层与 `.tec-bar-row` 正常；解析页表头含 `错误 / 成功率`，错误单元格 `title="当前轮次错误"`，统计口径文案切到轮次版本；代理页副标题已替换、`Surge · CONF` 为首选且默认选中、工作台 7 个 tab 注入成功；查询详情「缓存记录」按新字段渲染。
 
 ### v1.15.17 Surge 联动状态条不再因一次瞬时探测失败而焊死成「未连接」
 - **现象**：代理 → 配置管理顶部状态条显示「Surge 联动未连接」，但 `GET /api/v1/surge/runtime` 实际返回 `online:true`（rtt 2–5 ms），刷新页面又变绿。
@@ -233,10 +275,16 @@
 ## 已知问题
 
 ### 分流组「孤儿规则清理」会连带删掉手工粘贴的规则（待确认修复）
+- **本版回归状态**：`Direct RULE-SET exports active direct rules` 与 `Rules text exported for online editor` 已通过（当前库里 `direct` 组有规则），但下面描述的机制性风险未消除。
 - **现象**：生产库 `direct`（国内直连）与 `proxy`（节点代理）两个分流组变成 **0 条规则**，`/rules/direct.list` 只剩模块头。`test-suite.ts` 两条断言（`Direct RULE-SET exports active direct rules`、`Rules text exported for online editor`）因此长期不过，与 UI 无关。
 - **时间线证据**：`backup/20261107/surge_link.db` 里 `direct` 4 条（1 条有来源绑定）、`proxy` 6628 条（全部绑定到同一个远程规则集）；现行库里两者均为 0，且 `rule_source_bindings` 与现存规则数等量（53751 ≈ 53751），即「无绑定的规则已不存在」。
 - **机制**：`surge-service.ts` 刷新全部订阅时，**阶段 3** 执行 `DELETE FROM diversion_rules WHERE id NOT IN (SELECT rule_id FROM rule_source_bindings) AND is_auto_learned = 0`——把「已不在任何订阅／模块来源里的手工规则」整批删除。当某个远程规则集被移除（或将 `proxy` 组规则切换回手写）时，原属它的整组规则连同手工补充都会在下次刷新时无提示消失。
 - **待办**：① 是否把阶段 3 限定为「仅清理该来源自己曾经绑定过的规则」或加确认闸门；② 是否从 `20261107` 备份恢复 `proxy` 的 6628 条与 `direct` 的 4 条（需用户确认，因为中间 `block` 组已发生变化，不能整库回滚）。
+
+### AdGuard 规则库为空导致回归套件的 10 万条断言失败（数据状态，非代码回归）
+- **现象**：`test-suite.ts` 唯一失败项 `AdGuard engine has over 100,000 rules active (got: 48)`。
+- **证据**：`tools/diag-adguard.ts` 直接读 `Store`：两个来源均为 `count=0 / stored_bytes=0`（`AdGuard DNS Filter` 启用但正文为空、`anti-AD` 关闭），内存里只剩 48 条内置规则。规则正文不在存储里，与换包、缓存来源、轮次指标改动无关。
+- **处理**：在「名单管理 → 广告规则」重新导入/刷新 AdGuard 规则集即可恢复；不建议把断言降到 48 来掩盖数据缺失。
 
 ---
 
