@@ -1178,7 +1178,7 @@ export default function MainView() {
       Dialog.alert({
         title: "真流式端口未启用",
         message:
-          "真流式独占端口尚未监听成功。主网关仍可正常使用（协议级 SSE 完整兼容）。\n\n如需逐字推流，请确认 5195 端口未被占用后重启工具。",
+          "真流式独占端口尚未监听成功。主网关仍可正常使用，但流式回复会整轮缓冲（首字节要等整轮生成完）。\n\n如需逐字推流，请确认 5195 端口未被占用后重启工具。",
       }).catch(() => {});
       return;
     }
@@ -1187,7 +1187,7 @@ export default function MainView() {
       Pasteboard.setString(url);
       Dialog.alert({
         title: "✅ 真流式地址已复制",
-        message: `${url}\n\n把该地址填进客户端 Base URL 即可获得毫秒级逐字推流。\n\n注意：该端口只接受 "stream" 的对话请求；非流式与管理接口请继续用主网关 ${port}。`,
+        message: `${url}\n\n把该地址填进客户端 Base URL 即可获得毫秒级逐字推流。\n\n5195 现已支持流式与非流式对话，也支持 /v1/models 探测，可以直接当完整 Base URL 使用；管理接口（角色卡、设置、保活）仍在主网关 ${port}。`,
       }).catch(() => {});
     } catch {
       console.log("Copied: " + url);

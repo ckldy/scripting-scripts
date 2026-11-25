@@ -1204,6 +1204,49 @@ export function looksLikeToolCall(input: string): boolean {
   );
 }
 
+/**
+ * 上游上下文瘦身：客户端会把整段会话（几十个工具返回的大段文件内容）每轮全量重发，
+ * 请求体可达数 MB，上游容易在中途直接截断流。这里只裁剪“发给上游”的副本，
+ * 客户端自己的历史完全不受影响。
+ */
+export function trimHistoryForUpstream(
+  history: Array<{ role: "user" | "assistant"; content: string }>,
+  opts: { maxMessages?: number; maxTotalChars?: number; maxToolResultChars?: number; maxOtherChars?: number } = {}
+): Array<{ role: "user" | "assistant"; content: string }> {
+  const maxMessages = opts.maxMessages ?? 60;
+  const maxTotalChars = opts.maxTotalChars ?? 120000;
+  const maxToolResultChars = opts.maxToolResultChars ?? 6000;
+  const maxOtherChars = opts.maxOtherChars ?? 24000;
+
+  const capped = history.map((m) => {
+    let content = String(m.content || "");
+    const isToolResult = /^\[工具[^\]]*返回\]/.test(content);
+    const limit = isToolResult ? maxToolResultChars : maxOtherChars;
+    if (content.length > limit) {
+      const cut = content.length - limit;
+      content = content.slice(0, limit) + `\n…（此处省略 ${cut} 字符）`;
+    }
+    return { role: m.role, content };
+  });
+
+  const kept: Array<{ role: "user" | "assistant"; content: string }> = [];
+  let total = 0;
+  for (let i = capped.length - 1; i >= 0; i--) {
+    if (kept.length >= maxMessages) break;
+    const m = capped[i];
+    if (kept.length > 0 && total + m.content.length > maxTotalChars) break;
+    kept.unshift(m);
+    total += m.content.length;
+  }
+
+  // 裁掉因裁剪而悬空的工具返回（它对应的调用已不在上下文里）
+  while (kept.length && kept[0].role === "user" && /^\[工具[^\]]*返回\]/.test(kept[0].content)) {
+    kept.shift();
+  }
+
+  return kept.length ? kept : history.slice(-2);
+}
+
 /** 把客户端传来的 OpenAI tools 压成一段文本协议（助手运行时不支持原生 tools） */
 export function buildToolProtocol(tools: any[]): string {
   if (!Array.isArray(tools) || tools.length === 0) return "";
@@ -3017,6 +3060,33 @@ export function recordRequestLog(entry: Record<string, any>) {
     while (arr.length > 20) arr.shift();
     writeJsonFile(p, arr);
   } catch {}
+}
+
+/**
+ * 记录「流式请求走了整轮缓冲的 5190」的次数。
+ * 5190 的 stream:true 只能整轮生成完再一次性返回（首字节可达 50 秒以上），
+ * 长任务里客户端会先判超时断流，所以这个计数一旦上涨，说明有客户端配错了端口。
+ */
+export function recordBufferedStream(count = 1) {
+  try {
+    ensureDir(DATA_DIR);
+    const p = Path.join(DATA_DIR, "buffered-stream.json");
+    const prev = readJsonFile<{ total?: number; last?: number[] }>(p, {});
+    const last = Array.isArray(prev.last) ? prev.last : [];
+    last.push(Date.now());
+    writeJsonFile(p, { total: (Number(prev.total) || 0) + count, last: last.slice(-20) });
+  } catch {}
+}
+
+/** 读取缓冲流计数，供 /api/status 与界面显示 */
+export function getBufferedStreamStats(): { total: number; last: number[] } {
+  try {
+    const p = Path.join(DATA_DIR, "buffered-stream.json");
+    const prev = readJsonFile<{ total?: number; last?: number[] }>(p, {});
+    return { total: Number(prev.total) || 0, last: Array.isArray(prev.last) ? prev.last : [] };
+  } catch {
+    return { total: 0, last: [] };
+  }
 }
 
 /** 记录最近一次工具调用，方便排查客户端为何不接受 */
@@ -5058,7 +5128,14 @@ export async function handleApiRoute(req: HttpRequest, port: number): Promise<Ht
 
   // 11.55 引擎池：查看 / 配置（Provider 级顺序、停用、对外模型、轮数、自动回退）
   if (p === "/api/engines" && m === "GET") {
-    return jsonResponse({ port, config: readEnginePoolConfig(), providers: await discoverProviders(port) });
+    return jsonResponse({
+      port,
+      config: readEnginePoolConfig(),
+      providers: await discoverProviders(port),
+      // 流式请求走了整轮缓冲的 5190：涨了说明有客户端把 Base URL 配到了 5190
+      bufferedStream: getBufferedStreamStats(),
+      trueStreamPort: port === 5190 ? 5195 : null,
+    });
   }
 
   if (p === "/api/engines/config" && m === "POST") {
@@ -5998,11 +6075,14 @@ export async function handleApiRoute(req: HttpRequest, port: number): Promise<Ht
             null
           );
           sse += mk({}, "tool_calls") + "data: [DONE]\n\n";
+          recordBufferedStream();
           return HttpResponse.raw(200, "OK", {
             headers: {
               "Content-Type": "text/event-stream; charset=utf-8",
               "Cache-Control": "no-cache, no-transform",
               "Connection": "keep-alive",
+              "X-Hanshuang-Buffered-Stream": "1",
+              "X-Hanshuang-Stream-Tip": "5190 stream is buffered; use 5195 for true streaming",
               "X-Accel-Buffering": "no",
               "Access-Control-Allow-Origin": "*",
             },
@@ -6069,11 +6149,14 @@ export async function handleApiRoute(req: HttpRequest, port: number): Promise<Ht
           })}\n\n`;
         }
         sse += "data: [DONE]\n\n";
+        recordBufferedStream();
         return HttpResponse.raw(200, "OK", {
           headers: {
             "Content-Type": "text/event-stream; charset=utf-8",
             "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
+            "X-Hanshuang-Buffered-Stream": "1",
+            "X-Hanshuang-Stream-Tip": "5190 stream is buffered; use 5195 for true streaming",
             "X-Accel-Buffering": "no",
             "Access-Control-Allow-Origin": "*",
           },
@@ -6364,9 +6447,10 @@ export async function handleStreamChatCompletions(
   // Gemini 去敏
   const isGeminiEngine = /gemini/i.test(effModelId);
   const safeSystem = isGeminiEngine ? sanitizeForGemini(baseSystem) : baseSystem;
+  const upstreamHistory = trimHistoryForUpstream(history);
   const safeHistory: Array<{ role: "user" | "assistant"; content: string }> = isGeminiEngine
-    ? history.map((m) => (m.role === "user" ? { ...m, content: sanitizeForGemini(m.content) } : m))
-    : history;
+    ? upstreamHistory.map((m) => (m.role === "user" ? { ...m, content: sanitizeForGemini(m.content) } : m))
+    : upstreamHistory;
   const lastUser = [...safeHistory].reverse().find((m) => m.role === "user")?.content || "";
 
   // 工具协议
@@ -6441,6 +6525,14 @@ export async function handleStreamChatCompletions(
     let pushed = false;
     let usage: any = null;
 
+    // SSE 注释心跳：上游长时间思考/生成时客户端收不到任何字节，
+    // 会被自己的 idle timeout 掐断（表现为“说到一半就断”）。
+    const heartbeat = setInterval(() => {
+      try {
+        writeChunk(`: ping ${Date.now()}\n\n`);
+      } catch {}
+    }, 15000);
+
     try {
       for await (const chunk of stream) {
         if (!chunk) continue;
@@ -6479,6 +6571,7 @@ export async function handleStreamChatCompletions(
         }
       }
     } finally {
+      clearInterval(heartbeat);
       if (reasoningFilter) {
         const reasoningTail = reasoningFilter.onEnd();
         if (reasoningTail) writeChunk(mkChunk({ reasoning_content: reasoningTail }, null));
@@ -6570,6 +6663,29 @@ export async function handleStreamChatCompletions(
     break;
   }
 
+  // 上游静默断流（一个字符都没产出）：自动补一次「继续」，不让用户手动重发
+  if (!pushedAny && !stillRefused && failureText === null && finalText.trim() === "" && safeHistory.length > 0) {
+    const cont = await runStreamTurn({
+      systemPrompt: buildSystem(effModelId, 0),
+      messages: [
+        ...safeHistory,
+        {
+          role: "user" as const,
+          content: "上一次回复在生成过程中中断了，没有产生任何内容。请直接给出完整答复，不要提及中断。",
+        },
+      ],
+      providerID: sel.providerID,
+      modelId: effModelId,
+      withReasoning: false,
+    });
+    if (cont.ok && !cont.blocked && cont.text.trim()) {
+      finalText = cont.text;
+      pushedAny = cont.pushed;
+      outJudge = judge(cont.text);
+      corrected = true;
+    }
+  }
+
   // 主引擎被拦、且还没往外推过任何正文 → 按引擎池顺序换引擎（可关闭）
   const autoFallbackEnabled = proxyState.autoFallback !== false && poolCfg.autoFallback;
   if (stillRefused && !pushedAny && !forceNoFallback && autoFallbackEnabled) {
@@ -6578,8 +6694,8 @@ export async function handleStreamChatCompletions(
       const altGemini = /gemini/i.test(alt.modelId);
       const altSystem = altGemini ? sanitizeForGemini(baseSystem) : baseSystem;
       const altHistory = altGemini
-        ? history.map((m) => (m.role === "user" ? { ...m, content: sanitizeForGemini(m.content) } : m))
-        : history;
+        ? upstreamHistory.map((m) => (m.role === "user" ? { ...m, content: sanitizeForGemini(m.content) } : m))
+        : upstreamHistory;
       const altTurn = await runStreamTurn({
         systemPrompt: withReasoningDiscipline(`${armorCorrectivePrefixFor(alt.modelId)}\n\n${altSystem}` + toolSpec),
         messages: [
