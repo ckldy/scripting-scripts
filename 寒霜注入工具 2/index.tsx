@@ -64,6 +64,28 @@ declare const fetch: any;
  * 辅助函数
  * ================================================================== */
 
+/**
+ * 版本号唯一真源：运行时读 script.json。
+ * 不能用 Script.metadata.version —— 宿主读的是安装时缓存的那份清单，
+ * 实测脚本目录里已是 1.2.5 时它仍返回 1.0.0（历史版本号漂移的真因）。
+ */
+let cachedAppVersion: string | null = null;
+
+function readAppVersion(): string {
+  if (cachedAppVersion) return cachedAppVersion;
+  try {
+    const raw = FileManager.readAsStringSync(Script.directory + "/script.json", "utf-8");
+    const v = JSON.parse(String(raw || "{}")).version;
+    if (typeof v === "string" && v) {
+      cachedAppVersion = v;
+      return v;
+    }
+  } catch (e) {
+    console.warn("[版本] 读取 script.json 失败：", String(e));
+  }
+  return "未知";
+}
+
 function formatDuration(sec: number): string {
   if (sec < 60) return `${sec} 秒`;
   const m = Math.floor(sec / 60);
@@ -1861,7 +1883,7 @@ export default function MainView() {
           <HStack>
             <Text foregroundStyle="secondaryLabel">版本号</Text>
             <Spacer />
-            <Text>v1.2.1</Text>
+            <Text>v{readAppVersion()}</Text>
           </HStack>
           <HStack>
             <Text foregroundStyle="secondaryLabel">作者</Text>

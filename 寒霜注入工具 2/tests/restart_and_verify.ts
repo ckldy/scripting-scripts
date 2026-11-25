@@ -1,6 +1,8 @@
 // 重启网关（run_single）并复检是否已载入新代码
 import { Script } from "scripting";
 
+declare const fetch: any;
+
 async function keepalive(): Promise<any> {
   try {
     const res = await fetch("http://127.0.0.1:5190/api/keepalive");
