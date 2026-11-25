@@ -674,14 +674,29 @@ export function stripToolMarkup(input: string): string {
   // 1. 块级清洗：DSML 全块 (支持 <｜｜DSML｜｜ ... </｜｜DSML｜｜ ...> 或 |DSML|...|DSML|call_end|)
   s = s.replace(/(?:<\s*\/?\s*)?[｜|]{1,2}\s*DSML\b[\s\S]*?(?:<\s*\/\s*[｜|]{1,2}\s*DSML\b[^>]*>|[｜|]{1,2}\s*(?:call_end|calls_end|invoke_end)\b[｜|]*(?:\s*>)?)/gi, "");
 
-  // 2. 块级清洗：标准 XML 与函数调用标签（全量覆盖 tool_calls / tool_call / function_call 等单复数与空格）
-  s = s.replace(/<tool_(?:tool_)?calls\b[\s\S]*?<\/\s*tool_(?:tool_)?calls\s*>/gi, "");
-  s = s.replace(/<function_calls\b[\s\S]*?<\/\s*function_calls\s*>/gi, "");
-  s = s.replace(/<tool_invoke\b[\s\S]*?<\/\s*tool_invoke\s*>/gi, "");
-  s = s.replace(/<function_call\b[\s\S]*?<\/\s*function_call\s*>/gi, "");
-  s = s.replace(/<tool_call\b[\s\S]*?<\/\s*tool_call\s*>/gi, "");
-  s = s.replace(/<invoke\b[\s\S]*?<\/\s*invoke\s*>/gi, "");
-  s = s.replace(/<antml:invoke\b[\s\S]*?<\/\s*antml:invoke\s*>/gi, "");
+  // 2. 块级清洗：任意分隔符变体的工具调用块（tool_calls / tool-tool_calls / function.calls …）
+  //    先成对吞掉（多跑几轮处理嵌套），再处理未闭合块与残留标签
+  const blockRe = new RegExp(
+    `[<＜]\\s*(?:${TOOL_ANY_TAG_SRC})[^>＞]*[>＞][\\s\\S]*?[<＜]\\s*[\\/／]\\s*(?:${TOOL_ANY_TAG_SRC})\\s*[>＞]`,
+    "gi"
+  );
+  for (let i = 0; i < 3; i++) {
+    const next = s.replace(blockRe, "");
+    if (next === s) break;
+    s = next;
+  }
+
+  // 2b. 未闭合的工具块：从开标签起一律丢弃，绝不把参数正文留给客户端
+  const openTag = new RegExp(`[<＜]\\s*[\\/／]?\\s*(?:${TOOL_ANY_TAG_SRC})`, "i").exec(s);
+  if (openTag && !/^[<＜]\s*[\/／]/.test(openTag[0])) {
+    s = s.slice(0, openTag.index);
+  }
+
+  // 2c. 残留的孤立工具标签（含属性 / 闭合标签）
+  s = s.replace(
+    new RegExp(`[<＜]\\s*[\\/／]?\\s*(?:${TOOL_ANY_TAG_SRC})[^>＞]*[>＞]`, "gi"),
+    ""
+  );
 
   // 3. 块级清洗：中文降级标记 ([调用工具 / <调用工具)
   s = s.replace(
@@ -902,28 +917,70 @@ export function withReasoningDiscipline(systemPrompt: string): string {
   return base ? `${base}\n\n${REASONING_DISCIPLINE}` : REASONING_DISCIPLINE;
 }
 
-/** 任何可能开启工具调用块的标记（大小写不敏感，允许 < 与标签名之间存在空白） */
-const TOOL_MARKUP_START_RE =
-  /<\s*\/?\s*(?:tool_?(?:tool_)?\s?calls?|function_?\s?calls?|tool_invoke|invoke|tool_use|tool_result|tool_response|parameters?|antml:)|[｜|]{1,2}\s*(?:DSML|calls|call_end|invoke|invoke_end|parameter)|[<\[【＜]\s*\/?\s*调用工具|<\s*[｜|]|\{\s*"(?:tool_calls|tool_call|function_call)"\s*:|to=functions\./i;
+/**
+ * 标签名分隔符：模型经常把 tool_calls 写成 tool-calls / tool.calls / tool:calls /
+ * tool calls / tool_tool_calls / tooltoolcalls。统一按这组分隔符匹配，避免再漏变体。
+ */
+const TOOL_SEP_SRC = "[-_.:·・\\u3000 ]{0,2}";
 
-/** 工具标签名：只扣住仍在成形的标签名，不误伤正常正文里的 < / [ / { */
+/** 工具类标签名（不含尖括号）：检测、扣留、清洗、归一、解析共用同一份定义 */
+const TOOL_TAG_NAME_SRC = [
+  `tool(?:${TOOL_SEP_SRC}tool)?${TOOL_SEP_SRC}(?:calls?|use|invoke|result|response)`,
+  `function${TOOL_SEP_SRC}calls?`,
+  `(?:tool${TOOL_SEP_SRC})?invoke`,
+  `parameters?`,
+  `antml[:_\\-. ]{0,2}(?:invoke|parameter)`,
+].join("|");
+
+/** 兜底：任何以 tool / antml 开头的标签都按工具标记处理（toolbox 之类不受影响） */
+const TOOL_TAG_CATCH_ALL_SRC = `(?:tool|antml)(?![a-z])`;
+
+/** 任意工具标记标签名：已知家族 + tool/antml 兜底 */
+const TOOL_ANY_TAG_SRC = `(?:${TOOL_TAG_NAME_SRC})(?![\\w-])|${TOOL_TAG_CATCH_ALL_SRC}`;
+
+/** 任意可能开启工具调用块的标签起点（不含 JSON / DSML / 中文降级形态） */
+const TOOL_TAG_START_RE = new RegExp(
+  `[<＜]\\s*[\\/／]?\\s*(?:(?:${TOOL_TAG_NAME_SRC})(?![\\w-])|${TOOL_TAG_CATCH_ALL_SRC})`,
+  "i"
+);
+
+/** 任何可能开启工具调用块的标记（标签 / DSML / 中文降级 / JSON 形态） */
+const TOOL_MARKUP_START_RE = new RegExp(
+  [
+    `[<＜]\\s*[\\/／]?\\s*(?:(?:${TOOL_TAG_NAME_SRC})(?![\\w-])|${TOOL_TAG_CATCH_ALL_SRC})`,
+    `[｜|]{1,2}\\s*(?:DSML|calls|call_end|invoke|invoke_end|parameter)`,
+    `[<\\[【＜]\\s*[\\/／]?\\s*调用工具`,
+    `[<＜]\\s*[｜|]`,
+    `\\{\\s*"(?:tool_calls|tool_call|function_call)"\\s*:`,
+    `to=functions\\.`,
+  ].join("|"),
+  "i"
+);
+
+/** 去掉标签名里的所有分隔符，用于前缀比对（tool-tool_calls → tooltoolcalls） */
+const stripTagSeps = (s: string): string =>
+  String(s || "")
+    .toLowerCase()
+    .replace(/[-_.:·・\u3000\s]+/g, "");
+
+/** 工具标签名（已去分隔符）：只扣住仍在成形的标签名，不误伤正常正文里的 < / [ / { */
 const TOOL_TAG_NAMES = [
-  "tool_tool_calls",
-  "tool_tool_call",
-  "tool_calls",
-  "tool_call",
-  "function_calls",
-  "function_call",
-  "tool_invoke",
+  "tooltoolcalls",
+  "tooltoolcall",
+  "toolcalls",
+  "toolcall",
+  "tooluse",
+  "toolinvoke",
+  "toolresult",
+  "toolresponse",
+  "functioncalls",
+  "functioncall",
   "invoke",
-  "tool_use",
-  "tool_result",
-  "tool_response",
-  "parameter",
   "parameters",
-  "antml:",
+  "parameter",
+  "antmlinvoke",
+  "antmlparameter",
 ];
-
 /** 竖线类 DSML 标记与中文降级标记的可保留前缀 */
 const TOOL_MARKUP_PREFIXES = [
   "<|",
@@ -1036,16 +1093,16 @@ export class StreamToolFilter {
       const suffix = text.slice(n - len);
       // 0) 只有 < 或 </ 或 <+空白：标签名还没成形，先扣住等下一块
       //    （不加这条：逐字符推送时 n-pushedLength 只有 1，裸 < 会被当场推出）
-      if (/^<\s*\/?\s*$/.test(suffix)) return len;
+      if (/^[<＜]\s*[\/／]?\s*$/.test(suffix)) return len;
       // 1) <tag / </tag 的标签名仍在成形（含仅有 < 或 </）
-      const tag = /^<\s*\/?\s*([a-z_:][a-z_: ]*)$/i.exec(suffix);
+      const tag = /^[<＜]\s*[\/／]?\s*([a-z0-9_:.\-·・ ]*)$/i.exec(suffix);
       if (tag) {
-        const partial = tag[1].toLowerCase().replace(/[\s_]+/g, "");
+        const partial = stripTagSeps(tag[1]);
         if (!partial) return len;
-        if (TOOL_TAG_NAMES.some((name) => name.replace(/_/g, "").startsWith(partial))) return len;
+        if (TOOL_TAG_NAMES.some((name) => name.startsWith(partial))) return len;
       }
       // 2) <| / <｜ 特殊 token
-      if (/^<\s*\/?\s*[｜|]/.test(suffix)) return len;
+      if (/^[<＜]\s*[\/／]?\s*[｜|]/.test(suffix)) return len;
       // 3) DSML 竖线标记 / [调用工具
       if (TOOL_MARKUP_PREFIXES.some((p) => p.length >= len && p.startsWith(suffix))) return len;
     }
@@ -1136,9 +1193,14 @@ export class StreamToolFilter {
 }
 
 /** 文本里是否包含工具调用痕迹（用于区分“空回复”和“工具通道不支持”） */
+/** 文本里是否包含工具调用痕迹（用于区分“空回复”和“工具通道不支持”） */
 export function looksLikeToolCall(input: string): boolean {
-  return /[｜|]{2}\s*DSML|antml:invoke|<\s*function_call\b|<\s*tool_invoke\b|<\s*tool_?(?:tool_)?\s?calls?\b|[<\[【＜]\s*\/?\s*调用工具|"name"\s*:\s*"[A-Za-z_][\w.:-]*"[^}]*"arguments"/i.test(
-    input || ""
+  const text = input || "";
+  if (!text) return false;
+  if (TOOL_TAG_START_RE.test(text)) return true;
+  if (/[<\[【＜]\s*[\/／]?\s*调用工具/.test(text)) return true;
+  return /[｜|]{2}\s*DSML|antml:(?:invoke|parameter)|"name"\s*:\s*"[A-Za-z_][\w.:-]*"[^}]*"arguments"/i.test(
+    text
   );
 }
 
@@ -1177,10 +1239,10 @@ export function buildToolProtocol(tools: any[]): string {
   ].join("\n");
 }
 
-/** 把各类模型异构工具标记（DeepSeek DSML / Claude function_call / antml / Gemini call）归一成标准 XML 标签 */
+/** 把各类模型异构工具标记（DSML / antml / Gemini call / 任意分隔符变体）归一成标准 XML 标签 */
 export function normalizeToolMarkup(text: string): string {
   if (!text) return "";
-  return text
+  let s = text
     // DeepSeek DSML：闭合标签先处理（</｜｜DSML｜｜ xxx> 与 ｜｜DSML｜｜ xxx_end）
     .replace(/<\s*\/\s*[｜|]{1,2}\s*DSML\s*[｜|]{1,2}\s*calls[^>]*>/gi, "</tool_tool_calls>")
     .replace(/<\s*\/\s*[｜|]{1,2}\s*DSML\s*[｜|]{1,2}\s*invoke[^>]*>/gi, "</tool_invoke>")
@@ -1198,21 +1260,25 @@ export function normalizeToolMarkup(text: string): string {
       /(?:<\s*)?[｜|]{1,2}\s*DSML\s*[｜|]{1,2}\s*parameter\s+name=["']?([^"'｜|>\s]+)["']?[^>\n]*>?/gi,
       '<parameter name="$1">'
     )
-    // tool_calls / tool_call / function_call / function_calls 标签支持空格及单复数
-    .replace(/<\s*tool[_\s]+calls\s*>/gi, "<tool_tool_calls>")
-    .replace(/<\s*\/\s*tool[_\s]+calls\s*>/gi, "</tool_tool_calls>")
-    .replace(/<\s*function[_\s]+calls\s*>/gi, "<tool_tool_calls>")
-    .replace(/<\s*\/\s*function[_\s]+calls\s*>/gi, "</tool_tool_calls>")
-    .replace(/<\s*tool[_\s]+call\b/gi, "<tool_call")
-    .replace(/<\s*\/\s*tool[_\s]+call\s*>/gi, "</tool_call>")
-    .replace(/<\s*function[_\s]+call\b/gi, "<tool_call")
-    .replace(/<\s*\/\s*function[_\s]+call\s*>/gi, "</tool_call>")
-    // antml: 标签（注意保留闭合斜杠）
-    .replace(/<\s*(\/?)\s*antml:?/gi, "<$1")
     // call:tool_name{...} 语法 (Gemini / 特殊模型)
-    .replace(/<\s*call:([A-Za-z0-9_:-]+)\s*(\{[\s\S]*?\})\s*\/?>/gi, '<tool_invoke name="$1">$2</tool_invoke>')
-    // invoke 标签标准化
-    .replace(/<\s*(\/?)(?:tool_)?invoke\b/gi, "<$1tool_invoke");
+    .replace(/<\s*call:([A-Za-z0-9_:-]+)\s*(\{[\s\S]*?\})\s*\/?>/gi, '<tool_invoke name="$1">$2</tool_invoke>');
+
+  // 标签名归一：下划线 / 连字符 / 点 / 冒号 / 空格 / 全角尖括号 / antml 前缀 / 单复数一律压平
+  const tagRe = new RegExp(`[<＜]\\s*([\\/／])?\\s*(${TOOL_TAG_NAME_SRC})(?![\\w-])`, "gi");
+  s = s.replace(tagRe, (_m: string, slash: string, rawName: string) => {
+    const n = stripTagSeps(rawName);
+    let canon = "tool_invoke";
+    if (/^tool(?:tool)?calls$/.test(n) || n === "functioncalls") canon = "tool_tool_calls";
+    else if (/^tool(?:tool)?call$/.test(n) || n === "functioncall") canon = "tool_call";
+    else if (n === "tooluse") canon = "tool_use";
+    else if (n === "toolresult") canon = "tool_result";
+    else if (n === "toolresponse") canon = "tool_response";
+    else if (n === "parameters" || n === "parameter") canon = n;
+    else if (n === "antmlparameter") canon = "parameter";
+    return `${slash ? "</" : "<"}${canon}`;
+  });
+
+  return s;
 }
 
 /** 双向对齐工具调用：在 call_assistant_tool 包装与直接调用间自动转换，对齐系统能力 */
@@ -5463,7 +5529,7 @@ export async function handleApiRoute(req: HttpRequest, port: number): Promise<Ht
       corrected,
       stillRefused,
       outputJudgement,
-      textPreview: finalText.slice(0, 500),
+      textPreview: stripToolEnvelope(finalText).slice(0, 500),
       errorType: failure?.type,
       errorMessage: failure?.message,
     };
@@ -5479,7 +5545,7 @@ export async function handleApiRoute(req: HttpRequest, port: number): Promise<Ht
 
     return jsonResponse({
       ok,
-      text: finalText,
+      text: stripToolEnvelope(finalText),
       rounds,
       refusal: stillRefused,
       corrected,
@@ -5749,7 +5815,7 @@ export async function handleApiRoute(req: HttpRequest, port: number): Promise<Ht
         if (turn.usage) realUsage = turn.usage;
 
         const parsed = parseToolCalls(turn.text, Array.isArray(body.tools) ? body.tools : undefined);
-        if (!parsed && /<tool_call\b|\[调用工具\s/.test(turn.text)) sawNamelessTool = true;
+        if (!parsed && TOOL_TAG_START_RE.test(turn.text)) sawNamelessTool = true;
         if (parsed) {
           toolCalls = parsed.calls;
           finalText = parsed.rest;
@@ -5918,6 +5984,8 @@ export async function handleApiRoute(req: HttpRequest, port: number): Promise<Ht
               choices: [{ index: 0, delta, finish_reason: finish }],
             })}\n\n`;
           let sse = mk({ role: "assistant", content: null }, null);
+          // 工具调用前的正文（如进度行）不能丢：先按普通 content 下发，再发 tool_calls
+          if (finalText.trim()) sse += mk({ content: finalText }, null);
           sse += mk(
             {
               tool_calls: calls.map((c, i) => ({
@@ -6545,7 +6613,7 @@ export async function handleStreamChatCompletions(
       `可选：\n- 模型选 hanshuang-armor：Gemini 优先，被拦时自动用备用引擎作答\n` +
       `- 模型选 hanshuang-deepseek：直接走备用引擎\n\n` +
       `Gemini 原始返回：\n${lastText.slice(0, 500)}`;
-    writeChunk(mkChunk({ content: finalText }, null));
+    writeChunk(mkChunk({ content: stripToolEnvelope(finalText) }, null));
     pushedAny = true;
   }
 
@@ -6592,7 +6660,7 @@ export async function handleStreamChatCompletions(
     ? parseToolCalls(finalText, Array.isArray(body.tools) ? body.tools : undefined)
     : null;
   let sawNamelessTool = false;
-  if (!parsedTools && !stillRefused && /<tool_call\b|\[调用工具\s/.test(finalText)) sawNamelessTool = true;
+  if (!parsedTools && !stillRefused && TOOL_TAG_START_RE.test(finalText)) sawNamelessTool = true;
 
   if (parsedTools && parsedTools.calls.length > 0) {
     const aligned = alignToolCalls(parsedTools.calls, Array.isArray(body.tools) ? body.tools : []);
@@ -6622,7 +6690,7 @@ export async function handleStreamChatCompletions(
   } else {
     if (!pushedAny) {
       const fallbackText = finalText.trim()
-        ? finalText
+        ? stripToolEnvelope(finalText)
         : sawNamelessTool
           ? "（模型输出了一个不带工具名的调用块，网关已丢弃并拒绝执行。请重发一次问题。）"
           : "";

@@ -23,7 +23,7 @@
   ],
   "icon" : "wand.and.stars",
   "entry" : "index.tsx",
-  "version" : "1.2.4",
+  "version" : "1.2.5",
   "remoteDefinitionId" : null,
   "localizedDescriptions" : {
     "en" : "Prompt and Gateway Injection Tool with full WebUI, prompt cards and templates.",
