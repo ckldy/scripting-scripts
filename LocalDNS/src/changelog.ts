@@ -25,6 +25,16 @@ export const UPDATE_NOTICE_SEEN_KEY = 'localdns_update_notice_seen_version';
 /** 新的在前；只有 version 与当前版本一致的那一条会被展示 */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '1.15.22',
+    build: '20261127',
+    items: [
+      '新：主组全失败不再直接 SERVFAIL——按 off/safe/aggressive 三档回落（默认 safe）',
+      '新：单节点连续失败 2 次冷却 45 秒，不再每次白等 6 秒（熔断）',
+      '新：aggressive 降级国内时结果不进境外缓存池、TTL ≤ 60 秒、日志与 metrics 标记',
+      '新：工作台「联动与运行状态」新增回落策略下拉与节点冷却秒数',
+    ],
+  },
+  {
     version: '1.15.21',
     build: '20261125',
     items: [

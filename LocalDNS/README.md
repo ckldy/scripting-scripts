@@ -1,10 +1,27 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.15.21 (Build 20261125)`  
+> **当前版本**：`v1.15.22 (Build 20261127)`  
 > **移植作者**：`vcncv`  
 > **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.11.21.1` / 内核 `FJMOS`）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地高性能 DNS 服务与安全管理系统。
+
+### v1.15.22 审计 smartdns 后补齐上游回落与节点熔断
+- **审计对象**：`pymumu/smartdns`（master）：`src/dns_client/dns_client.c`、`src/dns_client/server_info.c`、`etc/smartdns/smartdns.conf`。
+- **smartdns 的三层机制**：
+  1. `-fallback` 备用服务器标记（默认配置注释：`set as fallback dns server`）；
+  2. 首轮发送跳过 fallback（`if (server_info->flags.fallback && retry_count == DNS_QUERY_RETRY && i == 0) continue;`），重试轮（`retry_count == 1`）整组切到 `fallback` 组；
+  3. 服务器 prohibit：被禁服务器在 60 s（重试轮 5 s）内跳过；`_dns_client_check_servers()` 每 10 s 检查「上次发送 600 s 无接收」并关闭 socket。
+- **本项目原状**：只有「组内并发 + Promise.any」，没有任何跨组回落，且注释写死「宁可 SERVFAIL 也绝不 fallback 到 domestic」——境外两个 DoH 同时超时就全灭。
+- **补齐**：
+  - `FallbackConfig { policy, nodeCooldownSec, domesticTtlCap }`，持久化 `localdns_fallback_config`，默认 `safe`；
+  - 回落链：`foreign → foreign_ecs`、`proxy → foreign → foreign_ecs`、`foreign_ecs → foreign`；仅 `aggressive` 末尾追加 `domestic`；
+  - 节点熔断：连续失败 2 次冷却 45 s（5–600 s 可调），组内全冷却时忽略熔断；
+  - 降级国内：`upstreamTag=fallback:domestic:<tag>`、`origin.learning=fallback:domestic`、**不写境外组池**、main 池 TTL ≤ 60 s、metrics `localdns_fallback_total{from,via}`；
+  - 回落单步预算 2500 ms，主组超时仍 6000 ms。
+- **接口**：`GET/POST /api/v1/upstreams/fallback`。
+- **UI**：工作台「⚙️ 联动与运行状态」新增回落策略下拉 + 冷却秒数（随「保存 Surge 联动配置」一起提交）。
+- **验证**：`tools/test-fallback.ts` **12/12**（配置边界、熔断触发/解除、冷却过滤、端到端把 foreign 全指向 `127.0.0.1:9` 仍返回 NOERROR，580 ms）；`test-ui-contract` **47/47**；`test-suite` 151/154（3 条失败均为数据状态：AdGuard 库 48 条、direct 组本无规则，与本次改动无关）。
 
 ### v1.15.21 托管模块自动检测上游更新
 - **结论**：模块更新一直「能用」，但**看不出变化**——`refreshModule` 只换正文，`name` 从来没动过，所以毒奶始终显示「2026年10月31日更新」，而上游当天已是「(2026年11月25日更新)」。

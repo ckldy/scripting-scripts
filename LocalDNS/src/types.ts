@@ -172,6 +172,15 @@ export interface SpeedConfig {
   dualstackSelection: boolean;
 }
 
+export interface FallbackConfig {
+  /** off = 永不回落；safe = 只在纯境外组之间回落；aggressive = 允许降级到国内 DNS（标记 + 限短 TTL） */
+  policy: 'off' | 'safe' | 'aggressive';
+  /** 单节点连续失败后的冷却秒数 */
+  nodeCooldownSec: number;
+  /** 降级到国内 DNS 时，结果最多缓存秒数（0 = 不缓存） */
+  domesticTtlCap: number;
+}
+
 export interface CacheConfig {
   size: number;
   persist: boolean;

@@ -56,6 +56,8 @@ export class AuditManager {
   // Speed-check metrics
   private speedQueryCount = 0;
   private speedProbeTotal = 0;
+  /** 回落链命中计数：key = `${from}|${via}` */
+  private fallbackCounters = new Map<string, number>();
 
   // Traffic History Sampling (Upstream UI 2026.10.18.17 / .18 / .19 traffic-client.js)
   private trafficSeries: Array<{ time: number; elapsed: number; qps: number | null; delta: number; total: number }> = [];
@@ -197,6 +199,11 @@ export class AuditManager {
   recordSpeed(probeCount: number): void {
     this.speedQueryCount++;
     this.speedProbeTotal += probeCount;
+  }
+
+  recordFallback(fromGroup: string, via: string): void {
+    const key = `${fromGroup}|${via}`;
+    this.fallbackCounters.set(key, (this.fallbackCounters.get(key) || 0) + 1);
   }
 
   getSpeedStats(): { queries: number; probes: number } {
@@ -503,6 +510,13 @@ export class AuditManager {
     lines.push('# HELP localdns_upstream_error_round_quiet_seconds Silence after the last error that closes an error round.');
     lines.push('# TYPE localdns_upstream_error_round_quiet_seconds gauge');
     lines.push(`localdns_upstream_error_round_quiet_seconds ${UPSTREAM_ERROR_ROUND_QUIET_SECONDS}`);
+
+    lines.push('# HELP localdns_fallback_total Queries resolved through the fallback chain after the primary group failed.');
+    lines.push('# TYPE localdns_fallback_total counter');
+    for (const [key, count] of this.fallbackCounters) {
+      const [from, via] = key.split('|');
+      lines.push(`localdns_fallback_total{from="${from}",via="${via}"} ${count}`);
+    }
 
     lines.push('# HELP localdns_upstream_query_total Total queries sent to upstream.');
     lines.push('# TYPE localdns_upstream_query_total counter');

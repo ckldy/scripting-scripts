@@ -81,6 +81,8 @@ export class DnsResolver {
   private inFlightQueries = new Map<string, Promise<Uint8Array>>();
   private prefetching = new Set<string>();
   private lastRuleReload = 0;
+  /** 节点熔断表：连续失败 → 冷却期内不参与竞速（参考 smartdns 的 server prohibit） */
+  private nodeHealth = new Map<string, { fails: number; until: number }>();
 
   private constructor() {}
 
@@ -374,14 +376,25 @@ export class DnsResolver {
     let respPacket: DnsPacket;
     let winnerTag = '';
     let latency = 0;
+    let fallbackVia = '';
     try {
       const result = await this.queryUpstreamNodes(groupNodes, actualQueryGroup, query, queryBytes);
       respPacket = result.packet;
       winnerTag = result.winnerTag;
       latency = result.latency;
     } catch {
-      this.logQuery({ traceId, clientIp, domain, qtypeName, domainSet: diversion.domainSet, rcode: 'SERVFAIL', duration: Date.now() - startTime, answers: [] });
-      return serializeDnsPacket(createEmptyResponse(query, 2, 'SERVFAIL'));
+      const fb = await this.queryFallbackChain(query, queryBytes, actualQueryGroup);
+      if (!fb) {
+        this.logQuery({ traceId, clientIp, domain, qtypeName, domainSet: diversion.domainSet, rcode: 'SERVFAIL', duration: Date.now() - startTime, answers: [] });
+        return serializeDnsPacket(createEmptyResponse(query, 2, 'SERVFAIL'));
+      }
+      respPacket = fb.packet;
+      winnerTag = fb.winnerTag;
+      latency = fb.latency;
+      const fromGroup = actualQueryGroup;
+      actualQueryGroup = fb.actualGroup;
+      fallbackVia = fb.via;
+      AuditManager.get().recordFallback(fromGroup, fb.via);
     }
 
     respPacket.id = query.id;
@@ -406,7 +419,7 @@ export class DnsResolver {
     }
 
     // 9.3 Fastest-IP selection
-    respPacket = await this.selectFastest(respPacket, qtype, speedCfg, actualQueryGroup);
+    if (!fallbackVia) respPacket = await this.selectFastest(respPacket, qtype, speedCfg, actualQueryGroup);
 
     // 9.4 Dualstack selection (prefer IPv4 when clearly faster)
     if (qtype === 28 && speedCfg.enabled && speedCfg.dualstackSelection && respPacket.answers.some(a => a.type === 28)) {
@@ -445,20 +458,28 @@ export class DnsResolver {
     // 10. Cache write (group pool + main pool)
     if (switches.switch13 === 'A' && !noCache) {
       const isNegative = respPacket.rcode !== 0 || respPacket.answers.length === 0;
-      const ttlOverride = isNegative ? cacheCfg.negativeTtl : undefined;
+      const fbCfg = Store.get().getFallbackConfig();
+      const domesticFallback = fallbackVia === 'domestic';
+      const cap = domesticFallback ? fbCfg.domesticTtlCap : 0;
+      const ttlOverride = domesticFallback
+        ? (cap > 0 ? cap : undefined)
+        : (isNegative ? cacheCfg.negativeTtl : undefined);
       // 缓存来源：只记录写入时真正知道的字段，未知道的留给界面显示「未记录」
       const origin: CacheOrigin = {};
       if (diversion.domainSet) origin.domain_set = diversion.domainSet;
       if (winnerTag) origin.upstream_attempt = winnerTag;
-      cacheManager.set(groupPoolTag, domain, qtype, respPacket, finalBytes, ttlOverride, origin);
-      cacheManager.set('cache_main', domain, qtype, respPacket, finalBytes, ttlOverride, origin);
+      if (fallbackVia) origin.learning = 'fallback:' + fallbackVia;
+      // 降级到国内的结果不写境外组池，避免污染结果长期挤占；main 池按上限短存
+      if (!domesticFallback) cacheManager.set(groupPoolTag, domain, qtype, respPacket, finalBytes, ttlOverride, origin);
+      if (!domesticFallback || cap > 0) cacheManager.set('cache_main', domain, qtype, respPacket, finalBytes, ttlOverride, origin);
     }
 
     // 11. Audit
     this.logQuery({
       traceId, clientIp, domain, qtypeName, domainSet: diversion.domainSet,
       rcode: respPacket.rcodeName, duration: latency,
-      answers: respPacket.answers.map(a => String(a.data)), upstreamTag: winnerTag,
+      answers: respPacket.answers.map(a => String(a.data)),
+      upstreamTag: fallbackVia ? `fallback:${fallbackVia}:${winnerTag}` : winnerTag,
     });
 
     return finalBytes;
@@ -513,6 +534,30 @@ export class DnsResolver {
    * the keep-alive connection, which makes the next query pay a fresh handshake again.
    * Domestic IP-based DoH stays on the tight default so a dead resolver is noticed fast.
    */
+  private isNodeCooling(tag: string): boolean {
+    const h = this.nodeHealth.get(tag);
+    return Boolean(h && h.until > Date.now());
+  }
+
+  private markNodeResult(tag: string, ok: boolean): void {
+    if (!tag) return;
+    if (ok) {
+      this.nodeHealth.set(tag, { fails: 0, until: 0 });
+      return;
+    }
+    const cfg = Store.get().getFallbackConfig();
+    const cooldownMs = Math.max(5, Number(cfg.nodeCooldownSec) || 45) * 1000;
+    const prev = this.nodeHealth.get(tag) || { fails: 0, until: 0 };
+    const fails = prev.fails + 1;
+    this.nodeHealth.set(tag, { fails, until: fails >= 2 ? Date.now() + cooldownMs : 0 });
+  }
+
+  /** 竞速前过滤冷却节点；若全在冷却则忽略熔断，避免组内无候选 */
+  private pickRacingNodes(nodes: UpstreamNode[]): UpstreamNode[] {
+    const fresh = nodes.filter((n) => !this.isNodeCooling(n.tag));
+    return fresh.length > 0 ? fresh : nodes;
+  }
+
   private groupTimeout(group: string): number {
     return group === 'domestic' ? 2500 : 6000;
   }
@@ -521,13 +566,16 @@ export class DnsResolver {
     nodes: UpstreamNode[],
     group: UpstreamGroup,
     query: DnsPacket,
-    queryBytes: Uint8Array
+    queryBytes: Uint8Array,
+    timeoutCapMs?: number
   ): Promise<{ packet: DnsPacket; winnerTag: string; latency: number; actualGroup: string }> {
     const startTime = Date.now();
     const candidatePromises: Array<Promise<{ node: UpstreamNode; rawBytes: Uint8Array; actualGroup: string }>> = [];
 
-    nodes.forEach(node => {
-      candidatePromises.push(this.querySingleNode(node, group, queryBytes, node.timeout || this.groupTimeout(group)));
+    this.pickRacingNodes(nodes).forEach(node => {
+      const base = node.timeout || this.groupTimeout(group);
+      const budget = timeoutCapMs && timeoutCapMs > 0 ? Math.min(base, timeoutCapMs) : base;
+      candidatePromises.push(this.querySingleNode(node, group, queryBytes, budget));
     });
 
     // 隔离原则：境外/代理节点只在各自纯净上游中查询，严禁让国内 DNS 参与竞速，彻底避免 GFW 抢答返回假 IP 污染
@@ -538,6 +586,47 @@ export class DnsResolver {
     packet.id = query.id;
     AuditManager.get().recordUpstreamWinner(winner.actualGroup, winner.node.tag);
     return { packet, winnerTag: winner.node.tag, latency, actualGroup: winner.actualGroup };
+  }
+
+  /**
+   * 主组全失败后的回落链（审计 smartdns 后补充：fallback 组 + 重试 + 服务器 prohibit）
+   * - safe：只在纯境外组之间回落（不污染）
+   * - aggressive：允许降级到国内 DNS，结果会被标记并限短 TTL
+   */
+  private async queryFallbackChain(
+    query: DnsPacket,
+    queryBytes: Uint8Array,
+    fromGroup: UpstreamGroup
+  ): Promise<{ packet: DnsPacket; winnerTag: string; latency: number; actualGroup: UpstreamGroup; via: string } | null> {
+    const cfg = Store.get().getFallbackConfig();
+    if (cfg.policy === 'off') return null;
+    const upstream = Store.get().getUpstreamConfig();
+    const enabledNodes = (g: UpstreamGroup) => (upstream[g] || []).filter((n) => n.enabled !== false);
+
+    const chain: UpstreamGroup[] = [];
+    if (fromGroup === 'foreign') {
+      chain.push('foreign_ecs');
+    } else if (fromGroup === 'proxy') {
+      chain.push('foreign', 'foreign_ecs');
+    } else if (fromGroup === 'foreign_ecs') {
+      chain.push('foreign');
+    }
+    if (cfg.policy === 'aggressive' && !chain.includes('domestic')) {
+      chain.push('domestic');
+    }
+
+    for (const group of chain) {
+      if (group === fromGroup) continue;
+      const nodes = enabledNodes(group);
+      if (nodes.length === 0) continue;
+      try {
+        const r = await this.queryUpstreamNodes(nodes, group, query, queryBytes, 2500);
+        return { ...r, via: group };
+      } catch {
+        continue;
+      }
+    }
+    return null;
   }
 
   private resolveProtocol(node: UpstreamNode): 'tls' | 'tcp' | 'doh' {
@@ -602,10 +691,12 @@ export class DnsResolver {
 
       const duration = Date.now() - nodeStart;
       AuditManager.get().recordUpstreamResult(group, node.tag, duration, true, false);
+      this.markNodeResult(node.tag, true);
       return { node, rawBytes, actualGroup: group };
     } catch (e: any) {
       const duration = Date.now() - nodeStart;
       AuditManager.get().recordUpstreamResult(group, node.tag, duration, false, false, e.message || String(e));
+      this.markNodeResult(node.tag, false);
       throw e;
     }
   }

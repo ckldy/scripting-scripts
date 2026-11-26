@@ -4,6 +4,7 @@ import type {
   AdGuardRuleSource,
   DiversionSource,
   SpeedConfig,
+  FallbackConfig,
   CacheConfig,
   Dns64Config,
   NamedSets,
@@ -31,6 +32,7 @@ export class Store {
   private interfaceSettings: Record<string, { value: any; revision: number }> = {};
   private ruleBackups: Record<string, Array<{ id: string; time: number; bytes: number; tag: string; content: string }>> = {};
   private speedConfig: SpeedConfig = { enabled: true, mode: 'tcp:443,tcp:80', responseMode: 'fastest-ip', maxReplyIpNum: 0, timeoutMs: 800, dualstackSelection: false };
+  private fallbackConfig: FallbackConfig = { policy: 'safe', nodeCooldownSec: 45, domesticTtlCap: 60 };
   private cacheConfig: CacheConfig = { size: 20000, persist: true, prefetch: true, serveExpiredTtl: 86400, replyTtl: 60, rrTtlMin: 0, rrTtlMax: 0, negativeTtl: 60 };
   private dns64Config: Dns64Config = { enabled: false, prefix: '64:ff9b::/96' };
   private namedSets: NamedSets = { domainSets: {}, ipSets: {} };
@@ -158,6 +160,7 @@ export class Store {
     this.interfaceSettings = this.loadOrDefault('localdns_interface_settings', {});
     this.ruleBackups = this.loadOrDefault('localdns_rule_backups', {});
     this.speedConfig = this.loadOrDefault('localdns_speed_config', this.speedConfig);
+    this.fallbackConfig = this.loadOrDefault('localdns_fallback_config', this.fallbackConfig);
     this.cacheConfig = this.loadOrDefault('localdns_cache_config', this.cacheConfig);
     this.dns64Config = this.loadOrDefault('localdns_dns64_config', this.dns64Config);
     this.namedSets = this.loadOrDefault('localdns_named_sets', this.namedSets);
@@ -418,6 +421,23 @@ export class Store {
     this.speedConfig = { ...this.speedConfig, ...patch };
     this.persist('localdns_speed_config', this.speedConfig);
     return this.speedConfig;
+  }
+
+  // Upstream fallback policy (audited against smartdns: fallback group + retry + per-server prohibit)
+  getFallbackConfig(): FallbackConfig {
+    return this.fallbackConfig;
+  }
+
+  setFallbackConfig(patch: Partial<FallbackConfig>): FallbackConfig {
+    const next: FallbackConfig = { ...this.fallbackConfig, ...patch };
+    if (!['off', 'safe', 'aggressive'].includes(next.policy)) next.policy = 'safe';
+    const cooldown = Number(next.nodeCooldownSec);
+    next.nodeCooldownSec = Number.isFinite(cooldown) ? Math.max(5, Math.min(600, cooldown)) : 45;
+    const ttlCap = Number(next.domesticTtlCap);
+    next.domesticTtlCap = Number.isFinite(ttlCap) ? Math.max(0, Math.min(3600, ttlCap)) : 60;
+    this.fallbackConfig = next;
+    this.persist('localdns_fallback_config', next);
+    return next;
   }
 
   // Cache tuning

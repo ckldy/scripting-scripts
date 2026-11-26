@@ -2,7 +2,7 @@
   "name": "LocalDNS",
   "icon": "shield.lefthalf.filled",
   "color": "#6366f1",
-  "version": "1.15.21",
+  "version": "1.15.22",
   "author": "vcncv",
-  "description": "本地 DNS 与安全服务系统，v1.15.21 为托管模块加入上游更新检测：模块表新增内容哈希与巡检字段，刷新时采用上游 #!name（毒奶这类日期名会跟着更新），新增 check-updates / updates 接口与后台巡检（启动 45 秒后 + 每 6 小时），模块工作台显示「🆕 有更新」徽标、上游版本与「🔍 检查更新」按钮；本机来源（ad-hunter）不参与巡检。沿用 v1.15.18 的 FJO02 / UI 2026.11.21.1、FJMOS 内核与全部本地 Surge 定制；构建号 20261125。"
+  "description": "本地 DNS 与安全服务系统，v1.15.22 依据 smartdns 审计结果补齐上游回落与节点熔断：主组全失败时按 off/safe/aggressive 三档回落（默认 safe：foreign→foreign_ecs、proxy→foreign→foreign_ecs，永不污染），aggressive 才允许降级国内 DNS 且结果不进境外缓存池、TTL 上限 60 秒、日志与 metrics 全标记；单节点连续失败 2 次冷却 45 秒不参与竞速；新增 /api/v1/upstreams/fallback 与工作台策略下拉。沿用 v1.15.21 的模块上游更新检测、v1.15.18 的 FJO02 / UI 2026.11.21.1 与 FJMOS 内核；构建号 20261127。"
 }

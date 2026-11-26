@@ -631,6 +631,17 @@ export class LocalDnsServer {
       }
     }
 
+    if (cleanPath === '/api/v1/upstreams/fallback') {
+      const store = Store.get();
+      if (method === 'GET') {
+        return jsonResponse({ success: true, ...store.getFallbackConfig() });
+      }
+      if (method === 'POST') {
+        const body = parseJsonBody(req);
+        return jsonResponse({ success: true, ...store.setFallbackConfig(body || {}) });
+      }
+    }
+
     if (cleanPath === '/api/v1/optimization/hub-reconcile' && method === 'POST') {
       const body = parseJsonBody(req);
       const result = await SurgeService.get().reconcileHubModules(body?.preferred);

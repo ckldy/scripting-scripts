@@ -576,6 +576,18 @@
       '      </label>',
       '      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px;cursor:pointer">',
       '        <input type="checkbox" id="sw-surge-kill-blocked" checked /> 命中 AdGuard 广告与高危追踪域名时，主动通过 API 掐断活跃长连接 (Kill Active Requests)',
+      '    <div style="margin-bottom:14px;border-top:1px solid rgba(148,163,184,0.15);padding-top:12px">',
+      '      <h4 style="font-size:13px;margin:0 0 8px">上游 DNS 回落策略（审计 smartdns 后新增）</h4>',
+      '      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">',
+      '        <select id="sw-fallback-policy" style="padding:6px 8px;border-radius:6px;border:1px solid rgba(148,163,184,0.3);background:transparent;font-size:13px">',
+      '          <option value="off">off · 永不回落（旧行为）</option>',
+      '          <option value="safe">safe · 只在境外组之间回落（推荐）</option>',
+      '          <option value="aggressive">aggressive · 允许降级国内 DNS（标记 + 短 TTL）</option>',
+      '        </select>',
+      '        <label style="font-size:12px;display:inline-flex;align-items:center;gap:4px">节点冷却 <input type="number" id="sw-fallback-cooldown" min="5" max="600" step="5" style="width:72px;padding:4px 6px;border-radius:6px;border:1px solid rgba(148,163,184,0.3);background:transparent" /> 秒</label>',
+      '      </div>',
+      '      <p style="font-size:11px;opacity:0.7;margin:6px 0 0">主组全失败时依次尝试 foreign→foreign_ecs；proxy→foreign→foreign_ecs；aggressive 末尾追加 domestic（不进境外缓存池，最多缓存 60 秒）。与下方「保存 Surge 联动配置」一起生效。</p>',
+      '    </div>',
       '      </label>',
       '    </div>',
       '    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">',
@@ -2307,6 +2319,14 @@
       if (chkSw) chkSw.checked = Boolean(cfg.auto_switch_on_timeout);
       if (chkLn) chkLn.checked = Boolean(cfg.auto_learn_unreachable);
       if (chkKb) chkKb.checked = Boolean(cfg.kill_blocked_active);
+      try {
+        var fbRes = await fetch('/api/v1/upstreams/fallback');
+        var fbCfg = await fbRes.json();
+        var selPolicy = q('#sw-fallback-policy');
+        var numCooldown = q('#sw-fallback-cooldown');
+        if (selPolicy) selPolicy.value = fbCfg.policy || 'safe';
+        if (numCooldown) numCooldown.value = String(fbCfg.nodeCooldownSec || 45);
+      } catch (e) {}
       if (statusEl && cfg.last_sync_status) {
         statusEl.textContent = '上次同步: ' + cfg.last_sync_status;
       }
@@ -2892,6 +2912,16 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           });
+          try {
+            await fetch('/api/v1/upstreams/fallback', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                policy: (q('#sw-fallback-policy') || {}).value || 'safe',
+                nodeCooldownSec: Number((q('#sw-fallback-cooldown') || {}).value) || 45,
+              }),
+            });
+          } catch (e) {}
           toast('Surge 联动配置已保存');
           runConnectionTest(payload.api_url, payload.api_key);
         } catch (e) {
