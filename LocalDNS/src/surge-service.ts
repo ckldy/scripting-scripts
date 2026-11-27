@@ -18,6 +18,9 @@ import {
   YT_BUILTIN_WEB_RULE_NAME,
   YT_BUILTIN_WEB_MAX_SIZE,
   isBuiltinWebRuleLine,
+  isYoutubeWebExcludedHost,
+  isYoutubeWebAdRewrite,
+  wrapYoutubeEnhanceForJsc,
 } from './youtube-rules';
 
 export interface ParsedModuleContent {
@@ -74,14 +77,29 @@ function isValidSurgeMitmHost(host: string): boolean {
 /** 公共二级后缀：用于从域名里剥出业务核心词 */
 const MITM_PUBLIC_SECOND_LEVEL = new Set(['co', 'com', 'net', 'org', 'gov', 'edu', 'ac', 'or', 'ne', 'go', 'gob', 'mil', 'int']);
 
-/** 无论脚本怎么写都必须保留的域名（YouTube 链路硬依赖） */
+/** 无论脚本怎么写都必须保留的域名（YouTube App 链路硬依赖） */
 export const MITM_ALWAYS_REQUIRED: string[] = [
-  'www.youtube.com',
-  'm.youtube.com',
-  's.youtube.com',
   'youtubei.googleapis.com',
-  'imasdk.googleapis.com',
 ];
+
+/**
+ * 媒体流证书钉扎名单（2026-11-27 策略切换记录）
+ *
+ * 当前生效策略：**客户端优先**——googlevideo 保留 MITM，
+ * youtube.enhance.ump / init / auto-hd 三个流内脚本才有附着点。
+ * 网页端去广告交给 Safari 用户脚本 AdBlockHub（document-start 页面内 hook，不依赖 MITM）。
+ *
+ * 历史证据：googlevideo 被 MITM 时，Safari 媒体栈有概率因证书钉扎断连
+ *（日志 `MITM failed. Client closed connection just after TLS handshake`，bytes 0/0）。
+ * 若哪天网页播放优先，在 narrowMitmHosts 里把 googlevideo 从保留分支改到 dropped 即可。
+ */
+export const MITM_PINNING_SENSITIVE: string[] = ['googlevideo.com'];
+
+export function isMitmPinningSensitive(host: string): boolean {
+  const bare = String(host || '').replace(/^[-*]+\.?/, '').toLowerCase();
+  if (!bare) return false;
+  return MITM_PINNING_SENSITIVE.some((d) => bare === d || bare.endsWith('.' + d));
+}
 
 /** 取域名的业务核心词：www.baidu.com → baidu，dmm.co.jp → dmm，*.cloudfront.net → cloudfront */
 export function mitmCoreLabel(host: string): string {
@@ -137,8 +155,13 @@ export function narrowMitmHosts(
   for (const raw of hosts) {
     const h = String(raw || '').trim();
     if (!h) continue;
+    // 分流红线：YouTube 网页端域名交由 Safari 浏览器插件 AdBlockHub 独占处理，绝不进 Surge MITM
+    if (isYoutubeWebExcludedHost(h)) {
+      dropped.push(h);
+      continue;
+    }
     const bare = h.replace(/^[-*]+\.?/, '').toLowerCase();
-    if (always.has(bare) || bare.endsWith('.youtube.com') || bare.endsWith('googlevideo.com')) {
+    if (always.has(bare) || bare.endsWith('googlevideo.com')) {
       kept.push(h);
       continue;
     }
@@ -1037,19 +1060,30 @@ export class SurgeService {
     const httpRules = await this.db.getActiveHttpRules();
     const genSettings = await this.db.getActiveGeneralSettings();
 
-    // 内置必需 MITM 域名（YouTube 网页版端点）
+    // App 端 YouTube Enhance 必需 MITM 域名（App 端点 + 媒体流；网页端交由浏览器插件，不进 Surge MITM）
     const mitmSet = new Set<string>(mitmHosts);
-    mitmSet.add('www.youtube.com');
-    mitmSet.add('m.youtube.com');
     mitmSet.add('youtubei.googleapis.com');
-
-    // 剔除可能存在的根域名 youtube.com，防止与全量 TLS 握手产生不必要的解密开销
+    const hasYtEnhance = httpRules.some(
+      (r) => r.rule_type === 'script' && (r.script_name || '').startsWith('youtube.enhance.')
+    );
+    if (hasYtEnhance) {
+      mitmSet.add('*.googlevideo.com');
+    }
     mitmSet.delete('youtube.com');
+    mitmSet.delete('www.youtube.com');
+    mitmSet.delete('m.youtube.com');
+    mitmSet.delete('music.youtube.com');
+    mitmSet.delete('s.youtube.com');
+    mitmSet.delete('s2.youtube.com');
+    mitmSet.delete('imasdk.googleapis.com');
 
     // 2026-11-12 MITM 收敛：只为「真的有脚本/重写引用」的域名开启解密。
     // 目的：削掉无主解密（新闻站、CDN 通配）带来的首包延迟与证书暴露面，
     // 小组件这类冷启动 + 短预算的消费端对这部分开销最敏感。
-    const mitmRefHaystack = buildMitmReferenceHaystack(httpRules);
+    const filteredRulesForHaystack = httpRules.filter(
+      (r) => !(r.rule_type === 'rewrite' && isYoutubeWebAdRewrite(r.pattern))
+    );
+    const mitmRefHaystack = buildMitmReferenceHaystack(filteredRulesForHaystack);
     const narrowedMitm = narrowMitmHosts(mitmSet, mitmRefHaystack);
     if (narrowedMitm.dropped.length > 0) {
       console.log(
@@ -1089,15 +1123,13 @@ export class SurgeService {
     // 关键架构保障：YouTube 媒体流与核心节点置顶直达代理（优先于任何规则集与本地 DNS）
     // 杜绝 Surge 评估后续规则（如 block.list）时因检查 IP-CIDR 而强行触发本地 DNS 解析，
     // 彻底根除国内 DNS（AliDNS/DNSPod）对 googlevideo 返回 GFW 假 IP（Facebook/Dropbox 等）导致的频繁切源与报错。
-    sections.push('# --- YouTube 媒体流直达代理（置顶防污染，杜绝频繁换源）---');
+    sections.push('# --- YouTube 媒体流直达代理（置顶防污染，杜绝频繁换源；网页端交由浏览器插件，Surge 不再拦截网页广告端点）---');
     sections.push('DOMAIN-SUFFIX,googlevideo.com,PROXY');
     sections.push('DOMAIN-SUFFIX,ytimg.com,PROXY');
     sections.push('DOMAIN,youtubei.googleapis.com,PROXY');
-
-    sections.push('# --- YouTube 广告统计/追踪端点（模块里的 URL Rewrite 实测不生效，改走 Rule 层）---');
-    sections.push('URL-REGEX,^https?://(www|m)[.]youtube[.]com/(pagead|pcs)/,REJECT');
-    sections.push('URL-REGEX,^https?://(www|m)[.]youtube[.]com/api/stats/ads,REJECT');
-    sections.push('URL-REGEX,^https?://s[.]youtube[.]com/api/stats/ads,REJECT');
+    sections.push('# 展示广告创意 iframe（非 js 诱饵，避免走 FINAL 代理加载页面横幅/伴随广告）');
+    sections.push('DOMAIN-SUFFIX,tpc.googlesyndication.com,REJECT');
+    sections.push('DOMAIN,safeframe.googlesyndication.com,REJECT');
 
     if (hubRules.length > 0) {
       // 护栏：零域名规则一旦过宽（如 .*(ad|banner…).*）会把正常页面资源全 REJECT，
@@ -1120,11 +1152,11 @@ export class SurgeService {
     const validMitmHosts = narrowedMitm.kept.filter(isValidSurgeMitmHost);
     if (validMitmHosts.length > 0) {
       sections.push('[MITM]');
-      // 核心业务域名优先置顶
+      // 核心业务域名优先置顶（App 端 YouTube Enhance 独占 youtubei + googlevideo）
       const prioritySet = new Set<string>([
         'app.bilibili.com', 'grpc.biliapi.net', 'api.bilibili.com', 'api.live.bilibili.com',
         'www.bilibili.com', 'line3-h5-mobile-api.biligame.com',
-        'www.youtube.com', 'm.youtube.com', 'youtubei.googleapis.com',
+        'youtubei.googleapis.com', '*.googlevideo.com',
         'api.pinduoduo.com', 'acs.m.goofish.com', 'g-acs.m.goofish.com'
       ]);
       const priorityHosts = validMitmHosts.filter((h) => prioritySet.has(h));
@@ -1138,8 +1170,10 @@ export class SurgeService {
       sections.push('');
     }
 
-    // [URL Rewrite]
-    const rewrites = httpRules.filter((r) => r.rule_type === 'rewrite');
+    // [URL Rewrite]（排除 YouTube 网页端规则，避免触发浏览器反广告墙）
+    const rewrites = httpRules.filter(
+      (r) => r.rule_type === 'rewrite' && !isYoutubeWebAdRewrite(r.pattern)
+    );
     if (rewrites.length > 0) {
       sections.push('[URL Rewrite]');
       for (const rw of rewrites) {
@@ -1210,7 +1244,20 @@ export class SurgeService {
           continue;
         }
 
-        // 2026-11-07：按用户要求移除媒体脚本过滤，恢复原版 ump.js / initplayback / videoplayback 链路。
+        // 分流红线：网页端交由 Safari 浏览器插件 AdBlockHub，Hub 不再注入 localdns_builtin_yt_web
+        if (
+          sc.script_name === YT_BUILTIN_WEB_RULE_NAME ||
+          sc.target.includes(`/scripts/${YT_BUILTIN_WEB_SCRIPT}`)
+        ) {
+          continue;
+        }
+
+        // 关键防护：youtube.enhance.auto-hd 强行改写 videoplayback 的 itag/URL 参数，
+        // 破坏了 Google Video 对 sparams 的 HMAC 加密签名 (sig)，导致服务端直接报错 HTTP 403 Forbidden 并掐断视频流。
+        // auto-hd 完全不具备去广告功能，排除它可确保所有视频分片以原生合法签名直通，彻底终结 403 播放失败！
+        if (sc.script_name === 'youtube.enhance.auto-hd' || sc.script_name === 'youtube.enhance.init') {
+          continue;
+        }
 
         const scName = sc.script_name || `localdns_hub_sc_${idx++}`;
         const dedupeKey = [
@@ -1235,15 +1282,31 @@ export class SurgeService {
             seenScriptNames.add(scName);
           }
         }
-        const effectiveTarget = localScriptMap.get(sc.target) || sc.target;
-        // 本地镜像只覆盖已注册的脚本（当前是 YouTube Enhance）；其他模块脚本正常走远程，不刷告警。
-        if (useLocalScripts && !localScriptMap.has(sc.target) && sc.target.includes('gholts/surge')) {
+        let effectiveTarget = localScriptMap.get(sc.target) || sc.target;
+        let scriptEngine = sc.engine;
+
+        // YouTube Enhance 脚本（仅 App 端）：
+        // 发布本地 JSC 兼容不可变副本（注入纯 JS TextEncoder/TextDecoder + 浏览器媒体流旁路守卫），
+        // 确保在 Surge jsc 引擎下零异常、毫秒级执行，绝不回落到原始远程脚本配 engine=jsc 崩溃。
+        const ytMatch = sc.target.match(/\/scripts\/youtube\/(response|ump|request|key)\.js(?:\?.*)?$/i);
+        if (ytMatch) {
+          const ytFile = `${ytMatch[1].toLowerCase()}.js`;
+          const published = await this.publishYoutubeEnhanceScript(ytFile);
+          if (published) {
+            effectiveTarget = `${baseUrl}/scripts/${published}`;
+            scriptEngine = 'jsc';
+          } else if (ytFile === 'response.js' || ytFile === 'ump.js') {
+            scriptEngine = 'webview';
+          } else {
+            scriptEngine = 'jsc';
+          }
+        } else if (useLocalScripts && !localScriptMap.has(sc.target) && sc.target.includes('gholts/surge')) {
           console.warn(`[compile] no local mirror for YouTube script, fallback remote: ${sc.target}`);
         }
+
         const parts = [`type=${sc.sub_type}`];
         if (sc.pattern) {
-          const cleanPattern = sc.pattern.replace(/^["']|["']$/g, '');
-          // 若 pattern 中包含逗号、空格或引号，必须包裹双引号，防止 Surge INI 解析器按逗号分割导致语法损坏
+          let cleanPattern = sc.pattern.replace(/^["']|["']$/g, '');
           if (cleanPattern.includes(',') || cleanPattern.includes(' ') || cleanPattern.includes('"')) {
             parts.push(`pattern="${cleanPattern.replace(/"/g, '\\"')}"`);
           } else {
@@ -1265,57 +1328,12 @@ export class SurgeService {
         }
         if (scriptMaxSize !== undefined) parts.push(`max-size=${scriptMaxSize}`);
         if (sc.binary_body) parts.push('binary-body-mode=1');
-        let scriptEngine = sc.engine;
-        // 关键防护：YouTube 客户端响应解析脚本 (response.js) 依赖 TextEncoder，JSC 引擎不自带，必须强制 webview 引擎
-        if (sc.target && sc.target.includes('youtube/response.js')) {
-          scriptEngine = 'webview';
-        }
         if (scriptEngine) parts.push(`engine=${scriptEngine}`);
         if (sc.timeout !== undefined) parts.push(`timeout=${sc.timeout}`);
         parts.push(`script-path=${effectiveTarget}`);
         sections.push(`${scName} = ${parts.join(',')}`);
       }
-
-
-      // 内置：YouTube 网页版「小 JSON 接口」广告清理（本地托管，走 JSON.parse 脱水）。
-      // 规则定义集中在 src/youtube-rules.ts（单一真相）；此处只负责「发布不可变脚本 + 注入行」。
-      // 内存红线：只匹配 /youtubei/v1/* 小接口，绝不缓冲 /watch 整页 HTML（历史 3MB 通道曾杀引擎）。
-      const hasBuiltinYt = scripts.some(
-        (sc) => (sc.target || '').includes(`/scripts/${YT_BUILTIN_WEB_SCRIPT}`)
-          || (sc.script_name || '') === YT_BUILTIN_WEB_RULE_NAME,
-      );
-      if (!hasBuiltinYt) {
-        const immutable = await this.publishBuiltinWebScript();
-        sections.push(renderBuiltinWebRule(baseUrl, immutable));
-      }
       sections.push('');
-    }
-
-    // 兜底注入：确保内置脚本存在（规则仍来自 youtube-rules.ts，不写死长字符串）
-    if (!sections.some((sec) => isBuiltinWebRuleLine(sec))) {
-      const immutable = await this.publishBuiltinWebScript();
-      const builtinLine = renderBuiltinWebRule(baseUrl, immutable);
-      const scriptHeaderIdx = sections.indexOf('[Script]');
-      if (scriptHeaderIdx !== -1) {
-        sections.splice(scriptHeaderIdx + 1, 0, builtinLine);
-      } else {
-        sections.push('[Script]', builtinLine);
-      }
-    }
-
-    // 关键防线：内置脚本必须置顶。
-    // 2026-11-07 回退：把 youtube.enhance.response 排到前面虽然让模块功能跑起来了，
-    // 但 gholts 的 protobuf transform 与当前 YouTube 客户端不兼容，browse/player 响应
-    // 被改写后客户端直接打不开。稳定优先：内置脚本恢复绝对置顶，模块的 player/next
-    // 功能继续被 Surge 的“每个响应只跑第一条匹配脚本”规则遮蔽；browse/search/guide
-    // 等内置不匹配的端点仍会走 youtube.enhance.response。
-    const scriptHdrIdx = sections.indexOf('[Script]');
-    if (scriptHdrIdx !== -1) {
-      const idx = sections.findIndex((s) => isBuiltinWebRuleLine(s));
-      if (idx !== -1 && idx !== scriptHdrIdx + 1) {
-        const [line] = sections.splice(idx, 1);
-        sections.splice(scriptHdrIdx + 1, 0, line);
-      }
     }
 
     return sections.join('\n');
@@ -2007,32 +2025,45 @@ export class SurgeService {
       }
     }
 
+    // 2026-11-27：客户端优先——媒体流恢复 MITM，网页端交给浏览器插件。
     const missingHosts = [...expectedHosts].filter((h) => !appliedHosts.has(h));
     const missingScripts = expectedScripts.filter((name) => !profile.includes(`${name} = type=`));
 
-    // 2.5 YouTube 去广告脚本指纹校验。
-    // 2026-11-07 正确编排：内置只负责 www/m.youtube.com；App 的 youtubei 交给完整
-    // youtube.enhance.response + ump/init/auto-hd，且 *.googlevideo.com 必须在 MITM。
-    // 旧校验把 youtubei 当作内置脚本的必需参数，会把正确配置误报成旧版。
-    const ytAppliedLine = profile
-      .split('\n')
-      .map((l) => l.trim())
-      .find((l) => l.startsWith('localdns_builtin_yt_web = '));
-    const ytRequiredFlags = ['binary-body-mode=1', 'engine=webview'];
-    const ytForbiddenFlags = ['youtubei[.]googleapis[.]com'];
-    const fullYtScripts = ['youtube.enhance.response', 'youtube.enhance.ump', 'youtube.enhance.init', 'youtube.enhance.auto-hd'];
+    // 2.5 YouTube App 与浏览器插件分流校验。
+    // 2026-11-27：YouTube Enhance（App 端）专管 youtubei.googleapis.com + *.googlevideo.com，
+    // response.js 与 ump.js 必须走本地 JSC 兼容副本（带 TextEncoder/TextDecoder polyfill）；
+    // 网页端 www/m.youtube.com 交由 Safari AdBlockHub 处理，不应再出现在 Hub [MITM] 或内置脚本中。
+    const profileLines = profile.split('\n').map((l) => l.trim());
+    const ytResponseLine = profileLines.find((l) => l.startsWith('youtube.enhance.response = ')) || '';
+    const ytUmpLine = profileLines.find((l) => l.startsWith('youtube.enhance.ump = ')) || '';
+    const fullYtScripts = [
+      'youtube.enhance.ad-break',
+      'youtube.enhance.response',
+      'youtube.enhance.key',
+      'youtube.enhance.ump',
+      'youtube.enhance.init',
+      'youtube.enhance.auto-hd',
+    ];
     const missingYtScripts = fullYtScripts.filter((name) => !profile.includes(`${name} = `));
     const staleParams = [
-      ...(ytAppliedLine ? ytRequiredFlags.filter((flag) => !ytAppliedLine.includes(flag)) : []),
-      ...(ytAppliedLine ? ytForbiddenFlags.filter((flag) => ytAppliedLine.includes(flag)).map((flag) => `!${flag}`) : []),
       ...missingYtScripts,
+      ...(appliedHosts.has('youtubei.googleapis.com') ? [] : ['youtubei.googleapis.com']),
       ...(appliedHosts.has('*.googlevideo.com') ? [] : ['*.googlevideo.com']),
+      ...(appliedHosts.has('www.youtube.com') ? ['!www.youtube.com'] : []),
+      ...(appliedHosts.has('m.youtube.com') ? ['!m.youtube.com'] : []),
+      ...(profile.includes('localdns_builtin_yt_web = ') ? ['!localdns_builtin_yt_web'] : []),
+      ...(ytResponseLine && ytResponseLine.includes('engine=jsc') && !ytResponseLine.includes('/scripts/yt/')
+        ? ['response_missing_jsc_polyfill']
+        : []),
+      ...(ytUmpLine && ytUmpLine.includes('engine=jsc') && !ytUmpLine.includes('/scripts/yt/')
+        ? ['ump_missing_jsc_polyfill']
+        : []),
     ];
     if (staleParams.length > 0) {
       return {
         ok: false,
         verdict: 'scripts_not_applied',
-        advice: `YouTube 去广告模块不完整：内置脚本应只匹配 www/m.youtube.com，App 端点需要 youtube.enhance.response/ump/init/auto-hd，且 *.googlevideo.com 必须在 MITM。缺少或多余：${staleParams.join(' / ')}。请用新的模块 URL/名称安装完整版，再停用旧模块。`,
+        advice: `YouTube 分流或 Enhance 脚本未同步：App 端需完整 youtube.enhance.*（走本地 /scripts/yt/ JSC 兼容副本）及 youtubei/*.googlevideo.com MITM，网页端 www/m.youtube.com 应完全交给浏览器插件。异常项：${staleParams.join(' / ')}。请更新并重载 Surge「LocalDNS Unified Hub」。`,
         expectedHosts: expectedHosts.size,
         appliedHosts: appliedHosts.size,
         missingHosts: [],
@@ -2394,6 +2425,42 @@ export class SurgeService {
       // 发布失败时退回稳定名（旧行为），绝不因此让模块编译失败
       console.warn(`[publish] builtin web script fallback to stable name: ${err}`);
       return YT_BUILTIN_WEB_SCRIPT;
+    }
+  }
+
+  /**
+   * 发布 YouTube Enhance 本地 JSC 兼容不可变脚本（web/scripts/yt/<name>.jsc.<sha12>.js）。
+   * - response.js / ump.js 注入纯 JS TextEncoder/TextDecoder，修复 Surge JSC ReferenceError；
+   * - ump.js / request.js 注入 App-only 分流守卫，浏览器端请求直接 $done({}) 放行。
+   */
+  public async publishYoutubeEnhanceScript(filename: string): Promise<string | null> {
+    try {
+      const srcPath = Path.join(Script.directory, 'web', 'scripts', 'yt', filename);
+      if (!(await FileManager.exists(srcPath))) return null;
+      const raw = await FileManager.readAsString(srcPath);
+      if (!raw || raw.length < 100) return null;
+
+      const lower = filename.toLowerCase();
+      const needsTextCodec = lower === 'response.js' || lower === 'ump.js';
+      const needsGzipStream = lower === 'ump.js';
+      const appOnlyMediaGuard = lower === 'ump.js' || lower === 'request.js';
+      const wrapped = wrapYoutubeEnhanceForJsc(raw, {
+        needsTextCodec,
+        needsGzipStream,
+        appOnlyMediaGuard,
+      });
+
+      const sha = Crypto.sha256(Data.fromRawString(wrapped, 'utf-8')).toHexString();
+      const base = lower.replace(/\.js$/i, '');
+      const immutableName = `${base}.jsc.${sha.slice(0, 12)}.js`;
+      const destPath = Path.join(Script.directory, 'web', 'scripts', 'yt', immutableName);
+      if (!(await FileManager.exists(destPath))) {
+        await FileManager.writeAsString(destPath, wrapped);
+      }
+      return `yt/${immutableName}`;
+    } catch (err) {
+      console.warn(`[publish] YouTube Enhance JSC script failed for ${filename}: ${err}`);
+      return null;
     }
   }
 

@@ -2,7 +2,7 @@
   "name": "LocalDNS",
   "icon": "shield.lefthalf.filled",
   "color": "#6366f1",
-  "version": "1.15.22",
+  "version": "1.15.34",
   "author": "vcncv",
-  "description": "本地 DNS 与安全服务系统，v1.15.22 依据 smartdns 审计结果补齐上游回落与节点熔断：主组全失败时按 off/safe/aggressive 三档回落（默认 safe：foreign→foreign_ecs、proxy→foreign→foreign_ecs，永不污染），aggressive 才允许降级国内 DNS 且结果不进境外缓存池、TTL 上限 60 秒、日志与 metrics 全标记；单节点连续失败 2 次冷却 45 秒不参与竞速；新增 /api/v1/upstreams/fallback 与工作台策略下拉。沿用 v1.15.21 的模块上游更新检测、v1.15.18 的 FJO02 / UI 2026.11.21.1 与 FJMOS 内核；构建号 20261127。"
+  "description": "本地 DNS 与安全服务系统，v1.15.34 解决播放 403 Forbidden 终局问题：1) 抓包实证 01:29:19 videoplayback 失败根因：auto-hd 强行改写媒体流 itag 参数，导致 Google Video 的 HMAC 签名 (sig) 失效，服务端直接拒流返回 HTTP 403 Forbidden（readyState=0 零字节无法播放）；2) 彻底排除破坏签名的 auto-hd 与 init，保留真正负责去广告的 response.jsc 与 ump.jsc，*.googlevideo.com 保持在 MITM，媒体流签名 100% 合法，Google Video 正常下发视频数据；构建号 20261128。"
 }

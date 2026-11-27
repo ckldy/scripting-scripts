@@ -362,22 +362,19 @@ async function runTests() {
     assert(hubText.includes('splash _reject'), 'Hub 模块包含 URL Rewrite 规则');
     assert(!hubText.includes('ad.bilibili.com'), 'Hub 模块已彻底剔除广告域名（已下沉到 LocalDNS 拦截）');
 
-    // 2.15.2.1 YouTube 客户端去广告：内置脚本必须置顶、覆盖客户端 API 且走二进制体模式
+    // 2.15.2.1 YouTube App 与浏览器分流校验：
+    // - App 端：youtube.enhance.* 全量通过本地 /scripts/yt/*.jsc.*.js 跑在 jsc 引擎，MITM 仅含 youtubei.googleapis.com 与 *.googlevideo.com
+    // - 浏览器端：www/m.youtube.com 不再进 Hub [MITM]，不再注入 localdns_builtin_yt_web，由 Safari AdBlockHub 独占处理
     const hubLines = hubText.split('\n');
-    const ytLineIdx = hubLines.findIndex((l: string) => l.startsWith('localdns_builtin_yt_web'));
-    const ytLine = hubLines[ytLineIdx] || '';
     const ytEnhanceIdx = hubLines.findIndex((l: string) => l.includes('youtube.enhance.response'));
-    assert(ytLineIdx !== -1, 'Hub includes built-in YouTube ad cleaner');
-    assert(hubText.includes('binary-body-mode=1') && hubText.includes('engine=webview'), 'Built-in YouTube cleaner keeps protobuf binary body mode');
-    // 2026-11-07 编排：内置脚本只负责 www/m.youtube.com；App 的 youtubei 端点交给 enhance 完整脚本，
-    // 内置行里若出现 youtubei 指纹反而是 Hub 自检会判为旧版的信号。
-    assert(!ytLine.includes('youtubei[.]googleapis[.]com'), 'Built-in YouTube cleaner stays scoped to www/m.youtube.com');
-    assert(ytEnhanceIdx === -1 || ytLineIdx < ytEnhanceIdx, 'Built-in YouTube cleaner is placed before remote scripts');
-    // Surge 的 [MITM] 同名键只保留最后一行：必须合并成单行 hostname，否则前面的域名会被静默抹掉。
-    // 媒体域名是否出现取决于已装模块（2026-11-07 起媒体 MITM 禁令已移除），因此只校验结构不校验媒体。
+    assert(ytEnhanceIdx === -1 || hubText.includes('engine=jsc'), 'YouTube Enhance runs in jsc engine');
+    assert(!hubLines.some((l: string) => l.startsWith('localdns_builtin_yt_web =')), 'Hub omits localdns_builtin_yt_web (browser owned by AdBlockHub)');
     const mitmBlock = (hubText.split('[MITM]')[1] || '').split('\n[')[0];
     const hostnameLines = mitmBlock.split('\n').filter((l: string) => l.trim().startsWith('hostname'));
     assert(hostnameLines.length <= 1, `Hub [MITM] merges hostname into one line (got ${hostnameLines.length})`);
+    const mitmLine = hostnameLines[0] || '';
+    assert(mitmLine.includes('youtubei.googleapis.com'), 'Hub [MITM] keeps youtubei.googleapis.com for App');
+    assert(!/\bwww\.youtube\.com\b/.test(mitmLine) && !/\bm\.youtube\.com\b/.test(mitmLine), 'Hub [MITM] excludes www/m.youtube.com for browser split');
 
     // 2.15.3 动态分流组与 RULE-SET 导出
     const resGroups = await fetch(`${baseUrl}/api/v1/surge/diversion/groups`);

@@ -44,6 +44,71 @@
    */
   var MAX_PROCESS_BYTES = 2097152;
 
+  // Surge JSC 引擎不自带 TextEncoder / TextDecoder；若缺少则提供轻量纯 JS UTF-8 编解码兜底，
+  // 避免 binary-body-mode=1 下在 catch 里静默失败。
+  if (typeof TextEncoder === 'undefined') {
+    var TextEncoder = function () {};
+    TextEncoder.prototype.encode = function (str) {
+      str = String(str);
+      var out = [], i = 0, n = str.length;
+      while (i < n) {
+        var c = str.charCodeAt(i++);
+        if (c < 0x80) out.push(c);
+        else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+        else if (c >= 0xd800 && c <= 0xdbff && i < n) {
+          var c2 = str.charCodeAt(i);
+          if (c2 >= 0xdc00 && c2 <= 0xdfff) {
+            i++;
+            var cp = 0x10000 + ((c - 0xd800) << 10) + (c2 - 0xdc00);
+            out.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+            continue;
+          }
+          out.push(0xef, 0xbf, 0xbd);
+        } else if (c >= 0xd800 && c <= 0xdfff) out.push(0xef, 0xbf, 0xbd);
+        else out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+      }
+      return new Uint8Array(out);
+    };
+  }
+  if (typeof TextDecoder === 'undefined') {
+    var TextDecoder = function (label, opts) { this.fatal = !!(opts && opts.fatal); };
+    TextDecoder.prototype.decode = function (buf) {
+      var b = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+      var out = [], i = 0, n = b.length;
+      while (i < n) {
+        var a = b[i++];
+        if (a < 0x80) out.push(a);
+        else if ((a & 0xe0) === 0xc0) {
+          if (i >= n || (b[i] & 0xc0) !== 0x80 || a < 0xc2) {
+            if (this.fatal) throw new TypeError('Invalid UTF-8');
+            out.push(0xfffd); continue;
+          }
+          out.push(((a & 0x1f) << 6) | (b[i++] & 0x3f));
+        } else if ((a & 0xf0) === 0xe0) {
+          if (i + 1 >= n || (b[i] & 0xc0) !== 0x80 || (b[i + 1] & 0xc0) !== 0x80 || (a === 0xe0 && b[i] < 0xa0) || (a === 0xed && b[i] >= 0xa0)) {
+            if (this.fatal) throw new TypeError('Invalid UTF-8');
+            out.push(0xfffd); continue;
+          }
+          out.push(((a & 0x0f) << 12) | ((b[i++] & 0x3f) << 6) | (b[i++] & 0x3f));
+        } else if ((a & 0xf8) === 0xf0) {
+          if (i + 2 >= n || (b[i] & 0xc0) !== 0x80 || (b[i + 1] & 0xc0) !== 0x80 || (b[i + 2] & 0xc0) !== 0x80 || (a === 0xf0 && b[i] < 0x90) || (a === 0xf4 && b[i] >= 0x90) || a > 0xf4) {
+            if (this.fatal) throw new TypeError('Invalid UTF-8');
+            out.push(0xfffd); continue;
+          }
+          var p = ((a & 0x07) << 18) | ((b[i++] & 0x3f) << 12) | ((b[i++] & 0x3f) << 6) | (b[i++] & 0x3f);
+          p -= 0x10000;
+          out.push(0xd800 + (p >> 10), 0xdc00 + (p & 0x3ff));
+        } else {
+          if (this.fatal) throw new TypeError('Invalid UTF-8');
+          out.push(0xfffd);
+        }
+      }
+      var res = '';
+      for (var j = 0; j < out.length; j += 4096) res += String.fromCharCode.apply(null, out.slice(j, j + 4096));
+      return res;
+    };
+  }
+
   /**
    * 2026-11-10：双面分流（两面策略必须不同，不得混用）。
    *

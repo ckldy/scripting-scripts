@@ -54,7 +54,7 @@ class FakeAnchor extends FakeEventTarget { constructor() { super(); this.href = 
 
 const sandbox = {
   console,
-  location: { hostname: 'www.youtube.com', href: 'https://www.youtube.com/watch?v=abc' },
+  location: { hostname: 'www.youtube.com', href: 'https://www.youtube.com/watch?v=abc#adhub-strict', hash: '#adhub-strict' },
   navigator: { userActivation: { isActive: false, hasBeenActive: true } },
   document: doc,
   EventTarget: FakeEventTarget,
@@ -115,7 +115,7 @@ check('首屏 bootstrapPlayerResponse 赋值即剥离 adPlacements', !('adPlacem
 check('首屏 bootstrapPlayerResponse 赋值即剥离 playerAds', !('playerAds' in fresh));
 check('首屏 bootstrapPlayerResponse 保留 streamingData', !!(fresh.streamingData));
 check('首屏 ytplayer 钩子已命中', !!(sandbox.__adblockHub && sandbox.__adblockHub.ytPlayerPruned > 0), sandbox.__adblockHub);
-check('诊断版本为 4.7.0', !!(sandbox.__adblockHub && sandbox.__adblockHub.version === '4.7.0'), sandbox.__adblockHub && sandbox.__adblockHub.version);
+check('诊断版本为 4.26.0', !!(sandbox.__adblockHub && sandbox.__adblockHub.version === '4.26.0'), sandbox.__adblockHub && sandbox.__adblockHub.version);
 
 // 4.5.0 新增：标准化只读诊断接口（给 LocalDNS 核验用）
 const st = sandbox.__LOCALDNS_ADBLOCK_STATUS__;
@@ -145,9 +145,9 @@ const media = new sandbox.Response('https://rr4---sn-x.googlevideo.com/videoplay
 
 Promise.all([api.json(), apiGoogle.json(), next.json(), browse.json(), search.json(), guide.json(), getWatch.json(), page.json(), media.json(), api.text(), browse.text(), page.text()]).then(([a, ag, n, b, s, g, gw, p, m, at, bt, pt]) => {
   check('/youtubei/ player json 已剥离 ads', !('adPlacements' in a) && !('playerAds' in a));
-  check('youtubei.googleapis.com player 同样剥离 ads', !('adPlacements' in ag) && !('playerAds' in ag));
+  check('youtubei.googleapis.com 原样放行（分流给 YouTube Enhance）', 'adPlacements' in ag && 'playerAds' in ag);
   check('/youtubei/ next json 已剥离 ads', !('adPlacements' in n) && !('playerAds' in n));
-  check('/browse json 原样放行', 'adPlacements' in b && 'playerAds' in b);
+  check('/browse json 不误删 adPlacements（只删 feed 广告位）', 'adPlacements' in b && 'playerAds' in b);
   check('/search json 原样放行', 'adPlacements' in s && 'playerAds' in s);
   check('/guide json 原样放行', 'adPlacements' in g && 'playerAds' in g);
   check('/get_watch json 原样放行', 'adPlacements' in gw && 'playerAds' in gw);

@@ -16,11 +16,12 @@ const vm = require('vm');
 
 const SRC = fs.readFileSync('/var/mobile/Library/Mobile Documents/iCloud~com~thomfang~Scripting/Documents/scripting-safari-extension/userscripts/AdBlockHub.user.js', 'utf8');
 
-function run(hostname, hash = '') {
+function run(hostname, hash = '', cookie = '') {
   const appended = [];
   const styleEls = {};
   const timers = [];
   const document = {
+    cookie,
     readyState: 'complete',
     head: { appendChild: (n) => { appended.push(n); } },
     documentElement: { appendChild: (n) => { appended.push(n); } },
@@ -172,7 +173,9 @@ const web = run('example.com');
 const ytFast = run('www.youtube.com', '#adhub-fast');
 const ytOff = run('www.youtube.com', '#adhub-off');
 const ytFull = run('www.youtube.com', '#adhub-full');
+const ytRaw = run('www.youtube.com', '#adhub-raw');
 const ytStrict = run('www.youtube.com', '#adhub-strict');
+const ytLoggedIn = run('www.youtube.com', '', 'SAPISID=testcookie');
 
 let fail = 0;
 function check(name, ok) {
@@ -188,58 +191,62 @@ check('普通站点：注入滚动 CSS', web.cssHasScrollFix === true);
 check('普通站点：改写 AdProvider', web.adProviderOverridden === true);
 // adsbygoogle 是普通赋值，这个 runtime 的 vm 不镜像，无法断言（浏览器里必然生效）
 check('YouTube 与普通站点行为不同', yt.adProviderOverridden !== web.adProviderOverridden);
-check('版本号 4.17.2', yt.status && yt.status.version === '4.17.2');
-check('贴片：默认不跳（seek 跳广告也算“广告没看完”，会被对账抓到）',
-  /const AD_AUTOSKIP = \(\(\) => \{[\s\S]{0,600}?return false;/.test(SRC) &&
-    SRC.indexOf('adhub-skipads') !== -1);
-check('贴片：seek 有 180s 上限（否则 ad 类残留会把正片 seek 到片尾）',
-  SRC.indexOf('d > 180) return') !== -1);
-check('贴片：adFastTick 不动 muted（iOS 自动取消静音会暂停媒体）',
-  !/adFastTick[\s\S]{0,1200}?\.muted\s*=/.test(SRC));
+check('版本号 4.26.0', yt.status && yt.status.version === '4.26.0');
+check('贴片：默认开启 16x/自动跳过兜底（#adhub-noskip 可关）',
+  /const AD_AUTOSKIP = \(\(\) => \{[\s\S]{0,600}?return true;/.test(SRC) &&
+    SRC.indexOf('adhub-noskip') !== -1);
+check('贴片：seek 默认开启瞬跳（FadBlock 秒杀方案）',
+  SRC.indexOf('AD_SEEK_END') !== -1 && SRC.indexOf('adhub-noseek') !== -1);
+check('贴片：adFastTick 自动静音',
+  /adFastTick[\s\S]{0,1200}?\.muted\s*=/.test(SRC));
 check('贴片：诊断计数进信标（远程能看出是哪条判据命中）',
   SRC.indexOf("'k' + Math.min(ADHUB_STATUS.adClassSeen, 9)") !== -1 &&
     SRC.indexOf("'x' + Math.min(ADHUB_STATUS.adSeeked, 9)") !== -1);
-check('贴片：100ms 轮询（fadblock 方案，800ms 会错过广告窗口）',
-  SRC.indexOf('const AD_TICK_MS = 100') !== -1 && SRC.indexOf('installAdFastWatcher') !== -1);
-check('贴片：用 .video-stream 取播放元素 + .ytp-ad-preview-text 作判据',
-  SRC.indexOf("video.video-stream") !== -1 && SRC.indexOf('.ytp-ad-preview-text') !== -1);
-check('广告：每条广告都重新压 16x（不再只设一次）', SRC.indexOf('video.playbackRate < 16') !== -1);
-check('广告：seek 到片尾且按 src 记账（避免反复 seek）',
-  SRC.indexOf('adSeekKey') !== -1 && SRC.indexOf('currentTime = Math.max(0, d - 0.1)') !== -1);
+check('贴片：50ms 轮询（fadblock 极速方案）',
+  SRC.indexOf('const AD_TICK_MS = 50') !== -1 && SRC.indexOf('installAdFastWatcher') !== -1);
+check('贴片：用 .video-stream 取播放元素',
+  SRC.indexOf('video.video-stream') !== -1);
+check('广告：每条广告都重新压 16x（不再只设一次）', SRC.indexOf('playbackRate < 16') !== -1);
+check('广告：按 src+duration 记账与安全保护',
+  SRC.indexOf('adSeekedKey') !== -1);
 const adStateBody = (SRC.split('function onAdState')[1] || '').split('function installAdSkipObserver')[0];
-check('广告：onAdState 不做 muted 切换（iOS 会判非用户手势）', !/video\.muted = true/.test(adStateBody));
+check('广告：onAdState 自动静音与瞬跳', /video\.muted = true/.test(adStateBody));
 check('#adhub-off 会强制重载（否则只改 hash 不重跑脚本），上次 A/B 会得到假结果',
   SRC.indexOf("adhub_off_reloaded") !== -1 && SRC.indexOf('location.reload()') !== -1);
 check('Response 钩子不含 get_watch（播放红线）', !/\(\?:player\|next\|get_watch/.test(SRC));
-check('Response 钩子白名单保持窄口径', /player\|next\|reel\\\/reel_watch_sequence/.test(SRC));
+check('Response 钩子播放白名单保持窄口径', /player\|next\|reel\\\/reel_watch_sequence/.test(SRC));
+check('Response 钩子仅限浏览器域名（不碰 youtubei.googleapis.com）', /host === 'www\.youtube\.com' \|\| host === 'm\.youtube\.com' \|\| host === 'music\.youtube\.com'/.test(SRC));
+check('网络广告诱饵拦截存在（避免 DNS 0.0.0.0 触发反广告墙）', /function isYtAdBaitUrl/.test(SRC) && /_adhubBait/.test(SRC));
 // 唯一允许的 reload 是 #adhub-off 分支里的那一次（4.13.5）；拆墙/退让都不许自动重载。
 const reloadIdx = SRC.indexOf('location.reload()');
 const offIdx = SRC.indexOf('adhub_off_reloaded');
 check('墙：不再自动重载（会话级标记退让无效）',
   reloadIdx === -1 || (offIdx !== -1 && offIdx < reloadIdx && reloadIdx - offIdx < 400));
 check('退让模式：有 sessionStorage 开关', /function adhubSafeMode\(\)/.test(SRC) && /ADHUB_SAFE_KEY/.test(SRC));
-check('退让模式：脱水入口都受控', /depth === 0 && adhubSafeMode\(\)/.test(SRC) && /const pruneCurrent = \(\) => \{\n\s*if \(adhubSafeMode\(\)\) return;/.test(SRC));
-check('退让模式：Response 钩子受控', /if \(adhubSafeMode\(\)\) return false;/.test(SRC));
-check('退让模式：开关保留但不再自动触发', /function adhubSafeMode\(\)/.test(SRC) && /if \(adhubSafeMode\(\)\) return false;/.test(SRC));
+check('退让模式：脱水入口都受控', /depth === 0 && adhubSafeMode\(\)/.test(SRC));
+check('退让模式：Response 钩子受控', /if \(adhubSafeMode\(\)\) return null;/.test(SRC));
 check('反广告墙：有专门的拆除函数', /function ytKillEnforcement\(\)/.test(SRC));
 check('反广告墙：不再裸删', !/if \(dialog\) dialog\.remove\(\)/.test(SRC));
 check('反广告墙：关掉 openPopupConfig 弹窗开关', /openPopupConfig/.test(SRC) && /supportedPopups/.test(SRC));
 check('反广告墙：CSS 隐藏墙卡片', /ytd-enforcement-message-view-model,/.test(SRC.split('const PURE_AD_CSS')[1] || ''));
-check('默认：player 响应整体放行（播放优先，不删广告位以免被判定违规）',
-  yt.spa && yt.spa.ads === 1 && yt.spa.playerAds === true && yt.spa.heartbeat === true);
-check('严格模式 #adhub-strict：恢复删广告位（会触发反广告墙，仅用于回滚/对比）',
+check('默认：剥离模式剥离 player 广告排期解除黑窗缓冲死锁',
+  yt.spa && yt.spa.ads === 0 && yt.spa.streaming === true && yt.spa.status === 'OK');
+check('#adhub-raw：保留原始 player 响应（对比回退开关）',
+  ytRaw.spa && ytRaw.spa.ads === 1);
+check('#adhub-strict：强制剥离 player 广告',
   ytStrict.spa && ytStrict.spa.ads === 0);
-check('首屏：setter 仍在赋值瞬间生效（只是播放优先下不动 player 响应）',
-  yt.firstScreen.ran && yt.firstScreen.ads === 1);
-check('首屏：streamingData / playabilityStatus 保留',
+check('首屏：剥离排期并保证 streamingData / playabilityStatus 保留',
   yt.firstScreen.ran && yt.firstScreen.streaming === true && yt.firstScreen.status === 'OK');
-check('追溯：player 响应同样放行', yt.retro.ran && yt.retro.ads === 1);
+check('首屏 #adhub-strict：setter 赋值瞬间剥离广告',
+  ytStrict.firstScreen.ran && ytStrict.firstScreen.ads === 0);
+check('追溯 #adhub-strict：同样剥离广告', ytStrict.retro.ran && ytStrict.retro.ads === 0);
 check('追溯：streamingData / playabilityStatus 保留',
   yt.retro.ran && yt.retro.streaming === true && yt.retro.status === 'OK');
 check('首屏：非 YouTube 不装 setter',
   web.firstScreen.ran === false || web.firstScreen.ads !== 0);
 check('默认：streamingData/playabilityStatus 保留', yt.spa && yt.spa.streaming === true && yt.spa.status === 'OK');
-check('#adhub-full：播放优先同样适用', ytFull.spa && ytFull.spa.ads === 1 && ytFull.spa.streaming === true && ytFull.spa.status === 'OK');
+check('已登录态同样剥离 player 广告排期且保持 streamingData 保留',
+  ytLoggedIn.spa && ytLoggedIn.spa.ads === 0 && ytLoggedIn.firstScreen.ads === 0 && ytLoggedIn.spa.streaming === true);
 check('默认 playback=off', ytFast.status !== null && yt.status.hooks && yt.status.hooks.jsonPatched === true);
 check('#adhub-off 一键停用：不注入任何东西', !(ytOff.status && ytOff.status.version) && ytOff.cssHasAdSelectors === false && ytOff.spa.ran === false);
 

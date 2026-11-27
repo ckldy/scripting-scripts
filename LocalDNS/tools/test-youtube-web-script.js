@@ -66,25 +66,25 @@ check('JSON: 正常字段保留', parsed.playerResponse.streamingData.formats.le
 r = run({ url: 'https://www.youtube.com/youtubei/v1/next', body: JSON.stringify({ content: 1 }) });
 check('JSON: 无广告字段直接放行', r && Object.keys(r).length === 0);
 
-// 3) protobuf player with fields 2, 7, 9, 68
+// 3) protobuf player with fields 2, 7, 9, 68 (App surface: youtubei.googleapis.com)
 const pb = new Uint8Array([
   ...field(3, 2, [97, 98, 99]),
   ...field(2, 7, [1, 2]),
   ...field(3, 9, [4, 5, 6]),
   ...field(2, 68, [7, 8]),
 ]);
-r = run({ url: 'https://www.youtube.com/youtubei/v1/player?key=x', body: pb });
+r = run({ url: 'https://youtubei.googleapis.com/youtubei/v1/player?key=x', body: pb });
 check('PB: 有广告字段时写回', !!r && r.body instanceof Uint8Array, r && r.body);
 const expected = new Uint8Array([...field(3, 2, [97, 98, 99]), ...field(3, 9, [4, 5, 6])]);
 check('PB: 精确删除 7 / 68，保留 2 / 9', !!r && Buffer.compare(Buffer.from(r.body), Buffer.from(expected)) === 0, r && Array.from(r.body));
 
 // 4) protobuf on /next must be untouched (field 7 = content)
 const nextPb = new Uint8Array([...field(3, 7, [99, 111, 110])]);
-r = run({ url: 'https://www.youtube.com/youtubei/v1/next?key=x', body: nextPb });
+r = run({ url: 'https://youtubei.googleapis.com/youtubei/v1/next?key=x', body: nextPb });
 check('PB: /next 不处理（保护 content）', r && Object.keys(r).length === 0);
 
 // 5) broken bytes -> untouched
-r = run({ url: 'https://www.youtube.com/youtubei/v1/player?key=x', body: new Uint8Array([0x22, 0x7f, 0x01]) });
+r = run({ url: 'https://youtubei.googleapis.com/youtubei/v1/player?key=x', body: new Uint8Array([0x22, 0x7f, 0x01]) });
 check('PB: 越界数据放行', r && Object.keys(r).length === 0);
 
 // 6) binary JSON (binary-body-mode)

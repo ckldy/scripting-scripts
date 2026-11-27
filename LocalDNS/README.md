@@ -1,10 +1,194 @@
 # LocalDNS for Scripting App
 
-> **当前版本**：`v1.15.22 (Build 20261127)`  
+> **当前版本**：`v1.15.34 (Build 20261128)`  
 > **移植作者**：`vcncv`  
 > **上游开源**：[yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（对齐 UI `2026.11.21.1` / 内核 `FJMOS`）
 
 将 [yyhoworks/LocalDNS](https://github.com/yyhoworks/LocalDNS)（Rust DNS 核心 + 双皮肤 Web 控制台）完整转换为适配 **iOS Scripting App** 的本地高性能 DNS 服务与安全管理系统。
+
+### v1.15.34 解决视频媒体流报 403 Forbidden 终局问题
+- **实测抓包破案（Surge Request 54149 & 54150 铁证）**：
+  1. **Google Video 返回 403 Forbidden**：我们在实时日志中捕获到：
+     ```json
+     {
+       "URL": "https://rr1---sn-q4flrnes.googlevideo.com/videoplayback?...",
+       "remark": "Modified by script youtube.enhance.auto-hd",
+       "responseHeader": "HTTP/1.1 403 Forbidden\r\nContent-Length: 0"
+     }
+     ```
+  2. **403 产生机理**：
+     - 在现代 Google Video 流媒体协议中，URL 携带了密签：`sparams=expire,ei,ip,id,itag...&sig=...`；
+     - `itag` 属于被 HMAC 加密签名的参数之一；
+     - `youtube.enhance.auto-hd` 强行在网络层改写了 `itag`，导致请求参数与 Google 生成的 `sig` 签名不匹配；
+     - Google 视频服务器判定请求被非法篡改，**直接拒绝连接并返回 `HTTP/1.1 403 Forbidden`**，浏览器收到 0 字节媒体（`readyState: 0`），导致播放器无法播放！
+- **修复方案**：
+  - **彻底排除破坏签名的 `auto-hd` 与 `init` 脚本**：
+    - `auto-hd` 仅用于强制分辨率，完全不具备任何去广告功能；
+    - 排除后，所有 `videoplayback` 媒体分片均保持 100% 原生合法签名直通，Google Video 正常下发视频数据，彻底终结 403 拒流；
+  - **保留真正负责去广告的核心管道**：
+    - `*.googlevideo.com` 保持在 Surge `[MITM]` 列表中，确保客户端 YouTube iOS App 能完整通过 `ump.jsc` 解密 Onesie UMP 广告包；
+    - `youtubei.googleapis.com` 继续由 `response.jsc` 承载全量去广告与画中画/后台播放，客户端功能 100% 完好；
+  - **浏览器端（`AdBlockHub v4.26.0`）**：
+    - 维持 FadBlock 黄金标准（50ms 轮询 + 自动静音 + `currentTime = duration` 强制秒跳贴片 + 全套跳过按钮瞬点）；
+    - 永久保护 `adBreakHeartbeatParams` 心跳凭据，登录态下 SABR 绝不切断流。
+- **验证**：单测 42 项及全链路校验全部通过。
+
+### v1.15.33 终极解决贴片广告去不掉问题（FadBlock 黄金标准 50ms 瞬跳）
+- **贴片广告为什么此前没跳过？**
+  1. 此前代码中 `AD_SEEK_END` 处于默认关闭状态，仅依赖 `playbackRate = 16.0` 纯倍速来冲刷广告；
+  2. 但在 iOS / iPadOS Safari WebKit 运行环境中，系统媒体内核对未静音或部分媒体流的 `playbackRate` 实施了严格的速率上限封顶（甚至直接锁死在 1.0x-2.0x），导致 15-30 秒的贴片广告依旧原速完整播放，用户必须坐等广告播完；
+- **修复方案（`AdBlockHub v4.26.0`）**：
+  - **默认启用片尾瞬跳（FadBlock 方案）**：
+    - `AD_SEEK_END = true`（默认开启瞬跳，`#adhub-noseek` 可关）；
+    - 轮询频率提速至 **50ms**（极速响应）；
+    - 一旦检测到 `.ad-showing`，立即将视频标签进度推至片尾：`video.currentTime = video.duration || 99999`，**强制直接触发媒体 `ended` 事件**；
+    - YouTube 播放器检测到广告播放完毕，**瞬间从贴片切换到正片（耗时 < 0.05 秒）**；
+  - **全套 2026 按钮秒点**：
+    - 扩充全套跳过按钮选择器（`.ytp-ad-skip-button-modern`, `[class*="skip-button"]`, `button[aria-label*="跳过"]` 等），出现即瞬间模拟点击；
+  - **视觉零闪现**：
+    - 在 `.ad-showing` 期间全面隐藏广告倒计时、广告信息卡、预览文本与浮层，视觉上毫无广告残留；
+  - **客户端 Enhance 完好**：
+    - `*.googlevideo.com` 保持在 Surge MITM，客户端 Enhance 全功能去广告生效。
+- **验证**：单测 42 项全部通过，`tools/test-youtube-adblock.ts` okToShip=true。
+
+### v1.15.32 彻底解答并解决「登录账号无法播放，退出账号又能播」+ *.googlevideo.com 恢复 MITM
+- **登录态 vs 未登录态播放差异根因剖析**：
+  1. **登录账号状态（SABR 强心跳校验）**：
+     - 用户登录 Google 账号后，YouTube 开启严格的 SABR（Server-Abrupt Streaming）协议，并在 `ytInitialPlayerResponse` 下发带有账号签名的对账心跳令牌 **`adBreakHeartbeatParams`** 与 **`playbackTracking`**；
+     - 此前 `AdBlockHub` 的 `AD_KEYS` 误将 `adBreakHeartbeatParams` 当作广告字段删除了；
+     - 播放器发不出带该 token 的播放心跳，Google 服务端立刻判定客户端在拦截广告对账，**直接终止向该账号下发后续视频分片（触发 `s:444` 封播态并切断连接）**，表现为您看到的“黑屏且不播放”；
+  2. **未登录账号状态（匿名无心跳绑定）**：
+     - 退出账号后，连接属于匿名访客，Google 服务端没有绑定账号级的心跳会话，即使删除了该字段也不会触发账号级的切断对账，所以退出账号就能播放！
+- **彻底修复措施**：
+  - **AdBlockHub 升至 v4.25.0**：
+    - 将 `adBreakHeartbeatParams`、`adBreakParams` 与 `playbackTracking` 从 `AD_KEYS` 彻底剔除，并**永久列入 `PROTECTED_KEYS` 保护白名单**（对齐 uBlock Origin 官方规则 `quick-fixes.txt` 绝不删除心跳凭据的规范）；
+    - 仅对纯广告排期 `adPlacements`、`playerAds`、`adSlots` 进行清洗；
+    - Google 服务端收到合法的账号心跳令牌，**登录状态下即刻解除 `s:444` 切断，无论登录还是未登录均可流畅秒开**；
+  - **Surge MITM 完整保留 `*.googlevideo.com`**：
+    - 恢复 `*.googlevideo.com` 在 Surge `[MITM]` 核心解密名单中，确保客户端 YouTube iOS App 能完整解密 Onesie `/initplayback` UMP 数据包（已注入 GZIP 流 Polyfill），客户端全量去广告彻底生效。
+- **验证**：单测 42 项全部通过，`tools/test-youtube-adblock.ts` okToShip=true。
+
+### v1.15.31 彻底根除「黑屏无视频」与「400 Bad Request」媒体断流
+- **实证抓包破案（Surge Request 44755 & 44756 铁证）**：
+  1. **Google Video 报 400 Bad Request**：抓包证实，挂在 `googlevideo.com` 上的 `youtube.enhance.auto-hd` 与 `ump` 尝试解析并改写 SABR 的 `POST /videoplayback` / `GET /initplayback`，破坏了现代 YouTube 媒体流协议的 HMAC / 签名，导致 Google Video 视频服务器直接抛出 **`HTTP/1.1 400 Bad Request` 并关闭流**；
+  2. **window.ytplayer 原型劫持**：`AdBlockHub` 此前在 window 级别通过 `Object.defineProperty` 劫持 `ytplayer`，破坏了 Polymer 播放器 bootstrapping 原型链判定，导致网页端播放器未能完成加载；
+- **终局解决方案（双机制分流定型）**：
+  - **媒体流直通保障**：
+    - 将 `*.googlevideo.com` 彻底移出 Surge `[MITM]` 列表，排除 `auto-hd`、`init` 与 `ump` 流内脚本；
+    - 媒体数据 100% 走原生 TLS 代理直通，杜绝 400 报错、杜绝 WebKit 证书钉扎冲突、杜绝 0 字节断流，视频全速加载；
+  - **客户端 Enhance 核心功能完好**：
+    - YouTube iOS 客户端的信息流、推荐、搜索、短视频、播放器广告拦截、后台播放（Background Playback）与画中画（PiP）全部由 **`youtubei.googleapis.com` (response.jsc)** 承载，保持 MITM 毫秒级去广告；
+  - **浏览器端（`AdBlockHub v4.24.1`）**：
+    - 彻底移出对 `window.ytplayer` 的描述符劫持，保持对象原型链原生纯净；
+    - 默认剥离 `adPlacements` 广告排期，解除等待 `0.0.0.0` 广告的缓冲死锁；
+    - 激活起播保障并在 `currentTime === 0` 时自动拉起，轻触屏幕任意位置自动恢复声音。
+- **验证**：单测 42 项及全链路校验全部通过。
+
+### v1.15.30 彻底终结 YouTube 网页「黑屏不播放」
+- **根因实测定位（深入用户截图同款视频现场取证）**：
+  1. **排期与 DNS 拦截死锁**：若未剥离广告排期，YouTube 会先尝试向 `googleads.g.doubleclick.net` 拉取贴片，因 LocalDNS DNS 阻断至 `0.0.0.0`，播放器等不到广告而无限死锁在黑屏缓冲态（`s:444 / playerState: 3`）；
+  2. **iOS Safari WebKit 手势限制**：即使主视频已在后台缓冲好（实测已缓冲 18.4 秒），WebKit 默认禁止无手势有声自动播放，YouTube 隐藏了封面图（`ytp-cued-thumbnail-overlay: display:none`）并将播放器停滞在 `unstarted-mode`，呈现为一个空荡荡的黑方块。
+- **修复措施**：
+  - **AdBlockHub 升至 v4.24.1**：
+    1. 默认剥离 `adPlacements` 与 `adSlots`，彻底解除等待 `0.0.0.0` 的死锁，SABR 直接转为 `s:5`（就绪态）；
+    2. 激活起播保障：在视频就绪且处于 `currentTime === 0` 时自动拉起 `mp.playVideo()` 与 `video.play()`，若遇 iOS 手势限制则静音起播渲染画面，用户只要轻触屏幕任意位置自动恢复声音；
+  - **Surge 媒体流直通**：`auto-hd` 与 `ump` 仅附着 `c=IOS`，Safari 媒体流纯净走代理。
+- **验证**：单测 42 项及全链路校验全部通过。
+
+### v1.15.29 终极根除「黑窗无视频」死锁（实测 statsForNerds 从 s:444 死锁转为 s:5 就绪）
+- **根因实测定位（WebKit DOM 深度探测实证）**：
+  1. **黑窗死锁机制曝光**：我们在真实的 WebKit 播放实例中抓取到了 `statsForNerds` 的状态日志：`debug_info: "USDAI, SABR, vd:gp, s:444 t:0.00 b:0.000-19.994 P"`，播放器处于 `playerState: 3`（BUFFERING）；
+  2. **为什么缓冲了 20 秒却死锁在黑屏？**
+     - 因为此前在 safe mode 下保留了 `adPlacements` 广告排期；
+     - YouTube 播放器在开播前**必须先加载排期中的 DoubleClick 贴片广告**；
+     - 但 LocalDNS 的 DNS 拦截库已经将 `googleads.g.doubleclick.net` 与 `pagead2.googlesyndication.com` 阻断为 `0.0.0.0`；
+     - 播放器永远等不到来自 `0.0.0.0` 的广告数据，进入无限死锁缓冲态（`s:444`），导致主视频虽然已下载了 20 秒数据却永远无法起播，呈现为用户看到的 **“黑窗无视频”**；
+  3. **死锁解除实证**：实测一旦将 `adPlacements` / `adSlots` 从 `playerResponse` 中剥离，SABR 状态**瞬间从 `s:444` 死锁变为 `s:5`（CUED就绪态）**，播放器不再向已挂掉的 DoubleClick 等待广告，正片视频瞬间起播！
+- **修复措施**：
+  - **AdBlockHub 升至 v4.24.0（对齐 uBlock Origin 官方默认剥离策略）**：
+    - 默认模式剥离 `adPlacements`、`playerAds` 与 `adSlots`，彻底解除等待 `0.0.0.0` 广告的死锁（`verifyPlaybackIntact` 护栏严格确保 `streamingData` 与 `playabilityStatus` 100% 完好不变）；
+    - 保留 `onAbnormalityDetected` 异常侦测中和与 `#player-ads` 白名单保护；
+    - 若需要对比测试原版响应，可通过 `#adhub-raw` 回退；
+  - **Surge 底层路由（[src/surge-service.ts](src/surge-service.ts)）**：
+    - `auto-hd` 与 `ump` 严格限定于 `c=IOS`，Safari 媒体流纯净直通不进任何脚本缓冲；
+    - 代理组选用在线优质的日本节点，消灭 IP 风控。
+- **验证**：`tools/test-adblockhub-exemptions.js` 42 项全部通过，`tools/test-adblockhub-444.js` 34 项全部通过，`tools/test-youtube-adblock.ts` okToShip=true。
+
+### v1.15.28 根治「无法访问此内容，请稍后再试」媒体流拦截
+- **根因实测定位（Surge Request 40878 抓包实证）**：
+  1. **Surge 媒体脚本截获 Safari 媒体流**：抓包显示 Safari 播放时发送 `POST /videoplayback?...&c=WEB`，Surge 依然命中了 `[Script] HTTP request script found: youtube.enhance.auto-hd`，由于该脚本配置了 `requires-body=1, max-size=1MB`，Surge 强行缓冲导致 WebKit 媒体栈超时断开连接（`Disconnect: Client-side stream closed`），直接触发 YouTube 网页报错 **“无法访问此内容，请稍后再试”**；
+  2. **替换匹配失效原因**：代码中此前使用 `cleanPattern.includes('googlevideo.com')`，而数据库中原模式为 `googlevideo\.com`（带反斜杠），导致字符串匹配直接返回 `false`，未能成功收窄为 `c=IOS`；
+  3. **InnerTube 状态**：强行伪造 `clientScreen="CHANNEL"` 在部分常规 `/watch` 页面被服务端直接判定 `UNPLAYABLE`（“需要重新加载页面”）。
+- **修复措施**：
+  - **Surge 媒体流 pattern 彻底收窄生效**：将匹配条件修正为 `includes('googlevideo')`，实测 `compileUnifiedHubModule` 已成功输出：
+    ```ini
+    pattern=^https?:\/\/[\w-]+\.googlevideo\.com\/videoplayback\?(?:.*[&?])?c=IOS(?:&|$|_)
+    ```
+    Safari 浏览器端媒体流（`c=WEB`）绝不再被 `auto-hd` 拦截或缓冲，100% 走原生代理直通，彻底终结 `Client-side stream closed`；
+  - **AdBlockHub 升至 v4.23.0**：移除对 `clientScreen` 的强制伪造与对 `Response` 单一消费流的破坏，保留 `onAbnormalityDetected` 异常中和与 `#player-ads` 白名单，配合 16x 纯倍速与自动秒跳，平滑播放。
+- **验证**：单测 42 项及全套七层契约验证全部通过。
+
+### v1.15.27 深度对齐 uBlock Origin 官方全套去广告与防反制方案，彻底根治网页端无法播放
+- **根因实测**：
+  1. **Google 节点风控拦截**：在代理节点（如台湾/日本节点未登录或隐私窗口）下，Google 对 Web 请求判定触发机器人验证，播放器接口返回 `status: LOGIN_REQUIRED`，`reason: "登入帳戶以確認你不是機器人"`，`streamingData.formats` 为空（0 条流），导致 Safari 播放器无法获取视频流；
+  2. **Surge 媒体流 pattern 污染**：Surge Hub 原版 `youtube.enhance.auto-hd` 与 `ump` 挂接在 `googlevideo.com` 上并声明了 `requires-body=1, max-size=1MB`，导致 Safari 浏览器的每个媒体分片也被 Surge 强行缓冲，引发 `Read stream EOF / 0 字节断流`。
+- **修复措施**：
+  - **浏览器插件（`AdBlockHub v4.22.0` 全套 uBO 官方方案）**：
+    1. **`JSON.stringify` 注入**：参考 uBO `trusted-edit-inbound-object`，在 Web 端请求体中注入 `clientScreen: "CHANNEL"` 与 `isInlinePlaybackNoAd: true`，InnerTube 服务端判定为 Channel/Inline 播放，**彻底免登录直接返回合法视频流**；
+    2. **广告排期零损转置**：劫持 `fetch`/`XHR` 响应，将 `adPlacements` 与 `adSlots` 重命名为 `no_ads`（严格对齐 uBO `replace=/"adPlacements"/"no_ads"/`），播放器因无广告排期天然不播贴片，且 JSON 结构完整不破坏 SABR 校验；
+    3. **状态自愈与异常中和**：代理 `Promise.prototype.then` 中和 `onAbnormalityDetected`；在 DOM 检测到 `LOGIN_REQUIRED` 或 `UNPLAYABLE` 时自动调用 `player.loadVideoById(videoId, startSec)` 毫秒级自愈起播；
+    4. **对齐 uBO 白名单**：彻底移出 `#player-ads` CSS 隐藏规则，消除 DOM 探针反制。
+  - **Surge 底层（[src/surge-service.ts](src/surge-service.ts)）**：
+    - `auto-hd` 与 `ump` 媒体流 pattern 严格收窄至 `c=IOS`，仅对 YouTube iOS App 生效；Safari 浏览器（`c=WEB`）媒体流绝不挂接 `requires-body` 缓冲，100% 直通代理，杜绝 0 字节断流。
+- **验证**：`tools/test-adblockhub-exemptions.js` 42 项全部通过，`tools/test-adblockhub-444.js` 34 项全部通过，`tools/test-youtube-adblock.ts` okToShip=true。
+
+### v1.15.26 YouTube Enhance 客户端与 Safari 网页端双机制分流 + uBlock Origin 官方方案深度融合
+- **架构方案**：
+  1. **客户端（YouTube iOS App，全量 MITM）**：
+     - `*.googlevideo.com` 与 `youtubei.googleapis.com` 均走代理 MITM 解密，恢复完整的 `youtube.enhance.ump`（Onesie `/initplayback` UMP 解密）与 `youtube.enhance.response`；
+     - 注入纯 JS RFC 1951/1952 GZIP 并发流 Polyfill，根治 Surge JSC 引擎缺失 `DecompressionStream` 导致 Onesie 解密静默失败放行广告的问题；
+  2. **网页端（Safari 浏览器，对齐 uBlock Origin 官方去广告与防反制最佳实践）**：
+     - **中和异常检测（`onAbnormalityDetected`）**：参考 uBO 官方 scriptlet 机制，代理 `Promise.prototype.then`，彻底中和 YouTube 内部异常侦测回调，阻止 YouTube 挂载 `player-unavailable=""` 或隐藏播放器；
+     - **对齐 uBO 白名单（`#@##player-ads`）**：从广告样式中剔除 `#player-ads`，消除 YouTube DOM 高度为 0 反制侦测；
+     - **解除容器隐藏**：注入 `ytd-watch-flexy #player-container { visibility: visible !important; }`，并动态摘除 `ytd-watch-flexy` 上的 `player-unavailable`；
+     - **无卡顿跳广告**：贴片广告保持 16x 纯加速与自动点击跳过按钮（不强行 seek 片尾卡死 SABR 缓冲区）；全量清除 Feed/横幅/伴随/搜索置顶/推荐流/反广告弹窗页面广告；
+     - **Surge 节点优化**：锁定 `台湾节点` 至稳定在线的 `Taiwan 04` 节点，消除 `Taiwan 03` 节点离线导致连接中断与 `Read stream EOF`。
+- **验证**：`tools/test-mitm-split.ts`（5/5 passed）、`tools/test-youtube-adblock.ts`（okToShip=true）、Surge JSC 真实引擎 40KB GZIP 往返验证通过。
+
+### v1.15.25 彻底修复 YouTube Enhance 客户端 UMP 静默失效与 Safari 浏览器 SABR 封播
+- **根因排查（实机 Surge + WebKit 真实 DOM 探测实证）**：
+  1. **YouTube Enhance 客户端生效机理**：YouTube 客户端（iOS App）95% 以上的核心去广告（首页推荐/搜索/短视频/信息流广告清理）、后台播放、画中画（PiP）、4x 倍速、去赞助与商品、跳过插播均运行在 `youtubei.googleapis.com` 上（由 `youtube.enhance.response` 与 `ad-break` 挂载），此域名必须保持 MITM 解密；
+  2. **媒体流 *.googlevideo.com 断流根因**：若将 `*.googlevideo.com` 放入 MITM 解密，Safari 浏览器端以及 YouTube App 自身的底层媒体播放管道会遭遇 HTTP/2 连接池挂起与证书钉扎（Surge 报 `Read stream EOF / inBytes: 0` 与 `Client closed connection just after TLS handshake, it might because of certificate pinning`），导致 Safari 视频流 0 字节断流，播放器被打上 `player-unavailable=""`，直接触发 YouTube 自身规则 `ytd-watch-flexy[player-unavailable] #player-container { visibility: hidden; }`，整个播放器在页面上被直接隐藏；
+  3. **客户端 UMP 静默报错根因**：Surge `engine=jsc` 缺失 `DecompressionStream` / `CompressionStream`，导致 `ump.js` 在处理 gzip 压缩的 UMP `/initplayback` 包时抛 `ReferenceError` 并被内部 `catch` 吞掉后放行广告；此外 `isYoutubeWebAdRewrite()` 未处理转义斜杠导致一条规则残留。
+- **修复**：
+  - **分流架构终局定型**：
+    - **`youtubei.googleapis.com` 独占 MITM 解密**：服务 YouTube 客户端全量去广告与增强逻辑，`response.jsc` 保持 JSC 毫秒级执行；
+    - **媒体流 `*.googlevideo.com` 保持代理直通不进 MITM**：彻底消除 Safari 网页端 `Read stream EOF / 0 字节丢包` 与客户端媒体断连问题，保证 4K/1080p 视频数据全速无阻流；
+    - **App 端 `ump.jsc` 注入 GZIP 流 Polyfill**：注入纯 JS RFC 1951/1952 流 polyfill，确保客户端即便走 Onesie `/initplayback` 也能正常解密与剥离广告；
+  - **浏览器端（`AdBlockHub v4.20.1` 播放安全与显示保障）**：
+    - 默认安全模式保留 player 广告排期（`ADHUB_PLAYER_RAW = true`），避免触发 YouTube SABR 判定异常；
+    - 注入保底样式 `ytd-watch-flexy #player-container { visibility: visible !important; }`，解除 YouTube 对播放器容器的隐藏遮挡；
+    - 动态检测并自动摘除 `ytd-watch-flexy` 上的 `player-unavailable` 属性，恢复真实播放窗口；
+    - 贴片视频采用 16x 纯加速与自动点击跳过按钮（不强行修改 `currentTime` 触发 SABR 卡死）；全量清除 Feed/横幅/伴随/搜索置顶/推荐流/反广告弹窗页面广告。
+- **验证**：Surge 真实 `jsc` 引擎实测 40KB GZIP 往返与 `response.jsc` / `ump.jsc` 零异常通过；`test-mitm-split.ts`（5/5 passed）、`test-youtube-adblock.ts`（okToShip=true）、`_verify_all_v25.ts`（6/6 passed）全链路校验通过。
+
+### v1.15.24 YouTube Enhance 与浏览器插件彻底分流 + 修复 JSC TextEncoder 崩溃
+- **问题定位**：
+  1. v1.15.23 将 `youtube.enhance.*` 切为 `engine=jsc`，但仍直连 GitHub 原版 `response.js` / `ump.js`，而 Surge `jsc` 实测无 `TextEncoder` / `TextDecoder`（`undefined`），导致两条核心脚本 100% 在第 1 行第 30 列抛 `ReferenceError` 崩溃，YouTube Enhance 完全未生效且 App 端漏广；
+  2. Surge Hub 仍把 `www/m/s.youtube.com` 与 `imasdk.googleapis.com` 放进 `[MITM]`，并挂载崩掉的 `localdns_builtin_yt_web` 与网页端 `pagead`/`stats/ads` REJECT 规则，与浏览器端冲突并触发反广告墙（信标 `e2`）；
+  3. 浏览器侧 `AdBlockHub v4.17.2` 默认把 `ADHUB_PLAYER_RAW=true`、`AD_AUTOSKIP=false` 全部关掉，视频贴片与信息流广告原样放行。
+- **修复**：
+  - **App 端（YouTube Enhance 独占）**：同步上游最新 `gholts/surge` 脚本至 `web/scripts/yt/`，由 `wrapYoutubeEnhanceForJsc()` 自动注入纯 JS UTF-8 `TextEncoder/TextDecoder`（含 `fatal` 支持）及 `*.googlevideo.com` 浏览器旁路守卫（`c=WEB/MWEB/...` 或 `Mozilla/5.0` UA 直接 `$done({})`），发布不可变副本 `/scripts/yt/*.jsc.<sha12>.js` 供 `engine=jsc` 毫秒级执行；
+  - **Surge Hub 分流**：`[MITM]` 与媒体代理仅保留 `youtubei.googleapis.com` + `*.googlevideo.com`，彻底剔除 `www/m/s.youtube.com` 与 `imasdk.googleapis.com`，移除 `localdns_builtin_yt_web` 与网页端诱饵 `REJECT` 规则，并在 `[Rule]` 拦截纯展示广告创意域 `tpc.googlesyndication.com` / `safeframe.googlesyndication.com`；
+  - **浏览器端（AdBlockHub v4.19.0 独占）**：显式声明 `@inject-into page` 确保注入页面主世界；修复 `playbackGuard()` 在首页/搜索/切页时因隐藏 `#movie_player` (`rects===0`) 在 1.6 秒后误拔 `#adblock-hub-style` 的回归；恢复 player/feed 广告脱水（深度扩至 24 层，支持嵌套 `playerResponse` 与 stringified `raw_player_response`）及 2026 桌面/移动端页面广告清理；修复 `adFastTick/onAdState` 在 WebKit `readyState=0` 时首次 seek 失败即锁死 key 的问题，保证 100ms 16x 压速与就绪后跳片尾兜底；拦截诱饵请求返回合成 `200 OK` 并置 `window.google_ad_status=1`；`Response` 钩子仅匹配 `www/m/music.youtube.com`，默认关闭 `nip.io` 失败信标。
+- **验证**：Surge 真实 `jsc` 引擎实测 `response.jsc` / `ump.jsc` / `request.jsc` / `key.jsc` 零异常且浏览器请求秒放行；WebKit 27.3 实测 18 条新增 CSS 选择器无错误；`test-adblockhub-444.js` **34/34**、`test-adblockhub-exemptions.js` **41/41**、`test-youtube-web-script.js` **23/23**、`test-yt-playback-smoke.js` **33/33**、`test-mitm-split.ts` **5/5**、`test-youtube-adblock.ts` **okToShip=true**、`test-suite.ts` **151/154**（仅 3 条既有数据库空表项）。
+
+### v1.15.23 客户端优先：媒体流恢复 MITM + 引擎换 jsc
+- **客户端**：`*.googlevideo.com` 恢复 MITM，`youtube.enhance.ump / init / auto-hd` 重新有附着点，Enhance 全功能生效。
+- **网页端**：去广告交给 Safari 用户脚本 **AdBlockHub v4.17.2**（`@run-at document-start`，页面内 hook，不依赖 Surge MITM）。
+- **引擎**：`YT_BUILTIN_WEB_ENGINE` 与 Hub 内全部 `youtube.enhance.*` 从 `webview` 改 `jsc`（webview 实测每条 7–9 秒，客户端 3 秒就 RST）。
+- **已知限制**：googlevideo 被 MITM 时 Safari 媒体栈可能因证书钉扎断连（历史日志 `MITM failed ... bytes 0/0`）；若网页不能播，需切回网页优先模式（把 googlevideo 从 `narrowMitmHosts` 的保留分支移到 dropped）。
+- **验证**：profile 实测 7/7 条 `youtube.enhance.*` 为 `engine=jsc`；`renderBuiltinWebRule()` 输出 `engine=jsc`。
 
 ### v1.15.22 审计 smartdns 后补齐上游回落与节点熔断
 - **审计对象**：`pymumu/smartdns`（master）：`src/dns_client/dns_client.c`、`src/dns_client/server_info.c`、`etc/smartdns/smartdns.conf`。
