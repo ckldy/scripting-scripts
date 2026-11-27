@@ -182,8 +182,8 @@ function startTrueStreamEngine(): boolean {
     const engine = new StreamEngine({
       port: TRUE_STREAM_PORT,
       mainGatewayPort: serverActualPort || 5190,
-      onStreamRequest: async (req, writeChunk, close) => {
-        await handleStreamChatCompletions(req.body, writeChunk, close, serverActualPort || 5190);
+      onStreamRequest: async (req, writeChunk, close, isAborted) => {
+        await handleStreamChatCompletions(req.body, writeChunk, close, serverActualPort || 5190, isAborted);
       },
     });
     globalStreamEngine = engine;

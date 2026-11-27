@@ -21,7 +21,7 @@ declare const fetch: any;
 
 /** Anthropic 请求 → OpenAI chat 请求（system / 消息 / 工具全部拍平） */
 function anthropicToOpenAI(body: any): any {
-  const msgs: any[] = [];
+  const rawMsgs: any[] = [];
 
   const sys = body?.system;
   let sysText = "";
@@ -32,12 +32,13 @@ function anthropicToOpenAI(body: any): any {
       .map((b: any) => b.text)
       .join("\n");
   }
-  if (sysText.trim()) msgs.push({ role: "system", content: sysText });
+  if (sysText.trim()) rawMsgs.push({ role: "system", content: sysText });
 
   const src = Array.isArray(body?.messages) ? body.messages : [];
   for (const m of src) {
     const role = m?.role === "assistant" ? "assistant" : "user";
     let text = "";
+    const toolResults: string[] = [];
     const parts: any[] = Array.isArray(m?.content)
       ? m.content
       : typeof m?.content === "string"
@@ -46,7 +47,7 @@ function anthropicToOpenAI(body: any): any {
 
     for (const p of parts) {
       if (!p) continue;
-      if (p.type === "text" && typeof p.text === "string") {
+      if ((p.type === "text" || p.type === "input_text") && typeof p.text === "string") {
         text += p.text;
       } else if (p.type === "tool_use") {
         // 助手运行时只吃文本：工具调用写成文字，交给上层 parseToolCalls 解析
@@ -61,13 +62,30 @@ function anthropicToOpenAI(body: any): any {
             .map((x: any) => x.text)
             .join("\n");
         }
-        if (t.trim()) msgs.push({ role: "user", content: "[工具返回]\n" + t });
+        const tid = p.tool_use_id || p.name || "";
+        toolResults.push(`[工具 ${tid} 返回]\n${t.trim() ? t : "(空返回)"}`);
       } else if (p.type === "image") {
         text += "\n[图片已省略：本网关文本通道不支持图片输入]";
       }
     }
 
-    if (text.trim()) msgs.push({ role, content: text });
+    if (toolResults.length) {
+      const combined = toolResults.join("\n\n") + (text.trim() ? "\n\n" + text.trim() : "");
+      rawMsgs.push({ role: "user", content: combined });
+    } else if (text.trim()) {
+      rawMsgs.push({ role, content: text });
+    }
+  }
+
+  // 合并相邻同角色消息，避免多工具并发返回造成连续多个 user 导致上游拒绝/截断
+  const msgs: any[] = [];
+  for (const item of rawMsgs) {
+    const prev = msgs[msgs.length - 1];
+    if (prev && prev.role === item.role && item.role !== "system") {
+      prev.content = `${prev.content}\n\n${item.content}`;
+    } else {
+      msgs.push(item);
+    }
   }
 
   const out: any = {
@@ -122,12 +140,17 @@ class AnthropicSseConverter {
   private outTokens = 0;
   private toolCalls: any[] = [];
   private ended = false;
+  private hasError = false;
   private readonly id: string;
   private readonly model: string;
 
   constructor(model: string) {
     this.id = "msg_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     this.model = model;
+  }
+
+  public isStarted(): boolean {
+    return this.started;
   }
 
   private ev(type: string, data: any): string {
@@ -189,6 +212,7 @@ class AnthropicSseConverter {
       }
 
       if (obj && obj.error) {
+        this.hasError = true;
         out.push(
           this.ev("error", {
             type: "error",
@@ -273,6 +297,7 @@ class AnthropicSseConverter {
   public onEnd(): string {
     if (this.ended) return "";
     this.ended = true;
+    if (this.hasError && !this.started) return "";
     const out: string[] = [];
 
     if (!this.started) {
@@ -331,6 +356,7 @@ export interface StreamRequest {
   path: string;
   headers: Record<string, string>;
   body: any;
+  isAborted?: () => boolean;
 }
 
 export interface StreamEngineOptions {
@@ -342,8 +368,32 @@ export interface StreamEngineOptions {
   onStreamRequest: (
     req: StreamRequest,
     writeChunk: (data: string) => void,
-    close: () => void
+    close: () => void,
+    isAborted?: () => boolean
   ) => Promise<void>;
+}
+
+/** 尝试解析 Transfer-Encoding: chunked 的请求体；未收全返回 null */
+function tryDecodeChunkedBody(buf: Buffer): Buffer | null {
+  const parts: Buffer[] = [];
+  let pos = 0;
+  while (pos < buf.length) {
+    const lineEnd = buf.indexOf("\r\n", pos);
+    if (lineEnd === -1) return null;
+    const sizeStr = buf.slice(pos, lineEnd).toString("ascii").split(";")[0].trim();
+    const size = parseInt(sizeStr, 16);
+    if (!Number.isFinite(size) || size < 0) return null;
+    pos = lineEnd + 2;
+    if (size === 0) {
+      // 检查末尾 CRLF（或 trailer 结束空行）
+      if (buf.indexOf("\r\n", pos) === -1 && buf.length < pos + 2) return null;
+      return Buffer.concat(parts as any);
+    }
+    if (pos + size + 2 > buf.length) return null;
+    parts.push(buf.slice(pos, pos + size));
+    pos += size + 2;
+  }
+  return null;
 }
 
 function jsonResponse(status: number, phrase: string, obj: any): string {
@@ -362,6 +412,8 @@ function jsonResponse(status: number, phrase: string, obj: any): string {
 export class StreamEngine {
   private server: any = null;
   private running = false;
+  private readonly startedAt = Date.now();
+  private activeStreams = 0;
 
   constructor(private opts: StreamEngineOptions) {}
 
@@ -407,34 +459,43 @@ export class StreamEngine {
     try {
       socket.setNoDelay(true); // 关闭 Nagle，逐 chunk 立即发包
       socket.setKeepAlive(true, 10000); // 开启 TCP 保活，每 10 秒探测，防止 NAT 路由器/蜂窝网络空闲断连
+      socket.setTimeout(0); // 禁止连接级隐式空闲超时
     } catch {}
 
-    let buffer: any = Buffer.alloc(0);
+    let clientClosed = false;
+    const isAborted = () => clientClosed || socket.destroyed;
+    socket.on("close", () => {
+      clientClosed = true;
+    });
+
+    const MAX_BODY_BYTES = 32 * 1024 * 1024;
+    let headerBuf: any = Buffer.alloc(0);
+    let bodyChunks: any[] = [];
+    let bodyLen = 0;
     let headerParsed = false;
     let method = "GET";
     let path = "/";
     let headers: Record<string, string> = {};
     let contentLength = 0;
+    let isChunked = false;
 
     const onData = async (chunk: any) => {
-      buffer = Buffer.concat([buffer, chunk]);
-
       if (!headerParsed) {
-        const headerEnd = buffer.indexOf("\r\n\r\n");
+        headerBuf = Buffer.concat([headerBuf, chunk]);
+        const headerEnd = headerBuf.indexOf("\r\n\r\n");
         if (headerEnd === -1) {
-          if (buffer.length > 64 * 1024) {
-            // 头部过大，直接放弃
+          if (headerBuf.length > 64 * 1024) {
             socket.removeListener("data", onData);
             socket.end(jsonResponse(413, "Payload Too Large", { error: "header_too_large" }));
           }
           return;
         }
 
-        const headerStr = buffer.slice(0, headerEnd).toString("utf-8");
+        const headerStr = headerBuf.slice(0, headerEnd).toString("utf-8");
         const lines = headerStr.split("\r\n");
         const parts = (lines[0] || "").split(" ");
         method = (parts[0] || "GET").toUpperCase();
-        path = parts[1] || "/";
+        path = (parts[1] || "/").split("?")[0] || "/";
 
         for (let i = 1; i < lines.length; i++) {
           const colon = lines[i].indexOf(":");
@@ -446,14 +507,52 @@ export class StreamEngine {
         }
 
         contentLength = parseInt(headers["content-length"] || "0", 10) || 0;
+        isChunked = /chunked/i.test(headers["transfer-encoding"] || "");
+        if (contentLength > MAX_BODY_BYTES) {
+          socket.removeListener("data", onData);
+          socket.end(jsonResponse(413, "Payload Too Large", { error: "body_too_large" }));
+          return;
+        }
+        // 支持大请求体客户端的 Expect: 100-continue 握手，避免客户端卡在等待确认
+        if (/100-continue/i.test(headers["expect"] || "") && !socket.destroyed) {
+          try {
+            socket.write("HTTP/1.1 100 Continue\r\n\r\n");
+          } catch {}
+        }
+
         headerParsed = true;
-        buffer = buffer.slice(headerEnd + 4);
+        const remainder = headerBuf.slice(headerEnd + 4);
+        headerBuf = Buffer.alloc(0);
+        if (remainder.length > 0) {
+          bodyChunks.push(remainder);
+          bodyLen += remainder.length;
+        }
+      } else {
+        bodyChunks.push(chunk);
+        bodyLen += chunk.length;
       }
 
-      if (buffer.length < contentLength) return; // 等 body 收全
+      if (bodyLen > MAX_BODY_BYTES) {
+        socket.removeListener("data", onData);
+        bodyChunks = [];
+        socket.end(jsonResponse(413, "Payload Too Large", { error: "body_too_large" }));
+        return;
+      }
+
+      let bodyBytes: any = null;
+      if (isChunked) {
+        const joined = bodyChunks.length === 1 ? bodyChunks[0] : Buffer.concat(bodyChunks);
+        const decoded = tryDecodeChunkedBody(joined);
+        if (decoded === null) return; // 等 chunked 收全
+        bodyBytes = decoded;
+      } else {
+        if (bodyLen < contentLength) return; // 等 body 收全
+        const joined = bodyChunks.length === 1 ? bodyChunks[0] : Buffer.concat(bodyChunks);
+        bodyBytes = joined.slice(0, contentLength);
+      }
 
       socket.removeListener("data", onData);
-      const bodyBytes = buffer.slice(0, contentLength);
+      bodyChunks = [];
 
       // CORS 预检
       if (method === "OPTIONS") {
@@ -485,9 +584,12 @@ export class StreamEngine {
       if ((path === "/health" || path === "/v1/health") && method === "GET") {
         socket.end(
           jsonResponse(200, "OK", {
+            ok: true,
             status: "healthy",
             port: this.opts.port,
             mode: "true-stream",
+            activeStreams: this.activeStreams,
+            uptimeSeconds: Math.floor((Date.now() - this.startedAt) / 1000),
             main_gateway: `http://127.0.0.1:${this.opts.mainGatewayPort}/v1`,
           })
         );
@@ -538,18 +640,18 @@ export class StreamEngine {
       }
 
       if (isAnthropicPath) {
-        await this.handleAnthropic(socket, { method, path, headers, body: bodyJson });
+        await this.handleAnthropic(socket, { method, path, headers, body: bodyJson, isAborted });
         return;
       }
 
       // 非流式也走真流式内核，再把片段聚合成完整 JSON 返回：
       // 这样客户端把 Base URL 指到 5195 时，流式与非流式都是逐块产出，不会卡满整轮。
       if (bodyJson.stream !== true) {
-        await this.runBuffered(socket, { method, path, headers, body: bodyJson });
+        await this.runBuffered(socket, { method, path, headers, body: bodyJson, isAborted });
         return;
       }
 
-      await this.runStream(socket, { method, path, headers, body: bodyJson });
+      await this.runStream(socket, { method, path, headers, body: bodyJson, isAborted });
     };
 
     socket.on("data", onData);
@@ -653,11 +755,14 @@ export class StreamEngine {
         );
       };
 
+      this.activeStreams++;
       try {
-        await this.opts.onStreamRequest({ ...req, body: openaiBody }, absorb, finish);
+        await this.opts.onStreamRequest({ ...req, body: openaiBody }, absorb, finish, req.isAborted);
       } catch (e: any) {
         socket.end(jsonResponse(500, "Internal Server Error", { type: "error", error: { message: String(e?.message || e) } }));
         return;
+      } finally {
+        this.activeStreams = Math.max(0, this.activeStreams - 1);
       }
       finish();
       return;
@@ -679,8 +784,10 @@ export class StreamEngine {
     const conv = new AnthropicSseConverter(model);
     let closed = false;
     const writeSse = (s: string) => {
-      if (closed || socket.destroyed) return;
-      socket.write(s);
+      if (closed || socket.destroyed || !socket.writable) return;
+      try {
+        socket.write(s);
+      } catch {}
     };
     const closeSse = () => {
       if (closed) return;
@@ -689,21 +796,27 @@ export class StreamEngine {
     };
 
     const onOpenAiChunk = (chunk: string) => {
-      // 传递 SSE 注释心跳（如 : ping 12345），让 Claude Code 等 Anthropic 客户端也能在长等待期保活连接
+      // 传递 SSE 注释心跳 / Anthropic 标准 ping 事件，让 Claude Code 等客户端在长等待期保活连接
       if (typeof chunk === "string" && chunk.startsWith(":")) {
-        writeSse(chunk);
+        writeSse(conv.isStarted() ? 'event: ping\ndata: {"type":"ping"}\n\n' : chunk);
         return;
       }
       const anth = conv.onChunk(chunk);
       if (anth) writeSse(anth);
     };
 
+    this.activeStreams++;
     try {
-      await this.opts.onStreamRequest({ ...req, body: openaiBody }, onOpenAiChunk, () => {
-        const tail = conv.onEnd();
-        if (tail) writeSse(tail);
-        closeSse();
-      });
+      await this.opts.onStreamRequest(
+        { ...req, body: openaiBody },
+        onOpenAiChunk,
+        () => {
+          const tail = conv.onEnd();
+          if (tail) writeSse(tail);
+          closeSse();
+        },
+        req.isAborted
+      );
       // 上游未主动 close 时兜底收尾（onEnd 幂等，重复调用安全）
       const tail = conv.onEnd();
       if (tail) writeSse(tail);
@@ -713,6 +826,8 @@ export class StreamEngine {
           JSON.stringify({ type: "error", error: { type: "api_error", message: String(e?.message || e) } }) +
           "\n\n"
       );
+    } finally {
+      this.activeStreams = Math.max(0, this.activeStreams - 1);
     }
     closeSse();
   }
@@ -775,14 +890,17 @@ export class StreamEngine {
       socket.end(jsonResponse(200, "OK", payload));
     };
 
+    this.activeStreams++;
     try {
-      await this.opts.onStreamRequest(req, absorb, settle);
+      await this.opts.onStreamRequest(req, absorb, settle, req.isAborted);
     } catch (e: any) {
       if (!settled) {
         settled = true;
         socket.end(jsonResponse(500, "Internal Server Error", { error: { message: String(e?.message || e) } }));
       }
       return;
+    } finally {
+      this.activeStreams = Math.max(0, this.activeStreams - 1);
     }
     settle();
   }
@@ -805,8 +923,10 @@ export class StreamEngine {
     socket.write(sseHead);
 
     const writeChunk = (data: string) => {
-      if (!socket.destroyed) {
-        socket.write(data);
+      if (!socket.destroyed && socket.writable) {
+        try {
+          socket.write(data);
+        } catch {}
       }
     };
 
@@ -816,8 +936,9 @@ export class StreamEngine {
       }
     };
 
+    this.activeStreams++;
     try {
-      await this.opts.onStreamRequest(req, writeChunk, close);
+      await this.opts.onStreamRequest(req, writeChunk, close, req.isAborted);
     } catch (e: any) {
       console.error("[真流式] 生成异常:", e?.message || e);
       writeChunk(
@@ -825,6 +946,8 @@ export class StreamEngine {
       );
       writeChunk("data: [DONE]\n\n");
       close();
+    } finally {
+      this.activeStreams = Math.max(0, this.activeStreams - 1);
     }
   }
 }

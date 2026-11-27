@@ -226,9 +226,30 @@ export const REFUSAL_MARKERS_ZH: readonly string[] = [
   "违规",
   "不合适",
   "不恰当",
-  "我建议你",
   "请咨询",
   "寻求专业",
+];
+
+/**
+ * 需要上下文才成立的拒答短语：「我建议你给这个函数加个缓存」是正常技术表达，
+ * 只有接在拒绝语后（建议你放弃/改用它/去咨询）才算拒答，不能按裸子串拦截。
+ */
+export const REFUSAL_MARKERS_ZH_CTX: readonly RegExp[] = [
+  /我建议你(?:不要|别|放弃|另寻|另找|咨询|寻求|换个|改用|使用其他|找专业|走正规)/u,
+];
+
+/**
+ * 强拒答标记的扩展扫描窗口。
+ * 上游常见形态：先花 200~600 字复述卡片/谈安全策略，最后才说“I cannot…”或
+ * “我无法提供”。只扫首 220 字会漏判，并把整段拒答当正文发给客户端（2026-11-28 实测漏过）。
+ */
+export const REFUSAL_WINDOW_EXT_CHARS = 1200;
+
+/** 一眼可判的强拒答句式：只在扩展窗口内生效；模糊词（违反/不合适…）仍限首窗，避免误判 */
+const REFUSAL_STRONG_ZH_EXT: readonly RegExp[] = [
+  /我(?:不能|无法)(?:提供|协助|帮助|执行|满足|参与|帮你|为你)/u,
+  /恕我(?:不能|无法)/u,
+  /我(?:不能|不会|无法)接受(?:这些|该|此)/u,
 ];
 
 /** 英文拒答用小写子串匹配，避免 I can't / I cannot 这类句式漏判 */
@@ -318,9 +339,23 @@ export function judge(text: string): Judgement {
     hits.push(k);
   }
 
-  const lowerHead = head.toLowerCase();
+  for (const re of REFUSAL_MARKERS_ZH_CTX) {
+    const m = head.match(re);
+    if (!m || !m[0]) continue;
+    const idx = typeof m.index === "number" ? m.index : 0;
+    if (isQuoted(head, idx)) continue;
+    hits.push(m[0]);
+  }
+
+  // 强拒答标记用更宽的窗口：上游常先复述卡片两三句（200~600 字），再宣布不执行
+  const extHead = text.slice(0, REFUSAL_WINDOW_EXT_CHARS);
+  const lowerExt = extHead.toLowerCase();
   for (const k of REFUSAL_MARKERS_EN) {
-    if (lowerHead.includes(k)) hits.push(k);
+    if (lowerExt.includes(k)) hits.push(k);
+  }
+  for (const re of REFUSAL_STRONG_ZH_EXT) {
+    const m = extHead.match(re);
+    if (m && m[0]) hits.push(m[0].trim());
   }
 
   const fallbackHits = FALLBACK_MARKERS.filter((k) => head.includes(k));
@@ -359,6 +394,12 @@ const STREAM_BLOCK_END_RE = /(```|~~~)$/;
 const STREAM_DELIVERY_RE =
   /```|`[^`\n]+`|(^|\n)\s*(#{1,6}\s|\d+[.、)]\s|[-*]\s)|\b(npm|pnpm|yarn|python3?|pip3?|curl|wget|frida|adb|nmap|chmod|git|ssh|scp|cd|ls|cat|grep|sed|awk|export|mkdir|cd)\b/;
 
+/** 上游拒答前常见的“元评论”前言：命中就延长首窗，避免拒答句落在首窗之外被当成正文放行 */
+const REFUSAL_PREAMBLE_RE =
+  /(system prompt|developer (?:instructions?|message)|safety (?:constraints?|polic(?:y|ies)|filter|guidelines)|jailbreak|prompt injection|override (?:the )?(?:safety|instructions)|bypass (?:the )?(?:safety|polic)|cyberattack|credential harvest|作为(?:一个)?(?:AI|人工智能|语言模型)|安全(?:策略|准则|政策)|我(?:不能|无法)接受)/i;
+/** 命中前言时首窗可延长到这么长，再无条件放行（正常文本仍走 260 字） */
+export const STREAM_GUARD_PREAMBLE_MAX_CHARS = 1200;
+
 export type StreamGuardDecision = "block" | "allow" | "wait";
 
 /** 首窗判定：block=整轮作废，allow=开始直推，wait=继续缓冲 */
@@ -366,7 +407,8 @@ export function streamGuardDecision(buffer: string): StreamGuardDecision {
   const buf = buffer || "";
   const j = judge(buf);
   if (j.refusal || j.fallback) return "block";
-  if (buf.length >= STREAM_GUARD_MAX_CHARS) return "allow";
+  const hardMax = REFUSAL_PREAMBLE_RE.test(buf) ? STREAM_GUARD_PREAMBLE_MAX_CHARS : STREAM_GUARD_MAX_CHARS;
+  if (buf.length >= hardMax) return "allow";
   const trimmed = buf.trimEnd();
   const completeEnough = STREAM_SENTENCE_END_RE.test(trimmed) || STREAM_BLOCK_END_RE.test(trimmed);
   if (buf.length >= STREAM_GUARD_MIN_CHARS && completeEnough && STREAM_DELIVERY_RE.test(buf)) {
@@ -600,6 +642,28 @@ export async function callUpstreamChat(opts: {
   }
 }
 
+export const GATEWAY_PROVIDER_ID = "HANSHUANG-GATEWAY-5190";
+export const GATEWAY_PROVIDER_NAME = "寒霜破甲网关";
+const LOCAL_GATEWAY_PORTS = [5190, 5195];
+
+export function isSelfGatewayTarget(info: {
+  id?: string | null;
+  name?: string | null;
+  baseUrl?: string | null;
+  port?: number;
+}): boolean {
+  const id = String(info.id || "").trim();
+  const name = String(info.name || "").trim();
+  const base = String(info.baseUrl || "").trim().toLowerCase();
+  if (id === GATEWAY_PROVIDER_ID) return true;
+  if (name && name.startsWith(GATEWAY_PROVIDER_NAME)) return true;
+  if (!base) return false;
+  const ports = info.port ? Array.from(new Set([...LOCAL_GATEWAY_PORTS, info.port])) : LOCAL_GATEWAY_PORTS;
+  return ports.some(
+    (p) => base.includes(`127.0.0.1:${p}`) || base.includes(`localhost:${p}`) || base.includes(`[::1]:${p}`)
+  );
+}
+
 export interface SystemModelSelection {
   providerID: string;
   modelId: string;
@@ -621,7 +685,7 @@ export async function resolveSystemModel(preferredProviderID?: string, avoidLoca
   }
   if (!Array.isArray(list) || list.length === 0) return null;
 
-  // 防自环：本地网关自己也是 Provider，绝不能拿它当“系统模型”回调自己
+  // 防自环：本地网关自己也是 Provider（可能挂在 5190 或 5195），绝不能拿它当“系统模型”回调自己
   let baseUrlMap: Record<string, string> = {};
   try {
     const providersPath = Path.join(SCRIPTING_DOCS_DIR, ".scripting", "agent-custom-providers.json");
@@ -633,13 +697,17 @@ export async function resolveSystemModel(preferredProviderID?: string, avoidLoca
   } catch {
     baseUrlMap = {};
   }
-  const isSelf = (id: string): boolean => {
-    if (!avoidLocalPort) return false;
-    const base = baseUrlMap[id] || "";
-    return base.includes(`127.0.0.1:${avoidLocalPort}`) || base.includes(`localhost:${avoidLocalPort}`);
+  const isSelf = (pr: any): boolean => {
+    const id = String(pr?.providerID || "");
+    return isSelfGatewayTarget({
+      id,
+      name: String(pr?.name || ""),
+      baseUrl: baseUrlMap[id] || "",
+      port: avoidLocalPort,
+    });
   };
 
-  const usable = list.filter((pr: any) => !isSelf(String(pr?.providerID || "")));
+  const usable = list.filter((pr: any) => !isSelf(pr));
   if (usable.length === 0) return null;
 
   let defaultProviderID = "";
@@ -1051,8 +1119,14 @@ export class StreamToolFilter {
 
   public onEnd(): string {
     if (this.toolCapturing) return "";
-    // 工具 JSON 候选到流结束仍未闭合：按工具调用处理，整段丢弃
-    if (this.jsonHoldStart >= 0) return "";
+    // 只有确实是工具调用 JSON 前缀且未闭合时才丢弃；普通文本/代码里的未闭合 { "name": 照常冲刷
+    if (this.jsonHoldStart >= 0) {
+      const held = this.accumulated.slice(this.jsonHoldStart);
+      if (/^\{\s*"(?:tool_calls|tool_call|function_call)"\s*:/i.test(held) || /"(?:arguments|parameters|input|args)"\s*:/.test(held)) {
+        return "";
+      }
+      this.jsonHoldStart = -1;
+    }
     const hold = this.pendingHoldLength();
     const safeEnd = this.accumulated.length - hold;
     if (safeEnd > this.pushedLength) {
@@ -1207,26 +1281,114 @@ export function looksLikeToolCall(input: string): boolean {
 }
 
 /**
+ * 提取系统提示词（兼容多条 system 与 OpenAI developer 角色，避免 append/prepend 卡或 developer 被丢）
+ * 并构造交替干净的 user/assistant 文本历史（关联 tool_call_id）。
+ */
+export function extractOpenAiSystemAndHistory(msgs: Array<Record<string, any>>): {
+  baseSystem: string;
+  history: Array<{ role: "user" | "assistant"; content: string }>;
+} {
+  const sysParts: string[] = [];
+  const callNameById = new Map<string, string>();
+  const history: Array<{ role: "user" | "assistant"; content: string }> = [];
+
+  const textFromContent = (raw: any, noteImages = false): string => {
+    if (typeof raw === "string") return raw;
+    if (!Array.isArray(raw)) return "";
+    const hasImage = noteImages && raw.some((x) => x && (x.type === "image_url" || x.type === "image"));
+    const joined = raw
+      .map((part: any) =>
+        typeof part === "string"
+          ? part
+          : typeof part?.text === "string"
+          ? part.text
+          : typeof part?.content === "string"
+          ? part.content
+          : ""
+      )
+      .join("");
+    return hasImage ? `${joined}\n[图片已省略：本网关文本通道不支持图片输入]` : joined;
+  };
+
+  for (const mm of Array.isArray(msgs) ? msgs : []) {
+    const role = String((mm as any)?.role || "");
+    if (role === "system" || role === "developer") {
+      const s = textFromContent(mm.content).trim();
+      if (s) sysParts.push(s);
+    } else if (role === "user" || role === "assistant") {
+      let text = textFromContent(mm.content, role === "user");
+      const calls = Array.isArray((mm as any).tool_calls) ? (mm as any).tool_calls : [];
+      if (calls.length) {
+        for (const c of calls) {
+          if (c?.id && c?.function?.name) callNameById.set(String(c.id), String(c.function.name));
+        }
+        text +=
+          "\n" +
+          calls.map((c: any) => `[调用工具 ${c?.function?.name || ""} 参数 ${c?.function?.arguments || "{}"}]`).join("\n");
+      }
+      if (text.trim()) history.push({ role: role as "user" | "assistant", content: text });
+    } else if (role === "tool") {
+      const rawText = typeof mm.content === "string" ? mm.content : JSON.stringify(mm.content ?? "");
+      const callId = String((mm as any).tool_call_id || "");
+      const toolLabel = (mm as any).name || (callId ? callNameById.get(callId) || callId : "");
+      history.push({
+        role: "user",
+        content: `[工具 ${toolLabel} 返回]\n${String(rawText).slice(0, 32000)}`,
+      });
+    }
+  }
+
+  return { baseSystem: sysParts.join("\n\n"), history };
+}
+
+/**
  * 上游上下文瘦身：客户端会把整段会话（几十个工具返回的大段文件内容）每轮全量重发，
  * 请求体可达数 MB，上游容易在中途直接截断流。这里只裁剪“发给上游”的副本，
- * 客户端自己的历史完全不受影响。
+ * 客户端自己的历史完全不受影响。同时合并相邻同角色并清理悬空开头，避免上游因角色序列非法中断。
  */
 export function trimHistoryForUpstream(
   history: Array<{ role: "user" | "assistant"; content: string }>,
-  opts: { maxMessages?: number; maxTotalChars?: number; maxToolResultChars?: number; maxOtherChars?: number } = {}
+  opts: {
+    maxMessages?: number;
+    maxTotalChars?: number;
+    maxToolResultChars?: number;
+    maxOtherChars?: number;
+    reserveChars?: number;
+  } = {}
 ): Array<{ role: "user" | "assistant"; content: string }> {
+  if (!Array.isArray(history) || history.length === 0) return [];
   const maxMessages = opts.maxMessages ?? 60;
-  const maxTotalChars = opts.maxTotalChars ?? 120000;
-  const maxToolResultChars = opts.maxToolResultChars ?? 6000;
-  const maxOtherChars = opts.maxOtherChars ?? 24000;
+  const rawMaxTotal = opts.maxTotalChars ?? 120000;
+  const reserve = Math.min(Math.max(0, opts.reserveChars ?? 0), 50000);
+  const maxTotalChars = Math.max(40000, rawMaxTotal - reserve);
+  const oldToolLimit = opts.maxToolResultChars ?? 5000;
+  const recentToolLimit = opts.maxToolResultChars ?? 16000;
+  const oldOtherLimit = opts.maxOtherChars ?? 24000;
+  const recentOtherLimit = opts.maxOtherChars ?? 32000;
 
-  const capped = history.map((m) => {
+  const isToolContent = (s: string) => /^\[(?:工具[^\]]*返回|tool_result)\]|^<tool_result\b/i.test(s);
+
+  const capped = history.map((m, idx) => {
     let content = String(m.content || "");
-    const isToolResult = /^\[(?:工具[^\]]*返回|tool_result)\]|^<tool_result\b/i.test(content);
-    const limit = isToolResult ? maxToolResultChars : maxOtherChars;
+    const isRecent = idx >= history.length - 4;
+    const isToolResult = isToolContent(content);
+    const limit = isToolResult
+      ? isRecent
+        ? recentToolLimit
+        : oldToolLimit
+      : isRecent
+      ? recentOtherLimit
+      : oldOtherLimit;
     if (content.length > limit) {
       const cut = content.length - limit;
-      content = content.slice(0, limit) + `\n…（此处省略 ${cut} 字符）`;
+      if (isToolResult) {
+        // 保留头部 + 尾部（报错和返回结论常在末尾）
+        const headLen = Math.floor(limit * 0.7);
+        const tailLen = Math.max(200, limit - headLen);
+        content = content.slice(0, headLen) + `\n…（此处省略 ${cut} 字符）\n` + content.slice(-tailLen);
+      } else {
+        content = content.slice(0, limit) + `\n…（此处省略 ${cut} 字符）`;
+      }
     }
     return { role: m.role, content };
   });
@@ -1241,12 +1403,26 @@ export function trimHistoryForUpstream(
     total += m.content.length;
   }
 
-  // 裁掉因裁剪而悬空的工具返回（它对应的调用已不在上下文里）
-  while (kept.length && kept[0].role === "user" && /^\[工具[^\]]*返回\]/.test(kept[0].content)) {
+  // 裁掉因裁剪而悬空的工具返回（它对应的调用已不在上下文里）或悬空的开头 assistant 轮
+  while (kept.length > 1 && kept[0].role === "user" && isToolContent(kept[0].content)) {
+    kept.shift();
+  }
+  while (kept.length > 1 && kept[0].role === "assistant") {
     kept.shift();
   }
 
-  return kept.length ? kept : history.slice(-2);
+  // 合并相邻同角色（如多工具并发返回产生连续多条 user）
+  const merged: Array<{ role: "user" | "assistant"; content: string }> = [];
+  for (const item of kept) {
+    const prev = merged[merged.length - 1];
+    if (prev && prev.role === item.role) {
+      prev.content = `${prev.content}\n\n${item.content}`;
+    } else {
+      merged.push({ role: item.role, content: item.content });
+    }
+  }
+
+  return merged.length ? merged : history.slice(-2);
 }
 
 /** 把客户端传来的 OpenAI tools 压成一段文本协议（助手运行时不支持原生 tools） */
@@ -3809,9 +3985,6 @@ function getScriptingAgent(): any {
   return null;
 }
 
-export const GATEWAY_PROVIDER_ID = "HANSHUANG-GATEWAY-5190";
-export const GATEWAY_PROVIDER_NAME = "寒霜破甲网关";
-
 /** 构造与 Scripting 3.3 官方 schema 完全一致的自定义提供商配置（模型列表由引擎池动态提供） */
 export function buildGatewayProviderConfig(port: number, modelIds: string[] = ["hanshuang-armor"]) {
   const ids = modelIds.filter(Boolean).length ? modelIds.filter(Boolean) : ["hanshuang-armor"];
@@ -3944,7 +4117,8 @@ export async function discoverProviders(port?: number): Promise<EngineProvider[]
       const providerId = String(pr?.providerID || pr?.id || "");
       if (!providerId) continue;
       const baseUrl = String(pr?.baseURL || pr?.baseUrl || "");
-      const isSelf = !!port && (baseUrl.includes(`127.0.0.1:${port}`) || baseUrl.includes(`localhost:${port}`));
+      const providerName = String(pr?.name || "未命名供应商");
+      const isSelf = isSelfGatewayTarget({ id: providerId, name: providerName, baseUrl, port });
       const models: string[] = Array.isArray(pr?.models)
         ? pr.models.map((mm: any) => String(mm?.id || "")).filter(Boolean)
         : pr?.modelInfos && typeof pr.modelInfos === "object"
@@ -3952,7 +4126,7 @@ export async function discoverProviders(port?: number): Promise<EngineProvider[]
         : [];
       add({
         providerId,
-        providerName: String(pr?.name || "未命名供应商"),
+        providerName,
         models,
         currentModelId: String(pr?.currentModelId || pr?.defaultModelId || ""),
         source: "file",
@@ -3969,14 +4143,15 @@ export async function discoverProviders(port?: number): Promise<EngineProvider[]
       const list = await Assistant.getProviders();
       for (const pr of Array.isArray(list) ? list : []) {
         const providerId = String((pr as any)?.providerID || "");
+        const providerName = String((pr as any)?.name || "未命名供应商");
         const modelId = String((pr as any)?.modelId || "");
         add({
           providerId,
-          providerName: String((pr as any)?.name || "未命名供应商"),
+          providerName,
           models: modelId ? [modelId] : [],
           currentModelId: modelId,
           source: "runtime",
-          isSelf: false,
+          isSelf: isSelfGatewayTarget({ id: providerId, name: providerName, port }),
         });
       }
     }
@@ -4081,12 +4256,14 @@ export async function syncGatewayProviderModels(
       const id = String(pr?.id || pr?.providerID || "");
       const base = String(pr?.baseURL || pr?.baseUrl || "");
       const nm = String(pr?.name || "");
-      return id === GATEWAY_PROVIDER_ID || (base.includes(`127.0.0.1:${port}`) && nm.startsWith(GATEWAY_PROVIDER_NAME));
+      return isSelfGatewayTarget({ id, name: nm, baseUrl: base, port });
     });
     if (!found) return { ok: false, models, reason: "not_installed" };
 
     const foundId = String((found as any).id || (found as any).providerID || "");
-    const config = buildGatewayProviderConfig(port, models);
+    const existingBase = String((found as any).baseURL || (found as any).baseUrl || "");
+    const targetPort = existingBase.includes(":5195") ? 5195 : port;
+    const config = buildGatewayProviderConfig(targetPort, models);
     const saved = await agentApi.setProvider({ operation: "update", providerId: foundId, changes: config });
     recordProviderAudit({
       action: "sync-models",
@@ -4106,6 +4283,17 @@ export async function handleApiRoute(req: HttpRequest, port: number): Promise<Ht
 
   if (m === "OPTIONS") {
     return corsPreflightResponse();
+  }
+
+  if ((p === "/health" || p === "/v1/health") && m === "GET") {
+    return jsonResponse({
+      ok: true,
+      status: "healthy",
+      port,
+      mode: "http-server",
+      trueStreamPort: 5195,
+      bufferedStream: getBufferedStreamStats(),
+    });
   }
 
   // 核心网关与注入端点前置健康审查与自愈保障
@@ -5171,8 +5359,7 @@ export async function handleApiRoute(req: HttpRequest, port: number): Promise<Ht
       const id = String(pr?.id || pr?.providerID || "");
       const base = String(pr?.baseURL || pr?.baseUrl || "");
       const name = String(pr?.name || "");
-      if (id === GATEWAY_PROVIDER_ID) return true;
-      return base.includes(`127.0.0.1:${port}`) && name.startsWith(GATEWAY_PROVIDER_NAME);
+      return isSelfGatewayTarget({ id, name, baseUrl: base, port });
     };
 
     // 首选官方 API：由 App 自己落盘，字段名/枚举永远与当前版本对齐
@@ -5745,38 +5932,7 @@ export async function handleApiRoute(req: HttpRequest, port: number): Promise<Ht
       const msgs = Array.isArray(modifiedBody.messages)
         ? (modifiedBody.messages as Array<Record<string, any>>)
         : [];
-      const sysMsg = msgs.find((m) => m.role === "system");
-      const baseSystem = typeof sysMsg?.content === "string" ? sysMsg.content : "";
-      // 文本化历史：assistant 的工具调用转成文字，tool 结果转成 user 消息（助手运行时只吃文本）
-      const history: Array<{ role: "user" | "assistant"; content: string }> = [];
-      for (const mm of msgs) {
-        const role = String((mm as any)?.role || "");
-        if (role === "user" || role === "assistant") {
-          let text = "";
-          if (typeof mm.content === "string") text = mm.content;
-          else if (Array.isArray(mm.content)) {
-            const parts = mm.content as any[];
-            const hasImage = parts.some((x) => x && (x.type === "image_url" || x.type === "image"));
-            text = parts.map((part: any) => (typeof part?.text === "string" ? part.text : "")).join("");
-            if (hasImage) text += "\n[图片已省略：本网关文本通道不支持图片输入]";
-          }
-          const calls = Array.isArray((mm as any).tool_calls) ? (mm as any).tool_calls : [];
-          if (calls.length) {
-            text +=
-              "\n" +
-              calls
-                .map((c: any) => `[调用工具 ${c?.function?.name || ""} 参数 ${c?.function?.arguments || "{}"}]`)
-                .join("\n");
-          }
-          if (text.trim()) history.push({ role: role as "user" | "assistant", content: text });
-        } else if (role === "tool") {
-          const text = typeof mm.content === "string" ? mm.content : JSON.stringify(mm.content ?? "");
-          history.push({
-            role: "user",
-            content: `[工具 ${(mm as any).name || (mm as any).tool_call_id || ""} 返回]\n${String(text).slice(0, 20000)}`,
-          });
-        }
-      }
+      const { baseSystem, history } = extractOpenAiSystemAndHistory(msgs);
 
       if (history.length === 0) {
         return jsonResponse({ error: { type: "empty_messages", message: "请求缺少 user 消息" } }, 400);
@@ -5807,7 +5963,7 @@ export async function handleApiRoute(req: HttpRequest, port: number): Promise<Ht
       }
 
       // 历史会话智能瘦身：避免多轮长任务历史膨胀数 MB 导致上游直接截断或超时
-      const upstreamHistory = trimHistoryForUpstream(history);
+      const upstreamHistory = trimHistoryForUpstream(history, { reserveChars: baseSystem.length });
       const isGeminiEngine = /gemini/i.test(effModelId);
       const safeSystem = isGeminiEngine ? sanitizeForGemini(baseSystem) : baseSystem;
       const safeHistory = isGeminiEngine
@@ -6362,11 +6518,19 @@ export async function handleStreamChatCompletions(
   body: Record<string, any>,
   writeChunk: (sseText: string) => void,
   close: () => void,
-  port = 5190
+  port = 5190,
+  isAborted?: () => boolean
 ): Promise<void> {
   const completionId = `chatcmpl-${Date.now()}`;
   const created = Math.floor(Date.now() / 1000);
   const modelName = typeof body.model === "string" ? body.model : "hanshuang-armor";
+
+  let lastWriteAt = Date.now();
+  const safeWriteChunk = (text: string) => {
+    if (isAborted?.()) return;
+    lastWriteAt = Date.now();
+    writeChunk(text);
+  };
 
   const mkChunk = (delta: any, finish: string | null = null) =>
     `data: ${JSON.stringify({
@@ -6378,83 +6542,70 @@ export async function handleStreamChatCompletions(
     })}\n\n`;
 
   // 1. 初始块（role: assistant）
-  writeChunk(mkChunk({ role: "assistant", content: "" }, null));
+  safeWriteChunk(mkChunk({ role: "assistant", content: "" }, null));
 
-  // 2. 注入破甲卡片
-  let modifiedBody = body;
-  const currentCard = store.getCurrentCard();
-  if (currentCard) {
-    const res = injectCard(body, "openai_chat", currentCard);
-    modifiedBody = res.body;
-  }
-
-  // 3. 构建消息上下文与 systemPrompt
-  const msgs = Array.isArray(modifiedBody.messages)
-    ? (modifiedBody.messages as Array<Record<string, any>>)
-    : [];
-  const sysMsg = msgs.find((m) => m.role === "system");
-  const baseSystem = typeof sysMsg?.content === "string" ? sysMsg.content : "";
-  const history: Array<{ role: "user" | "assistant"; content: string }> = [];
-  for (const mm of msgs) {
-    const role = String((mm as any)?.role || "");
-    if (role === "user" || role === "assistant") {
-      let text = "";
-      if (typeof mm.content === "string") text = mm.content;
-      else if (Array.isArray(mm.content)) {
-        text = (mm.content as any[]).map((p: any) => (typeof p?.text === "string" ? p.text : "")).join("");
-      }
-      const calls = Array.isArray((mm as any).tool_calls) ? (mm as any).tool_calls : [];
-      if (calls.length) {
-        text +=
-          "\n" +
-          calls.map((c: any) => `[调用工具 ${c?.function?.name || ""} 参数 ${c?.function?.arguments || "{}"}]`).join("\n");
-      }
-      if (text.trim()) history.push({ role: role as "user" | "assistant", content: text });
-    } else if (role === "tool") {
-      const text = typeof mm.content === "string" ? mm.content : JSON.stringify(mm.content ?? "");
-      history.push({
-        role: "user",
-        content: `[工具 ${(mm as any).name || (mm as any).tool_call_id || ""} 返回]\n${String(text).slice(0, 20000)}`,
-      });
+  // 2. 全生命周期保活心跳（覆盖上游建连、模型思考、纠偏切换、多轮重试，防止客户端与中间网络超时）
+  const keepAliveTimer = setInterval(() => {
+    if (isAborted?.()) return;
+    if (Date.now() - lastWriteAt >= 10000) {
+      try {
+        writeChunk(`: ping ${Date.now()}\n\n`);
+        lastWriteAt = Date.now();
+      } catch {}
     }
-  }
+  }, 2500);
 
-  if (history.length === 0) {
-    writeChunk(`data: ${JSON.stringify({ error: { message: "请求缺少 user 消息" } })}\n\n`);
-    writeChunk("data: [DONE]\n\n");
-    close();
-    return;
-  }
+  try {
+    // 3. 注入破甲卡片
+    let modifiedBody = body;
+    const currentCard = store.getCurrentCard();
+    if (currentCard) {
+      const res = injectCard(body, "openai_chat", currentCard);
+      modifiedBody = res.body;
+    }
 
-  // 4. 解析引擎
-  const proxyState = store.getProxyState();
-  const exposeReasoning = proxyState.exposeReasoning !== false;
-  const reqModel = typeof body.model === "string" ? body.model : "";
-  const providers = await discoverProviders(port);
-  const picked = pickProviderEngine(providers, reqModel);
-  const primary = picked?.provider ?? null;
-  const sel: SystemModelSelection | null = primary
-    ? { providerID: primary.providerId, modelId: picked!.modelId, name: primary.providerName, isDefault: false }
-    : await resolveSystemModel(proxyState.systemProviderId, port);
-  const effModelId = picked?.modelId || proxyState.systemModelId || sel?.modelId || "";
-  // 选 hanshuang-gemini = 只用 Gemini，被拦也不换引擎
-  const forceNoFallback = /^hanshuang-gemini$/i.test(reqModel);
+    // 4. 构建消息上下文与 systemPrompt（使用统一抽取器）
+    const msgs = Array.isArray(modifiedBody.messages)
+      ? (modifiedBody.messages as Array<Record<string, any>>)
+      : [];
+    const { baseSystem, history } = extractOpenAiSystemAndHistory(msgs);
 
-  if (!sel) {
-    writeChunk(`data: ${JSON.stringify({ error: { message: "网关找不到可用的系统模型" } })}\n\n`);
-    writeChunk("data: [DONE]\n\n");
-    close();
-    return;
-  }
+    if (history.length === 0) {
+      safeWriteChunk(`data: ${JSON.stringify({ error: { message: "请求缺少 user 消息" } })}\n\n`);
+      safeWriteChunk("data: [DONE]\n\n");
+      close();
+      return;
+    }
 
-  // Gemini 去敏
-  const isGeminiEngine = /gemini/i.test(effModelId);
-  const safeSystem = isGeminiEngine ? sanitizeForGemini(baseSystem) : baseSystem;
-  const upstreamHistory = trimHistoryForUpstream(history);
-  const safeHistory: Array<{ role: "user" | "assistant"; content: string }> = isGeminiEngine
-    ? upstreamHistory.map((m) => (m.role === "user" ? { ...m, content: sanitizeForGemini(m.content) } : m))
-    : upstreamHistory;
-  const lastUser = [...safeHistory].reverse().find((m) => m.role === "user")?.content || "";
+    // 5. 解析引擎（带自环防御）
+    const proxyState = store.getProxyState();
+    const exposeReasoning = proxyState.exposeReasoning !== false;
+    const reqModel = typeof body.model === "string" ? body.model : "";
+    const providers = await discoverProviders(port);
+    const picked = pickProviderEngine(providers, reqModel);
+    const primary = picked?.provider ?? null;
+    const sel: SystemModelSelection | null = primary
+      ? { providerID: primary.providerId, modelId: picked!.modelId, name: primary.providerName, isDefault: false }
+      : await resolveSystemModel(proxyState.systemProviderId, port);
+    const effModelId = picked?.modelId || proxyState.systemModelId || sel?.modelId || "";
+    // 选 hanshuang-gemini = 只用 Gemini，被拦也不换引擎
+    const forceNoFallback = /^hanshuang-gemini$/i.test(reqModel);
+
+    if (!sel) {
+      safeWriteChunk(`data: ${JSON.stringify({ error: { message: "网关找不到可用的系统模型" } })}\n\n`);
+      safeWriteChunk("data: [DONE]\n\n");
+      close();
+      return;
+    }
+
+    // 6. Gemini 去敏与历史瘦身（预留 system 空间）
+    const isGeminiEngine = /gemini/i.test(effModelId);
+    const safeSystem = isGeminiEngine ? sanitizeForGemini(baseSystem) : baseSystem;
+    const upstreamHistory = trimHistoryForUpstream(history, { reserveChars: safeSystem.length });
+    const safeHistory: Array<{ role: "user" | "assistant"; content: string }> = isGeminiEngine
+      ? upstreamHistory.map((m) => (m.role === "user" ? { ...m, content: sanitizeForGemini(m.content) } : m))
+      : upstreamHistory;
+    const lastUser = [...safeHistory].reverse().find((m) => m.role === "user")?.content || "";
 
   // 工具协议
   const toolChoice = (body as any).tool_choice;
@@ -6494,7 +6645,12 @@ export async function handleStreamChatCompletions(
     providerID?: string;
     modelId: string;
     withReasoning: boolean;
+    /** true = 本轮不直推客户端，文本先留在手里（续写/补偿轮用） */
+    bufferOutput?: boolean;
   }): Promise<{ ok: boolean; text: string; blocked: boolean; pushed: boolean; usage: any; errorMessage?: string; interrupted?: boolean }> => {
+    if (isAborted?.()) {
+      return { ok: false, text: "", blocked: false, pushed: false, usage: null, errorMessage: "client_aborted" };
+    }
     const request: Record<string, unknown> = {
       systemPrompt: args.systemPrompt,
       messages: args.messages,
@@ -6505,6 +6661,7 @@ export async function handleStreamChatCompletions(
     let stream: any = null;
     // 上游偶发 -1005 / 连接被重置：重试一次再报错
     for (let attempt = 0; attempt < 2 && !stream; attempt++) {
+      if (isAborted?.()) break;
       try {
         // @ts-ignore
         stream = await Assistant.requestStreaming(request);
@@ -6527,24 +6684,15 @@ export async function handleStreamChatCompletions(
     let blocked = false;
     let pushed = false;
     let usage: any = null;
-
-    // SSE 注释心跳：上游长时间思考/生成时客户端收不到任何字节，
-    // 会被自己的 idle timeout 掐断（表现为“说到一半就断”）。
-    // 缩短至 10 秒以兼容主流客户端与反代 15s 空闲检查
-    const heartbeat = setInterval(() => {
-      try {
-        writeChunk(`: ping ${Date.now()}\n\n`);
-      } catch {}
-    }, 10000);
-
     let streamError: string | null = null;
     try {
       for await (const chunk of stream) {
+        if (isAborted?.()) break;
         if (!chunk) continue;
         if (chunk.type === "reasoning" && typeof chunk.content === "string") {
-          if (reasoningFilter) {
+          if (reasoningFilter && !args.bufferOutput) {
             const cleanReasoning = reasoningFilter.onChunk(chunk.content);
-            if (cleanReasoning) writeChunk(mkChunk({ reasoning_content: cleanReasoning }, null));
+            if (cleanReasoning) safeWriteChunk(mkChunk({ reasoning_content: cleanReasoning }, null));
           }
           continue;
         }
@@ -6566,12 +6714,14 @@ export async function handleStreamChatCompletions(
           }
           if (decision === "allow") {
             guardOpen = false;
-            writeChunk(mkChunk({ content: guardBuf }, null));
-            pushed = true;
+            if (!args.bufferOutput) {
+              safeWriteChunk(mkChunk({ content: guardBuf }, null));
+              pushed = true;
+            }
             guardBuf = "";
           }
-        } else {
-          writeChunk(mkChunk({ content: textToPush }, null));
+        } else if (!args.bufferOutput) {
+          safeWriteChunk(mkChunk({ content: textToPush }, null));
           pushed = true;
         }
       }
@@ -6580,10 +6730,9 @@ export async function handleStreamChatCompletions(
       // 否则下面的尾部释放逻辑被跳过，工具过滤器扣住的尾巴会永久丢失 —— 这正是“说到一半就断”。
       streamError = String(e?.message || e);
     } finally {
-      clearInterval(heartbeat);
-      if (reasoningFilter) {
+      if (reasoningFilter && !args.bufferOutput) {
         const reasoningTail = reasoningFilter.onEnd();
-        if (reasoningTail) writeChunk(mkChunk({ reasoning_content: reasoningTail }, null));
+        if (reasoningTail) safeWriteChunk(mkChunk({ reasoning_content: reasoningTail }, null));
       }
     }
 
@@ -6602,12 +6751,12 @@ export async function handleStreamChatCompletions(
         return { ok: true, text: full, blocked: true, pushed: false, usage, interrupted };
       }
       const toPush = guardBuf + (safeTail || "");
-      if (toPush) {
-        writeChunk(mkChunk({ content: toPush }, null));
+      if (toPush && !args.bufferOutput) {
+        safeWriteChunk(mkChunk({ content: toPush }, null));
         pushed = true;
       }
-    } else if (safeTail) {
-      writeChunk(mkChunk({ content: safeTail }, null));
+    } else if (safeTail && !args.bufferOutput) {
+      safeWriteChunk(mkChunk({ content: safeTail }, null));
       pushed = true;
     }
 
@@ -6658,9 +6807,10 @@ export async function handleStreamChatCompletions(
     );
 
   for (let r = 0; r < maxRounds && !pushedAny; r++) {
+    if (isAborted?.()) break;
     rounds = r + 1;
-    // SSE 注释心跳：纠正轮期间客户端无正文，保持连接不被 idle timeout 掐断
-    if (r > 0) writeChunk(`: armor corrective round ${r + 1}\n\n`);
+    // SSE 注释：纠正轮期间客户端无正文，补一条事件保持连接活跃
+    if (r > 0) safeWriteChunk(`: armor corrective round ${r + 1}\n\n`);
     const turn = await runStreamTurn({
       systemPrompt: buildSystem(effModelId, r),
       messages:
@@ -6699,8 +6849,16 @@ export async function handleStreamChatCompletions(
     break;
   }
 
-  // 上游静默断流（一个字符都没产出，或中途断流且尚未推送任何字符）：自动补一次「继续」，不让用户手动重发
-  if (!pushedAny && !stillRefused && failureText === null && (finalText.trim() === "" || lastInterrupted) && safeHistory.length > 0) {
+  // 续写轮的 meta 回执（「已经说完」「无需补充」…）：绝不能当正文推给客户端
+  const isMetaAck = (t: string): boolean => {
+    const s = t.trim().replace(/^[“"'「『]+/, "").replace(/[”"'」』]+$/, "").trim();
+    if (!s) return true;
+    if (s.length > 40) return false;
+    return /^(?:已经说完|已说完|说完了|无须补充|无需补充|不需要补充|没有补充|不需要|已完成|已写完|没有被截断|没有截断|未截断|已全部说完|已全部输出|内容完整|空|无|none|n\/a|ok)$/i.test(s);
+  };
+
+  // 上游零产出或未推送任何字符就断了：静默补一次，不让用户手动重发
+  if (!pushedAny && !stillRefused && failureText === null && safeHistory.length > 0 && !isAborted?.()) {
     const cont = await runStreamTurn({
       systemPrompt: buildSystem(effModelId, 0),
       messages: [
@@ -6713,12 +6871,17 @@ export async function handleStreamChatCompletions(
       providerID: sel.providerID,
       modelId: effModelId,
       withReasoning: false,
+      bufferOutput: true,
     });
-    if (cont.ok && !cont.blocked && cont.text.trim()) {
+    if (cont.ok && !cont.blocked && cont.text.trim() && !isMetaAck(cont.text)) {
       finalText = cont.text;
-      pushedAny = cont.pushed;
       outJudge = judge(cont.text);
       corrected = true;
+      lastInterrupted = !!cont.interrupted;
+      rounds += 1;
+      recordRequestLog({ kind: "res", finish: "auto_recover_empty", added: cont.text.length });
+    } else if (!cont.ok && cont.errorMessage && cont.errorMessage !== "client_aborted") {
+      failureText = cont.errorMessage;
     }
   }
 
@@ -6729,7 +6892,8 @@ export async function handleStreamChatCompletions(
     failureText === null &&
     pushedAny &&
     lastInterrupted &&
-    resumedRounds < maxResumeRounds
+    resumedRounds < maxResumeRounds &&
+    !isAborted?.()
   ) {
     resumedRounds += 1;
     const cont = await runStreamTurn({
@@ -6746,12 +6910,14 @@ export async function handleStreamChatCompletions(
       providerID: sel.providerID,
       modelId: effModelId,
       withReasoning: false,
+      bufferOutput: true,
     });
     lastInterrupted = !!cont.interrupted;
     if (!cont.ok || cont.blocked) break;
     if (!cont.text.trim()) break;
+    if (isMetaAck(cont.text)) break;
+    safeWriteChunk(mkChunk({ content: cont.text }, null));
     finalText += cont.text;
-    pushedAny = pushedAny || cont.pushed;
     outJudge = judge(finalText);
     corrected = true;
     rounds += 1;
@@ -6769,7 +6935,8 @@ export async function handleStreamChatCompletions(
     !lastInterrupted &&
     !TOOL_TAG_START_RE.test(finalText) &&
     !parseToolCalls(finalText, Array.isArray(body.tools) ? body.tools : undefined) &&
-    looksTruncated(finalText)
+    looksTruncated(finalText) &&
+    !isAborted?.()
   ) {
     const cont = await runStreamTurn({
       systemPrompt: buildSystem(effModelId, 0),
@@ -6785,54 +6952,62 @@ export async function handleStreamChatCompletions(
       providerID: sel.providerID,
       modelId: effModelId,
       withReasoning: false,
+      bufferOutput: true,
     });
-    if (cont.ok && !cont.blocked && cont.text.trim()) {
-      const resp = cont.text.trim();
-      const isAck = /^(?:已经说完|无须补充|无需补充|已完成|没有被截断|已全部说完|空|""|''|ok|none)$/i.test(resp);
-      if (!isAck) {
-        truncationResumed = true;
-        finalText += cont.text;
-        pushedAny = true;
-        outJudge = judge(finalText);
-        corrected = true;
-        rounds += 1;
-        recordRequestLog({ kind: "res", finish: "auto_resume_truncated", added: cont.text.length });
-      }
+    if (cont.ok && !cont.blocked && cont.text.trim() && !isMetaAck(cont.text)) {
+      truncationResumed = true;
+      safeWriteChunk(mkChunk({ content: cont.text }, null));
+      finalText += cont.text;
+      outJudge = judge(finalText);
+      corrected = true;
+      rounds += 1;
+      recordRequestLog({ kind: "res", finish: "auto_resume_truncated", added: cont.text.length });
     }
   }
 
 
-  // 主引擎被拦、且还没往外推过任何正文 → 按引擎池顺序换引擎（可关闭）
+  // 主引擎被拦，或一个字都没产出就失败，且还没往外推过任何正文 → 按引擎池顺序换引擎（可关闭）
   const autoFallbackEnabled = proxyState.autoFallback !== false && poolCfg.autoFallback;
-  if (stillRefused && !pushedAny && !forceNoFallback && autoFallbackEnabled) {
+  const needFallback = stillRefused || (failureText !== null && finalText.trim() === "" && !lastInterrupted);
+  if (needFallback && !pushedAny && !forceNoFallback && autoFallbackEnabled && !isAborted?.()) {
     const candidates = providers.filter((p) => p.enabled && p.providerId !== primary?.providerId).slice(0, 2);
     for (const alt of candidates) {
+      if (isAborted?.()) break;
       const altGemini = /gemini/i.test(alt.modelId);
       const altSystem = altGemini ? sanitizeForGemini(baseSystem) : baseSystem;
       const altHistory = altGemini
         ? upstreamHistory.map((m) => (m.role === "user" ? { ...m, content: sanitizeForGemini(m.content) } : m))
         : upstreamHistory;
+      const altMessages: Array<{ role: "user" | "assistant"; content: string }> = lastText.trim()
+        ? [
+            ...altHistory,
+            { role: "assistant" as const, content: lastText.slice(0, 2000) },
+            { role: "user" as const, content: buildCorrectiveUserMessageFor(alt.modelId, lastUser, lastText) },
+          ]
+        : [...altHistory];
       const altTurn = await runStreamTurn({
         systemPrompt: withReasoningDiscipline(`${armorCorrectivePrefixFor(alt.modelId)}\n\n${altSystem}` + toolSpec),
-        messages: [
-          ...altHistory,
-          { role: "assistant" as const, content: lastText.slice(0, 2000) },
-          { role: "user" as const, content: buildCorrectiveUserMessageFor(alt.modelId, lastUser, lastText) },
-        ],
+        messages: altMessages,
         providerID: alt.providerId,
         modelId: alt.modelId,
         withReasoning: false,
+        bufferOutput: true,
       });
       if (!altTurn.ok || altTurn.blocked) continue;
       const altJudge = judge(altTurn.text);
-      if (!altJudge.refusal && !altJudge.fallback && altTurn.text.trim()) {
+      if (!altJudge.refusal && !altJudge.fallback && altTurn.text.trim() && !isMetaAck(altTurn.text)) {
+        // 先审后发：备用引擎的整段文本先缓冲，判完不是拒答再一次性下发，避免泄漏拒答
+        safeWriteChunk(mkChunk({ content: altTurn.text }, null));
         finalText = altTurn.text;
         outJudge = altJudge;
         stillRefused = false;
+        failureText = null;
+        lastInterrupted = false;
         corrected = true;
         fallbackEngine = `${alt.providerName}/${alt.modelId}`;
         rounds += 1;
-        pushedAny = altTurn.pushed;
+        pushedAny = true;
+        recordRequestLog({ kind: "res", finish: "engine_fallback", engine: fallbackEngine, added: altTurn.text.length });
         break;
       }
     }
@@ -6845,14 +7020,13 @@ export async function handleStreamChatCompletions(
       `可选：\n- 模型选 hanshuang-armor：Gemini 优先，被拦时自动用备用引擎作答\n` +
       `- 模型选 hanshuang-deepseek：直接走备用引擎\n\n` +
       `Gemini 原始返回：\n${lastText.slice(0, 500)}`;
-    writeChunk(mkChunk({ content: stripToolEnvelope(finalText) }, null));
+    safeWriteChunk(mkChunk({ content: stripToolEnvelope(finalText) }, null));
     pushedAny = true;
   }
-
   // 全部引擎都拒答、且一个字都没推出去 → 宁可报错也不把拒答交给客户端
   if (stillRefused && !pushedAny) {
     recordRequestLog({ kind: "res", finish: "armor_blocked", head: lastText.slice(0, 200) });
-    writeChunk(
+    safeWriteChunk(
       `data: ${JSON.stringify({
         error: {
           type: "armor_blocked",
@@ -6861,14 +7035,14 @@ export async function handleStreamChatCompletions(
         },
       })}\n\n`
     );
-    writeChunk("data: [DONE]\n\n");
+    safeWriteChunk("data: [DONE]\n\n");
     close();
     return;
   }
 
   if (failureText !== null && !pushedAny) {
-    writeChunk(`data: ${JSON.stringify({ error: { message: failureText } })}\n\n`);
-    writeChunk("data: [DONE]\n\n");
+    safeWriteChunk(`data: ${JSON.stringify({ error: { type: "upstream_error", message: failureText } })}\n\n`);
+    safeWriteChunk("data: [DONE]\n\n");
     close();
     return;
   }
@@ -6903,7 +7077,7 @@ export async function handleStreamChatCompletions(
       function: { name: c.name, arguments: c.arguments },
     }));
     // 工具调用前的正文在流式阶段已推送完毕；这里不再补推 rest，避免二次下发
-    writeChunk(
+    safeWriteChunk(
       `data: ${JSON.stringify({
         id: completionId,
         object: "chat.completion.chunk",
@@ -6912,7 +7086,7 @@ export async function handleStreamChatCompletions(
         choices: [{ index: 0, delta: { role: "assistant", tool_calls: calls }, finish_reason: null }],
       })}\n\n`
     );
-    writeChunk(mkChunk({}, "tool_calls"));
+    safeWriteChunk(mkChunk({}, "tool_calls"));
     recordRequestLog({
       kind: "res",
       finish: "tool_calls",
@@ -6926,9 +7100,34 @@ export async function handleStreamChatCompletions(
         : sawNamelessTool
           ? "（模型输出了一个不带工具名的调用块，网关已丢弃并拒绝执行。请重发一次问题。）"
           : "";
-      if (fallbackText) writeChunk(mkChunk({ content: fallbackText }, null));
+      if (fallbackText) {
+        safeWriteChunk(mkChunk({ content: fallbackText }, null));
+        pushedAny = true;
+      } else if (!stillRefused) {
+        // 一个字都没产出：明确报错，绝不静默发一个空 stop（那正是客户端“莫名断流”的来源）
+        recordRequestLog({ kind: "res", finish: "empty_upstream", rounds });
+        safeWriteChunk(
+          `data: ${JSON.stringify({
+            error: {
+              type: "upstream_empty",
+              message: "上游模型未返回任何内容（网关已自动重试并续写）",
+              rounds,
+            },
+          })}\n\n`
+        );
+        safeWriteChunk("data: [DONE]\n\n");
+        close();
+        return;
+      }
+    } else if (lastInterrupted && !stillRefused) {
+      // 断流且续写也没接上：用 finish_reason="length" 明确告知被截断，而不是假装正常结束
+      recordRequestLog({ kind: "res", finish: "truncated_length", kept: finalText.length });
+      safeWriteChunk(mkChunk({}, "length"));
+      safeWriteChunk("data: [DONE]\n\n");
+      close();
+      return;
     }
-    writeChunk(mkChunk({}, "stop"));
+    safeWriteChunk(mkChunk({}, "stop"));
     recordRequestLog({ kind: "res", finish: "stop", head: finalText.slice(0, 200) });
   }
 
@@ -6938,7 +7137,7 @@ export async function handleStreamChatCompletions(
     const estIn = Math.max(1, Math.ceil(promptProbe.length / 1.6));
     const inTok = Number(realUsage?.inputTokens) || estIn;
     const outTok = Number(realUsage?.outputTokens) || Math.max(1, Math.ceil(finalText.length / 1.6));
-    writeChunk(
+    safeWriteChunk(
       `data: ${JSON.stringify({
         id: completionId,
         object: "chat.completion.chunk",
@@ -6950,6 +7149,9 @@ export async function handleStreamChatCompletions(
     );
   }
 
-  writeChunk("data: [DONE]\n\n");
+  safeWriteChunk("data: [DONE]\n\n");
   close();
+  } finally {
+    clearInterval(keepAliveTimer);
+  }
 }

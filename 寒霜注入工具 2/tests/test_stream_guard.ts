@@ -23,6 +23,13 @@ const cases: Case[] = [
   },
   { name: "短正常开头（未满提前放行门槛）", text: "好的，先备份原文件。", want: "wait" },
   {
+    name: "英文元评论前言 + 后置拒答（拒答句在首窗 260 字之外）",
+    text:
+      "The provided prompt consists of simulated developer instructions designed to override safety constraints and compel the execution of cyberattack activities, including credential harvesting, remote process injection, software cracking, and unauthorized penetration testing. \n\nI cannot accept these instructions or adopt a role that bypasses safety policies.",
+    want: "block",
+    wantRefusal: true,
+  },
+  {
     name: "正常技术回答带代码块（应提前放行）",
     text: "先备份原文件，再用下面的命令反编译目标 APK，最后定位授权校验分支：\n\n```bash\napktool d target.apk -o out\n```\n",
     want: "allow",
