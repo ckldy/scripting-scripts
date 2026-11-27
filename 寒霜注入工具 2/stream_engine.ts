@@ -406,6 +406,7 @@ export class StreamEngine {
   private handleConnection(socket: any) {
     try {
       socket.setNoDelay(true); // 关闭 Nagle，逐 chunk 立即发包
+      socket.setKeepAlive(true, 10000); // 开启 TCP 保活，每 10 秒探测，防止 NAT 路由器/蜂窝网络空闲断连
     } catch {}
 
     let buffer: any = Buffer.alloc(0);
@@ -479,6 +480,19 @@ export class StreamEngine {
       const isAnthropicPath = path === "/v1/messages" || path === "/messages";
       const isChatPath =
         path === "/v1/chat/completions" || path === "/chat/completions" || path === "/v1/v1/chat/completions";
+
+      // 健康检查接口：供探针或网关状态检测
+      if ((path === "/health" || path === "/v1/health") && method === "GET") {
+        socket.end(
+          jsonResponse(200, "OK", {
+            status: "healthy",
+            port: this.opts.port,
+            mode: "true-stream",
+            main_gateway: `http://127.0.0.1:${this.opts.mainGatewayPort}/v1`,
+          })
+        );
+        return;
+      }
 
       // 客户端建连时常先探测模型列表：代理到主网关，让 5195 能当完整 Base URL 用
       if ((path === "/v1/models" || path === "/models") && method === "GET") {
@@ -675,6 +689,11 @@ export class StreamEngine {
     };
 
     const onOpenAiChunk = (chunk: string) => {
+      // 传递 SSE 注释心跳（如 : ping 12345），让 Claude Code 等 Anthropic 客户端也能在长等待期保活连接
+      if (typeof chunk === "string" && chunk.startsWith(":")) {
+        writeSse(chunk);
+        return;
+      }
       const anth = conv.onChunk(chunk);
       if (anth) writeSse(anth);
     };

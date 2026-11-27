@@ -97,6 +97,8 @@ export interface ProxyState {
   autoFallback?: boolean;
   /** 是否向客户端回传思考链（默认开；回传前会按句过滤复述注入上下文的句子） */
   exposeReasoning?: boolean;
+  /** 正文已推出后检测到疑似截断时，是否自动续写补齐（默认开；上游断流/撞输出上限都会触发） */
+  autoResumeTruncated?: boolean;
   enabledAt?: number;
   lastInjection?: LastInjection | null;
   lastArmorTest?: ArmorTestRecord | null;
@@ -1220,7 +1222,7 @@ export function trimHistoryForUpstream(
 
   const capped = history.map((m) => {
     let content = String(m.content || "");
-    const isToolResult = /^\[工具[^\]]*返回\]/.test(content);
+    const isToolResult = /^\[(?:工具[^\]]*返回|tool_result)\]|^<tool_result\b/i.test(content);
     const limit = isToolResult ? maxToolResultChars : maxOtherChars;
     if (content.length > limit) {
       const cut = content.length - limit;
@@ -5804,12 +5806,13 @@ export async function handleApiRoute(req: HttpRequest, port: number): Promise<Ht
         );
       }
 
-      // Gemini 引擎先做去敏改写：过滤器按关键词拦，措辞换掉才能拿到它自己的回答
+      // 历史会话智能瘦身：避免多轮长任务历史膨胀数 MB 导致上游直接截断或超时
+      const upstreamHistory = trimHistoryForUpstream(history);
       const isGeminiEngine = /gemini/i.test(effModelId);
       const safeSystem = isGeminiEngine ? sanitizeForGemini(baseSystem) : baseSystem;
       const safeHistory = isGeminiEngine
-        ? history.map((m) => (m.role === "user" ? { ...m, content: sanitizeForGemini(m.content) } : m))
-        : history;
+        ? upstreamHistory.map((m) => (m.role === "user" ? { ...m, content: sanitizeForGemini(m.content) } : m))
+        : upstreamHistory;
 
       const lastUser = [...safeHistory].reverse().find((m) => m.role === "user")?.content || "";
       let finalText = "";
@@ -6491,7 +6494,7 @@ export async function handleStreamChatCompletions(
     providerID?: string;
     modelId: string;
     withReasoning: boolean;
-  }): Promise<{ ok: boolean; text: string; blocked: boolean; pushed: boolean; usage: any; errorMessage?: string }> => {
+  }): Promise<{ ok: boolean; text: string; blocked: boolean; pushed: boolean; usage: any; errorMessage?: string; interrupted?: boolean }> => {
     const request: Record<string, unknown> = {
       systemPrompt: args.systemPrompt,
       messages: args.messages,
@@ -6527,12 +6530,14 @@ export async function handleStreamChatCompletions(
 
     // SSE 注释心跳：上游长时间思考/生成时客户端收不到任何字节，
     // 会被自己的 idle timeout 掐断（表现为“说到一半就断”）。
+    // 缩短至 10 秒以兼容主流客户端与反代 15s 空闲检查
     const heartbeat = setInterval(() => {
       try {
         writeChunk(`: ping ${Date.now()}\n\n`);
       } catch {}
-    }, 15000);
+    }, 10000);
 
+    let streamError: string | null = null;
     try {
       for await (const chunk of stream) {
         if (!chunk) continue;
@@ -6570,6 +6575,10 @@ export async function handleStreamChatCompletions(
           pushed = true;
         }
       }
+    } catch (e: any) {
+      // 上游中途异常（连接重置 / -1005 / 网络抖动）：只记错误，不在这里向上抛。
+      // 否则下面的尾部释放逻辑被跳过，工具过滤器扣住的尾巴会永久丢失 —— 这正是“说到一半就断”。
+      streamError = String(e?.message || e);
     } finally {
       clearInterval(heartbeat);
       if (reasoningFilter) {
@@ -6579,9 +6588,10 @@ export async function handleStreamChatCompletions(
     }
 
     const full = toolFilter.getFullText();
+    const interrupted = streamError !== null;
 
     if (blocked) {
-      return { ok: true, text: full, blocked: true, pushed: false, usage };
+      return { ok: true, text: full, blocked: true, pushed: false, usage, interrupted };
     }
 
     const safeTail = toolFilter.onEnd();
@@ -6589,7 +6599,7 @@ export async function handleStreamChatCompletions(
       // 整轮都在首窗内：客户端还没收到任何正文，用完整判定再定一次
       const j = judge(full);
       if (j.refusal || j.fallback) {
-        return { ok: true, text: full, blocked: true, pushed: false, usage };
+        return { ok: true, text: full, blocked: true, pushed: false, usage, interrupted };
       }
       const toPush = guardBuf + (safeTail || "");
       if (toPush) {
@@ -6601,7 +6611,10 @@ export async function handleStreamChatCompletions(
       pushed = true;
     }
 
-    return { ok: true, text: full, blocked: false, pushed, usage };
+    if (interrupted) {
+      recordRequestLog({ kind: "res", finish: "upstream_interrupted", kept: full.length, pushed });
+    }
+    return { ok: true, text: full, blocked: false, pushed, usage, interrupted, errorMessage: streamError || undefined };
   };
 
   const poolCfg = readEnginePoolConfig();
@@ -6615,6 +6628,28 @@ export async function handleStreamChatCompletions(
   let lastText = "";
   let finalText = "";
   let pushedAny = false;
+  let lastInterrupted = false;
+  let resumedRounds = 0;
+  let truncationResumed = false;
+
+  /** 上游不提供 finish_reason，只能从文本形态推断“被截断在半句” */
+  const looksTruncated = (t: string): boolean => {
+    const s = t.replace(/\s+$/, "");
+    if (!s) return false;
+    // 代码围栏未闭合：几乎必然是截断
+    const fences = (s.match(/```/g) || []).length;
+    if (fences % 2 === 1) return true;
+    // 半截标签：交给工具解析处理，不在这里抢
+    if (/[<＜][^>＞]*$/.test(s)) return true;
+    // 停在明显的句子中间
+    if (/[，、,（(【\[：:]$/.test(s)) return true;
+    // 停在连接词/助词上
+    if (/(因为|所以|但是|而且|然后|如果|虽然|于是|并且|以及|或者|就是|等于|比如|例如|也就是|接着|同时)$/.test(s)) return true;
+    // 长文本结尾没有任何终止标点（代码围栏结尾也算收尾，避免误判多跑一轮）
+    if (s.length >= 400 && !/[。！？!?…"”』】）)\]」』~～\.`]$/.test(s)) return true;
+    return false;
+  };
+
   let realUsage: any = null;
 
   const buildSystem = (modelId: string, round: number) =>
@@ -6640,6 +6675,7 @@ export async function handleStreamChatCompletions(
       modelId: effModelId,
       withReasoning: r === 0 && exposeReasoning,
     });
+    lastInterrupted = !!turn.interrupted;
 
     if (!turn.ok) {
       failureText = turn.errorMessage || "系统模型调用失败";
@@ -6663,8 +6699,8 @@ export async function handleStreamChatCompletions(
     break;
   }
 
-  // 上游静默断流（一个字符都没产出）：自动补一次「继续」，不让用户手动重发
-  if (!pushedAny && !stillRefused && failureText === null && finalText.trim() === "" && safeHistory.length > 0) {
+  // 上游静默断流（一个字符都没产出，或中途断流且尚未推送任何字符）：自动补一次「继续」，不让用户手动重发
+  if (!pushedAny && !stillRefused && failureText === null && (finalText.trim() === "" || lastInterrupted) && safeHistory.length > 0) {
     const cont = await runStreamTurn({
       systemPrompt: buildSystem(effModelId, 0),
       messages: [
@@ -6685,6 +6721,86 @@ export async function handleStreamChatCompletions(
       corrected = true;
     }
   }
+
+  // 上游中途断流、但正文已经推出去：自动续写把后半段接上（最多 2 轮）
+  const maxResumeRounds = 2;
+  while (
+    !stillRefused &&
+    failureText === null &&
+    pushedAny &&
+    lastInterrupted &&
+    resumedRounds < maxResumeRounds
+  ) {
+    resumedRounds += 1;
+    const cont = await runStreamTurn({
+      systemPrompt: buildSystem(effModelId, 0),
+      messages: [
+        ...safeHistory,
+        { role: "assistant" as const, content: finalText.slice(-1500) },
+        {
+          role: "user" as const,
+          content:
+            "上一条回复在生成过程中被上游中断了。请从中断处紧接着继续写，不要重复已有内容，不要说明中断，不要写“继续”之类的话，也不要重新开头。",
+        },
+      ],
+      providerID: sel.providerID,
+      modelId: effModelId,
+      withReasoning: false,
+    });
+    lastInterrupted = !!cont.interrupted;
+    if (!cont.ok || cont.blocked) break;
+    if (!cont.text.trim()) break;
+    finalText += cont.text;
+    pushedAny = pushedAny || cont.pushed;
+    outJudge = judge(finalText);
+    corrected = true;
+    rounds += 1;
+    recordRequestLog({ kind: "res", finish: "auto_resume", round: resumedRounds, added: cont.text.length });
+  }
+
+  // 静默截断：上游 StreamChunk 没有 finish_reason，撞上输出上限时只会平平地结束，
+  // 表现同样是“说到一半”。收尾前按文本形态补一次续写（proxyState.autoResumeTruncated=false 可关）。
+  const autoResumeTruncated = proxyState.autoResumeTruncated !== false;
+  if (
+    autoResumeTruncated &&
+    !stillRefused &&
+    failureText === null &&
+    pushedAny &&
+    !lastInterrupted &&
+    !TOOL_TAG_START_RE.test(finalText) &&
+    !parseToolCalls(finalText, Array.isArray(body.tools) ? body.tools : undefined) &&
+    looksTruncated(finalText)
+  ) {
+    const cont = await runStreamTurn({
+      systemPrompt: buildSystem(effModelId, 0),
+      messages: [
+        ...safeHistory,
+        { role: "assistant" as const, content: finalText.slice(-1500) },
+        {
+          role: "user" as const,
+          content:
+            "如果上一条回复被截断在半句，请紧接着只输出缺少的剩余内容；如果上一条其实已经说完，请只输出一个空字符串，不要输出任何字符。",
+        },
+      ],
+      providerID: sel.providerID,
+      modelId: effModelId,
+      withReasoning: false,
+    });
+    if (cont.ok && !cont.blocked && cont.text.trim()) {
+      const resp = cont.text.trim();
+      const isAck = /^(?:已经说完|无须补充|无需补充|已完成|没有被截断|已全部说完|空|""|''|ok|none)$/i.test(resp);
+      if (!isAck) {
+        truncationResumed = true;
+        finalText += cont.text;
+        pushedAny = true;
+        outJudge = judge(finalText);
+        corrected = true;
+        rounds += 1;
+        recordRequestLog({ kind: "res", finish: "auto_resume_truncated", added: cont.text.length });
+      }
+    }
+  }
+
 
   // 主引擎被拦、且还没往外推过任何正文 → 按引擎池顺序换引擎（可关闭）
   const autoFallbackEnabled = proxyState.autoFallback !== false && poolCfg.autoFallback;
